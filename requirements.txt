@@ -1,0 +1,4 @@
+customtkinter
+pandas
+pypdf
+PyMuPDF
