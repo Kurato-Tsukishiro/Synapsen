@@ -59,7 +59,9 @@
 ## セットアップ
 
 1.  リポジトリをクローンまたはダウンロードします。
-2.  `pip install -r requirements.txt` でPythonライブラリをインストールします。
+2.  必要なPythonライブラリをインストールします。
+    > 1.  バッチファイル ( [Install.bat](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/Install.bat) ) を使用してインストールする
+    > 2.  ``pip install -r requirements.txt`` を使用してインストールする
 3.  `config.ini` ファイルをリポジトリのルート（`Synapsen` フォルダの内など、各スクリプトが参照できる場所）に作成し、環境に合わせて設定します。
 
     **`config.ini` のテンプレート:**
