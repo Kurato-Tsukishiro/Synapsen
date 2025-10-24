@@ -62,8 +62,58 @@
 2.  `pip install -r requirements.txt` でPythonライブラリをインストールします。
 3.  `config.ini` ファイルをリポジトリのルート（`Synapsen` フォルダの内など、各スクリプトが参照できる場所）に作成し、環境に合わせて設定します。
 
-    **`config.ini` の設定例:**
+    **`config.ini` のテンプレート:**
     ```ini
+    [Paths] # 絶対パス 又は config.ini からの相対パスを指定
+    # 事前定義タグを保存しているテキストファイルのパス
+    tags_data_path = 
+
+    # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
+    # font_path = %LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf
+    font_path = 
+
+
+    # Nexusでの情報表示に使用するマスターCSVのパス
+    default_csv_path = 
+
+    # マスターCSVが存在するフォルダ下に統合PDFが存在しない場合に NexusがPDFを開く為に検索するフォルダのパス
+    pdf_root_folder = 
+
+    [Automation]
+    # Synapse Builderで統合PDFを生成した際、
+    # [Paths]のdefault_csv_pathで指定されたマスターCSVに、目次情報を自動で「追記」するか (true/false)
+    auto_append_to_default_csv = true
+    # 上記有効時、目次情報を個別で「保存」するか (true/false)
+    create_individual_csv = false
+
+    [LaTeX]
+    # PDF生成時に使用するフォント名
+    # font = Noto Sans JP
+    font = 
+
+    # PDFのプロパティに表示される著者名
+    author = 
+
+    # PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
+    title_prefix = 
+
+    [Extraction]
+    # Erstrller で読み取り Index Keyを取得する範囲
+    key_rect = 0, 13, 391, 73
+
+    [CommonplaceKeys]
+    # Index Key の設定
+    # options = 決意 / タスク・好奇心,勇気
+    options = 
+
+    [KeyIcons]
+    # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
+    # 決意 / タスク・好奇心 = ♥
+
+    [KeyColors]
+    # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
+    # アプリ内のリスト表示・統合ノートのヘッダーおよび索引で使用されます
+    # 決意 / タスク・好奇心 = #FE0000
     ```
 
 ## 使い方
