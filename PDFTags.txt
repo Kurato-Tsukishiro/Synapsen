@@ -1,0 +1,30 @@
+# このファイルは、Synapsen Nexusの検索オートコンプリート機能と
+# Synapsen Erstellerの「既存タグから選択」機能で使用されます。
+
+# 1行に1つのタグを記述してください。
+# "#" で始まる行はコメントとして無視されます。
+# 日本語も使用可能です
+
+# "_" を使用して 階層化したタグも使用できます
+# 階層タグで入力すると 前の階層のタグも自動的に付加されます
+
+# --- タグの例 ---
+
+# 分野
+Program
+ReadingNote
+
+# 状態
+ToDo
+ReadLater
+InProgress
+
+# 内容
+## Program
+Program_C#
+Program_Python
+
+# ReadingNote
+ReadingNote_自己啓発
+ReadingNote_メモ・ノート術
+ReadingNote_ライティングテクニック
