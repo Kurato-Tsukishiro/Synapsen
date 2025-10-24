@@ -270,17 +270,19 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 2. base_pathを使ってconfig.iniの絶対パスを決定します
         config_path = os.path.join(os.path.abspath(os.path.join(base_path, '..')), 'config.ini')
+        # config.ini があるフォルダのパスを基準として定義
+        config_dir = os.path.dirname(config_path)
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
 
         # 3. configファイルが存在しない場合の処理
         if not os.path.exists(config_path):
             config['Paths'] = {
                 'tags_data_path': 'tags.txt',
-                'font_path': 'C:/Windows/Fonts/NotoSansJP-Regular.otf'
+                'font_path': r'C:\windows\fonts\msgothic.ttc'
                 }
             config['LaTeX'] = {
-                'font': 'Yu Gothic',
+                'font': 'MS UI Gothic',
                 'author': 'Your Name',
                 'title_prefix': '月刊 統合ノート'
                 }
@@ -315,38 +317,46 @@ class Synapsen_Ersteller(ctk.CTk):
 
         config.read(config_path, encoding='utf-8')
 
-        # 4. configから読み込んだ相対パスを、base_pathを基準に絶対パスへ変換します
-        #    そして、他のメソッドで使えるように self.変数 に格納します
+        # 4. configから読み込んだパスを、config.ini の場所 (config_dir) を基準に絶対パスへ変換します
+        #    環境変数（%LOCALAPPDATA%など）も展開します
         font_path_from_config = config.get('Paths', 'font_path', fallback='')
-        if os.path.isabs(font_path_from_config):
-            # configの値が絶対パスの場合、そのまま使用する
-            self.font_path = font_path_from_config
-            # print(f"DEBUG: Font path is ABSOLUTE: {self.font_path}")
+        expanded_path = os.path.expandvars(font_path_from_config)  # 環境変数を展開
+
+        if os.path.isabs(expanded_path):
+            # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合、そのまま使用
+            self.font_path = expanded_path
+            # print(f"[DEBUG] Font path is ABSOLUTE: {self.font_path}")
         else:
-            # configの値が相対パスの場合、base_pathと結合する
-            self.font_path = os.path.join(base_path, font_path_from_config)
-            # print(f"DEBUG: Font path is RELATIVE, resolved to: {self.font_path}")
+            # configの値が相対パスの場合、config_dir と結合する
+            self.font_path = os.path.join(config_dir, expanded_path)
+            # print(f"[DEBUG] Font path is RELATIVE, resolved to: {self.font_path}")
 
         # 5. tags_data_pathの解決
         tags_path_from_config = config.get(
             'Paths', 'tags_data_path', fallback='tags.txt'
             )
-        if os.path.isabs(tags_path_from_config):
-            self.tags_data_path = tags_path_from_config
+        expanded_path = os.path.expandvars(tags_path_from_config)  # 環境変数を展開
+
+        if os.path.isabs(expanded_path):
+            self.tags_data_path = expanded_path
         else:
+            # configの値が相対パスの場合、config_dir と結合する
             self.tags_data_path = os.path.join(
-                base_path, tags_path_from_config
+                config_dir, expanded_path
                 )
 
         # 6. default_csv_path (追記先のマスターCSVパス) の解決
         default_csv_path_str = config.get('Paths', 'default_csv_path', fallback='')
-        if not default_csv_path_str:
+        expanded_path = os.path.expandvars(default_csv_path_str)  # 環境変数を展開
+
+        if not expanded_path:
             self.default_csv_path = None
             print("DEBUG: config.ini [Paths][default_csv_path] が未設定です。")
-        elif os.path.isabs(default_csv_path_str):
-            self.default_csv_path = default_csv_path_str
+        elif os.path.isabs(expanded_path):
+            self.default_csv_path = expanded_path
         else:
-            self.default_csv_path = os.path.join(base_path, default_csv_path_str)
+            # configの値が相対パスの場合、config_dir と結合する
+            self.default_csv_path = os.path.join(config_dir, expanded_path)
 
         # 7. Automation設定の読み込み
         # 自動結合設定の読み込み
@@ -381,6 +391,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 with open(tag_file, "r", encoding="utf-8") as f:
                     self.predefined_tags = [line.strip() for line in f if line.strip() and not line.startswith('#')]
                 print(f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。")
+                # print(f"{self.tags_data_path}")
         except Exception as e:
             print(f"tags.txtの読み込み中にエラーが発生しました: {e}")
 

@@ -43,9 +43,15 @@ def load_app_config(base_path):
         config_data = {}
 
         # [Paths]
-        config_data['pdf_root_folder'] = Path(
-            parser.get('Paths', 'pdf_root_folder', fallback='')
-        )
+        pdf_root_path_str = parser.get('Paths', 'pdf_root_folder', fallback='')
+        if pdf_root_path_str:
+            pdf_root_path = Path(pdf_root_path_str)
+            if not pdf_root_path.is_absolute():
+                # config.iniからの相対パスは、config.ini自身からの相対とみなす
+                pdf_root_path = config_path.parent / pdf_root_path
+            config_data['pdf_root_folder'] = pdf_root_path.resolve()
+        else:
+            config_data['pdf_root_folder'] = None  # もし空ならNoneにする
 
         # [KeyIcons]
         if parser.has_section('KeyIcons'):

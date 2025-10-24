@@ -63,6 +63,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         実行可能ファイル(PyInstaller等)かスクリプト実行かを判別し、
         `config.ini`の相対パスを解決します。
+        環境変数（%LOCALAPPDATA%など）も展開します。
 
         Returns:
             str: 'Paths'セクションの'font_path'の値。見つからない場合は空文字。
@@ -79,9 +80,21 @@ class Synapsen_Normalisierer(ctk.CTk):
             os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
         )
 
+        # config.ini があるフォルダのパスを基準として定義
+        config_dir = os.path.dirname(config_path)
+
         config = configparser.ConfigParser()
         config.read(config_path, encoding='utf-8')
-        return config.get('Paths', 'font_path', fallback='')
+
+        font_path_from_config = config.get('Paths', 'font_path', fallback='')
+        expanded_path = os.path.expandvars(font_path_from_config)  # 環境変数を展開
+
+        if os.path.isabs(expanded_path):
+            # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合
+            return expanded_path
+        else:
+            # configの値が相対パスの場合、config_dir と結合する
+            return os.path.join(config_dir, expanded_path)
 
     def run_process(self):
         """

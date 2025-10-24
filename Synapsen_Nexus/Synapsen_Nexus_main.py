@@ -79,6 +79,7 @@ class Synapsen_Nexus(ctk.CTk):
             default_csv_path = config_data.get('default_csv_path')
             if default_csv_path and default_csv_path.is_file():
                 self.load_csv_from_path(default_csv_path)
+                # print(f"[DEBUG] CSV: {default_csv_path}")
             else:
                 if default_csv_path:
                     print(f"デフォルトCSVが見つかりません: {default_csv_path}")
