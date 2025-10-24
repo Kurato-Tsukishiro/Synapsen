@@ -48,7 +48,9 @@
 * **Python 3.x**
 * **LuaLaTeX** (TeX Live, MiKTeX などの TeX ディストリビューション)
     * `Synapsen Ersteller` でのPDFビルドに必須です。
-* **Pythonライブラリ** (詳細は `requirements.txt` を参照):
+    * 導入方法は、こちらの解説記事などを参考にしてください。<br>
+      → **[LaTeXの環境構築 ~VSCodeでLaTeXを使いたいだけなのに TeX Liveの導入が必要なのは何故?~](https://qiita.com/Kurato-Tsukishiro/items/58232e619a1878692bed)**
+* **Pythonライブラリ**:
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引CSVデータの管理・検索用
     * [**PyMuPDF (fitz)**](https://github.com/pymupdf/PyMuPDF) (AGPL-3.0 License) - PDFの正規化・情報抽出用 (※プロジェクト全体のAGPLライセンスの要因)
