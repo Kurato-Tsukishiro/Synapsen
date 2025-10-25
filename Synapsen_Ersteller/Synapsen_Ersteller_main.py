@@ -534,6 +534,41 @@ class Synapsen_Ersteller(ctk.CTk):
         self.all_notes_info = [
             info for pdf_file in target_dir.glob("*.pdf") if (info := Process.get_note_info(pdf_file, self.key_rect))
             ]
+
+        side_note_suffix = "_Note"
+
+        # 1. 親ノートの「タイトル」と「Index Key」の対応辞書を作成する
+        #    (get_note_info が返す 'title' をキーにする)
+        parent_key_map = {}
+        for info in self.all_notes_info:
+            # pdf_processor が抽出した title を取得
+            # (例: "20241025_Example" -> "Example", "Example.pdf" -> "Example")
+            title = info.get("title", "")
+            key = info.get("commonplace_key", "")
+
+            # "_Note" で終わっておらず、かつ Index Key が設定されているノートを親とみなす
+            if not title.endswith(side_note_suffix) and key:
+                parent_key_map[title] = key
+
+        # 2. もう一度全ノートをスキャンし、サイドノートにKeyを継承させる
+        keys_inherited_count = 0
+        for info in self.all_notes_info:
+            title = info.get("title", "")
+
+            # title が "_Note" で終わり、かつ Index Key が空の場合
+            if title.endswith(side_note_suffix) and not info.get("commonplace_key"):
+
+                # 親のタイトル名を取得 (例: "Example_Note" -> "Example")
+                parent_title = title[:-len(side_note_suffix)]
+
+                # 親がマップに存在すれば、そのKeyを継承する
+                if parent_title in parent_key_map:
+                    info["commonplace_key"] = parent_key_map[parent_title]
+                    keys_inherited_count += 1
+
+        if keys_inherited_count > 0:
+            print(f"DEBUG: {keys_inherited_count}件のサイドノートにIndex Keyを継承しました。")
+
         self.all_notes_info.sort(key=lambda note: (note['date'], note['time']))
         self.update_note_list()
         self.label.configure(text=f"読み込み完了！ {len(self.all_notes_info)}件のファイルを読み込みました。")
