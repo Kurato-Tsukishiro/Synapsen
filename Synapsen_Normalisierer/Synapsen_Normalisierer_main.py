@@ -75,10 +75,16 @@ class Synapsen_Normalisierer(ctk.CTk):
             # 通常のスクリプト実行の場合
             base_path = os.path.dirname(os.path.abspath(__file__))
 
-        # config.iniを main.py の一つ上の階層から探す
-        config_path = os.path.join(
-            os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
-        )
+        # .exe実行かスクリプト実行かで config.ini の場所を切り替える
+        if getattr(sys, 'frozen', False):
+            # .exe実行の場合（config.ini は .exe と同じフォルダ）
+            config_path = os.path.join(base_path, 'config.ini')
+        else:
+            # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
+            config_path = os.path.join(
+                os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
+            )
+        print(f"[DEBUG] Loading config from: {config_path}")
 
         # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)

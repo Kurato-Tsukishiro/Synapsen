@@ -264,12 +264,23 @@ class Synapsen_Ersteller(ctk.CTk):
     def load_config(self):
         # 1. 実行ファイルの場所を基準としたbase_pathを最初に定義します
         if getattr(sys, 'frozen', False):
+            # .exe実行の場合
             base_path = os.path.dirname(sys.executable)
         else:
+            # .pyスクリプト実行の場合
             base_path = os.path.dirname(os.path.abspath(__file__))
 
-        # 2. base_pathを使ってconfig.iniの絶対パスを決定します
-        config_path = os.path.join(os.path.abspath(os.path.join(base_path, '..')), 'config.ini')
+        # 2. .exeか.pyかでconfig.iniの場所を決定します
+        if getattr(sys, 'frozen', False):
+            # .exe実行の場合（config.ini は .exe と同じフォルダ）
+            config_path = os.path.join(base_path, 'config.ini')
+        else:
+            # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
+            config_path = os.path.join(
+                os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
+                )
+        print(f"[DEBUG] Loading config from: {config_path}")
+
         # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)
 
@@ -346,7 +357,9 @@ class Synapsen_Ersteller(ctk.CTk):
                 )
 
         # 6. default_csv_path (追記先のマスターCSVパス) の解決
-        default_csv_path_str = config.get('Paths', 'default_csv_path', fallback='')
+        default_csv_path_str = config.get(
+            'Paths', 'default_csv_path', fallback=''
+            )
         expanded_path = os.path.expandvars(default_csv_path_str)  # 環境変数を展開
 
         if not expanded_path:

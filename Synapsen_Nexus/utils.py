@@ -1,3 +1,5 @@
+import os
+import sys
 import customtkinter as ctk
 import pandas as pd
 import configparser
@@ -29,9 +31,16 @@ def load_app_config(base_path):
         FileNotFoundError: config.ini が見つからない場合。
         Exception: その他の設定読み込みエラー。
     """
-    # config.ini は 'src' フォルダの一つ上にあると想定
-    config_path = base_path.parent / 'config.ini'
+    # .exe実行かスクリプト実行かで config.ini の場所を切り替える
+    if getattr(sys, 'frozen', False):
+        # .exe実行の場合（config.ini は .exe と同じフォルダ）
+        config_path = base_path / 'config.ini'
+    else:
+        # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
+        config_path = base_path.parent / 'config.ini'
+
     config_path = config_path.resolve()  # 絶対パスに正規化
+    print(f"[DEBUG] Loading config from: {config_path}")
 
     if not config_path.is_file():
         raise FileNotFoundError(f"config.iniが見つかりません: {config_path}")
@@ -45,13 +54,14 @@ def load_app_config(base_path):
         # [Paths]
         pdf_root_path_str = parser.get('Paths', 'pdf_root_folder', fallback='')
         if pdf_root_path_str:
-            pdf_root_path = Path(pdf_root_path_str)
+            # 環境変数を展開（%LOCALAPPDATA% など）
+            pdf_root_path = Path(os.path.expandvars(pdf_root_path_str))
             if not pdf_root_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 pdf_root_path = config_path.parent / pdf_root_path
             config_data['pdf_root_folder'] = pdf_root_path.resolve()
         else:
-            config_data['pdf_root_folder'] = None  # もし空ならNoneにする
+            config_data['pdf_root_folder'] = None
 
         # [KeyIcons]
         if parser.has_section('KeyIcons'):
@@ -84,7 +94,8 @@ def load_app_config(base_path):
             'Paths', 'tags_data_path', fallback=''
             )
         if tags_path_from_config:
-            tags_data_path = Path(tags_path_from_config)
+            # 環境変数を展開
+            tags_data_path = Path(os.path.expandvars(tags_path_from_config))
             if not tags_data_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 tags_data_path = config_path.parent / tags_data_path
@@ -102,7 +113,8 @@ def load_app_config(base_path):
             'Paths', 'default_csv_path', fallback=''
             )
         if default_csv_path_str:
-            csv_path = Path(default_csv_path_str)
+            # 環境変数を展開
+            csv_path = Path(os.path.expandvars(default_csv_path_str))
             if not csv_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 csv_path = config_path.parent / csv_path
