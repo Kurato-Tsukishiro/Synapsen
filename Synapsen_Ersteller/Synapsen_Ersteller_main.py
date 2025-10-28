@@ -219,7 +219,7 @@ class DateInputDialog(ctk.CTkToplevel):
 class Synapsen_Ersteller(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Synapse Builder")
+        self.title("Synapse Ersteller")
         self.geometry("800x700")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)

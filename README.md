@@ -84,7 +84,7 @@
     pdf_root_folder = 
 
     [Automation]
-    # Synapse Builderで統合PDFを生成した際、
+    # Synapse Ersteller で統合PDFを生成した際、
     # [Paths]のdefault_csv_pathで指定されたマスターCSVに、目次情報を自動で「追記」するか (true/false)
     auto_append_to_default_csv = true
     # 上記有効時、目次情報を個別で「保存」するか (true/false)
