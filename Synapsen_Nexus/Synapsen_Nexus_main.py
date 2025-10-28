@@ -1,3 +1,4 @@
+import os
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import pandas as pd
@@ -628,4 +629,26 @@ class Synapsen_Nexus(ctk.CTk):
 
 if __name__ == "__main__":
     app = Synapsen_Nexus()
+# 1. 実行ファイル(.exe)かスクリプト(.py)かによって基準パスを取得
+    if getattr(sys, 'frozen', False):
+        # .exe実行の場合（実行ファイルの場所）
+        base_path = os.path.dirname(sys.executable)
+
+        # .exe の場合: 'assets\synapsen.ico' (base_path と同じ階層)
+        icon_path = os.path.join(base_path, "assets", "synapsen.ico")
+    else:
+        # スクリプト実行の場合（.pyファイルの場所）
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+        # スクリプトの場合: '..\assets\synapsen.ico' (base_path の1つ上の階層)
+        icon_path = os.path.join(base_path, "..", "assets", "synapsen.ico")
+
+    # 3. アイコンを設定 (存在する場合のみ)
+    # os.path.normpath() は '..' を解決してきれいなパスにします
+    iconfile = os.path.normpath(icon_path)
+
+    if os.path.exists(iconfile):
+        app.iconbitmap(default=iconfile)
+    else:
+        print(f"警告: アイコンファイルが見つかりません: {iconfile}")
     app.mainloop()
