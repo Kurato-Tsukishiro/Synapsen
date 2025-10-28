@@ -1,6 +1,8 @@
 import customtkinter as ctk
 # utilsからメモ欄構築関数をインポート
-from utils import build_memo_display
+from utils import (
+    build_memo_display, find_backlinks_df, build_references_display
+)
 
 
 class NotePreviewWindow(ctk.CTkToplevel):
@@ -28,12 +30,13 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         title = self.note_data.get('title', 'N/A')
         self.title(f"プレビュー: {title}")
-        self.geometry("450x450")
+        self.geometry("450x600")
         self.transient(parent_app)  # 常にメインウィンドウより手前に表示
         self.grab_set()  # このウィンドウを閉じるまでメインを操作不可にする
 
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(4, weight=1)  # メモ欄が伸縮するように
+        self.grid_rowconfigure(5, weight=1)  # <--- メモ欄
+        self.grid_rowconfigure(7, weight=1)  # <--- 引用元欄
 
         # --- ウィジェットの作成 ---
 
@@ -76,17 +79,45 @@ class NotePreviewWindow(ctk.CTkToplevel):
             ).grid(row=4, column=0, padx=10, pady=5, sticky="nw")
         self.memo_display_frame = ctk.CTkScrollableFrame(self)
         self.memo_display_frame.grid(
-            row=4, column=1, padx=10, pady=5, sticky="nsew"
+            row=5, column=1, padx=10, pady=5, sticky="nsew"
             )
 
         # メモ欄の動的ビルドメソッドを呼び出す
         self._build_memo_display()
 
+        ctk.CTkLabel(
+            self, text="引用元:", anchor="w"
+            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
+
+        # 引用元表示用フレーム
+        self.references_display_frame = ctk.CTkScrollableFrame(
+            self, label_text="このノートを引用"
+            )
+        self.references_display_frame.grid(
+            row=7, column=1, padx=10, pady=5, sticky="nsew"
+            )
+
         # 6. 「PDFを開く」ボタン
         pdf_button = ctk.CTkButton(
             self, text="PDFを開く", command=self.open_pdf_action
             )
-        pdf_button.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+        pdf_button.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+
+        current_key = self.note_data.get('key', '')
+
+        # メインアプリのDataFrameと設定を使って検索
+        backlinks_df = find_backlinks_df(
+            self.parent_app.df, current_key
+        )
+
+        # utilsの新関数を使って引用元UIを構築
+        build_references_display(
+            self.references_display_frame,
+            backlinks_df,
+            self.parent_app.open_preview_window,  # Callback to main app
+            self.parent_app.key_icons,
+            self.parent_app.key_colors
+        )
 
     def open_pdf_action(self):
         """「PDFを開く」ボタンが押されたときの処理。"""

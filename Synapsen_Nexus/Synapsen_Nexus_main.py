@@ -8,7 +8,8 @@ import sys
 
 # 分割したモジュールをインポート
 from utils import (
-    load_app_config, load_csv_data_file, build_memo_display, open_pdf_viewer
+    load_app_config, load_csv_data_file, open_pdf_viewer,
+    build_memo_display, build_references_display, find_backlinks_df
 )
 from search_parser import parse_or_expression
 from preview_window import NotePreviewWindow
@@ -171,7 +172,9 @@ class Synapsen_Nexus(ctk.CTk):
         self.details_frame.grid(
             row=1, column=1, padx=(0, 10), pady=10, sticky="nsew"
             )
-        self.details_frame.grid_rowconfigure(4, weight=1)
+
+        self.details_frame.grid_rowconfigure(5, weight=2)  # <--- メモ欄 (重み2)
+        self.details_frame.grid_rowconfigure(7, weight=1)  # <--- 引用元欄 (重み1)
         self.details_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -213,7 +216,19 @@ class Synapsen_Nexus(ctk.CTk):
         # メモ表示用 (utils.build_memo_display で中身が構築される)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame)
         self.memo_display_frame.grid(
-            row=4, column=1, padx=10, pady=5, sticky="nsew"
+            row=5, column=1, padx=10, pady=5, sticky="nsew"
+            )
+
+        # 引用元欄
+        ctk.CTkLabel(
+            self.details_frame, text="引用元:", anchor="w"
+            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
+
+        self.references_display_frame = ctk.CTkScrollableFrame(
+            self.details_frame, label_text="このノートを引用しているノート"
+            )
+        self.references_display_frame.grid(
+            row=7, column=1, padx=10, pady=5, sticky="nsew"
             )
 
         # フィルターパネルの初期表示を同期
@@ -524,6 +539,13 @@ class Synapsen_Nexus(ctk.CTk):
         for widget in self.memo_display_frame.winfo_children():
             widget.destroy()
 
+        # references_display_frame内もクリア
+        for widget in self.references_display_frame.winfo_children():
+            widget.destroy()
+        self.references_display_frame.configure(
+            label_text="このノートを引用しているノート"
+            )
+
     def open_preview_window(self, key):
         """
         指定されたキーのノートを新しいプレビューウィンドウで開く。
@@ -576,6 +598,21 @@ class Synapsen_Nexus(ctk.CTk):
             self.df,
             self.open_preview_window,  # リンククリック時のコールバック
             frame_width
+        )
+
+        # 引用元の検索と表示
+        current_key = row.get('key', '')
+
+        # utilsの新関数を使って引用元DFを取得
+        backlinks_df = find_backlinks_df(self.df, current_key)
+
+        # utilsの新関数を使って引用元UIを構築
+        build_references_display(
+            self.references_display_frame,
+            backlinks_df,
+            self.open_preview_window,  # リンククリック時のコールバック
+            self.key_icons,
+            self.key_colors
         )
 
     # --- PDF関連メソッド ---

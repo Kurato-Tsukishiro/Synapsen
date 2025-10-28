@@ -5,6 +5,7 @@ import pandas as pd
 import configparser
 import webbrowser
 import re
+import re
 from pathlib import Path
 from tkinter import messagebox
 
@@ -231,6 +232,108 @@ def build_memo_display(parent_frame, memo_text, df, open_preview_callback, frame
             wraplength=frame_width, justify="left", anchor="w"
             )
         label.pack(fill="x", padx=2, pady=0)
+
+
+def find_backlinks_df(df, current_key):
+    """
+    DataFrame全体を検索し、指定されたkeyにリンクしている
+    ノート（引用元）のDataFrameを返す。
+
+    Args:
+        df (pd.DataFrame): 検索対象のDataFrame。
+        current_key (str): 検索対象のノートのキー。
+
+    Returns:
+        pd.DataFrame: 引用元ノートを含むDataFrame。
+    """
+    if df is None or 'memo' not in df.columns or not current_key:
+        return pd.DataFrame()
+
+    # [[key]] または [[key:title...]] にマッチする正規表現
+    # ( \[\[ で [[ をエスケープ, r'[:\]]' で : または ] が続くものにマッチ )
+    pattern = r'\[\[' + re.escape(current_key) + r'[:\]]'
+
+    try:
+        backlink_mask = df['memo'].str.contains(
+            pattern, case=False, na=False, regex=True
+        )
+        # 自分自身へのリンクは除外
+        if 'key' in df.columns:
+            self_mask = df['key'] == current_key
+            backlink_mask = backlink_mask & ~self_mask
+
+        return df[backlink_mask].sort_values(by='date', ascending=False)
+    except Exception as e:
+        print(f"Backlink search error: {e}")
+        return pd.DataFrame()
+
+
+def build_references_display(
+    parent_frame,
+    backlinks_df,
+    open_preview_callback,
+    key_icons,
+    key_colors
+):
+    """
+    引用元DataFrameに基づき、クリック可能な引用元リストUIを
+    指定された親フレーム内に動的に構築する。
+
+    Args:
+        parent_frame (ctk.CTkFrame or ctk.CTkScrollableFrame):
+            ラベルを配置する親ウィジェット。
+        backlinks_df (pd.DataFrame): 引用元ノートのDataFrame。
+        open_preview_callback (callable):
+            リンククリック時に呼び出すコールバック関数。
+            (例: lambda key: app.open_preview_window(key))
+        key_icons (dict): IndexKeyのアイコン辞書。
+        key_colors (dict): IndexKeyの色辞書。
+    """
+    # 既存のウィジェットをクリア
+    for widget in parent_frame.winfo_children():
+        widget.destroy()
+
+    if backlinks_df.empty:
+        parent_frame.configure(label_text="このノートを引用 (0件)")
+        return
+
+    parent_frame.configure(
+        label_text=f"このノートを引用 ({len(backlinks_df)}件)"
+    )
+
+    # (parent_frame が ScrollableFrame の場合、その中身として機能する)
+    content_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+    content_frame.pack(fill="both", expand=True)
+
+    for index, row in backlinks_df.iterrows():
+        item_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+        item_frame.pack(fill="x", padx=5, pady=2)
+
+        cp_key = str(row.get("commonplace_key", "")).lower()
+        icon = key_icons.get(cp_key, '•')
+        color = key_colors.get(cp_key, 'gray')
+
+        icon_label = ctk.CTkLabel(
+            item_frame, text=icon, text_color=color,
+            font=("", 16), width=20
+        )
+        icon_label.pack(side="left")
+
+        display_text = f"[{row.get('date')}] {row.get('title', 'N/A')}"
+        text_label = ctk.CTkLabel(
+            item_frame, text=display_text, anchor="w", cursor="hand2"
+        )
+        text_label.pack(side="left", fill="x", expand=True)
+
+        # --- Event Binding ---
+        key = row.get('key')
+        if key:
+            # メインアプリのプレビュー機能(open_preview_window)を
+            # 呼び出すようにバインドする
+            command = lambda e, k=key: open_preview_callback(k)
+            item_frame.bind("<Button-1>", command)
+            icon_label.bind("<Button-1>", command)
+            text_label.bind("<Button-1>", command)
 
 
 def open_pdf_viewer(row_data, loaded_csv_path, pdf_root_folder):
