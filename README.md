@@ -1,3 +1,5 @@
+![banner](assets/banner_source/banner.svg)
+
 # Synapsen - PDFノート管理ツールセット
 
 `Synapsen` (シナプセン) は、スキャンしたPDFノートやドキュメントを、デジタル・ツェッテルカステン（Zettelkasten）風に管理・閲覧するためのツールセットです。
