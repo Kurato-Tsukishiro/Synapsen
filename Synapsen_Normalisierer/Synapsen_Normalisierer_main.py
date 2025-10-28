@@ -89,7 +89,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         config.read(config_path, encoding='utf-8')
 
         font_path_from_config = config.get('Paths', 'font_path', fallback='')

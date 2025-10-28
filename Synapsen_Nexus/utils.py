@@ -46,7 +46,7 @@ def load_app_config(base_path):
         raise FileNotFoundError(f"config.iniが見つかりません: {config_path}")
 
     try:
-        parser = configparser.ConfigParser()
+        parser = configparser.ConfigParser(interpolation=None)
         parser.read(config_path, encoding='utf-8')
 
         config_data = {}
