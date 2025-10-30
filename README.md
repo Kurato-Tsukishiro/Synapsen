@@ -79,8 +79,7 @@
 
     # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
     # font_path = %LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf
-    font_path = 
-
+    font_path = C:\windows\fonts\msgothic.ttc
 
     # Nexusでの情報表示に使用するマスターCSVのパス
     default_csv_path = 
@@ -101,7 +100,7 @@
 
     # PDF生成時に使用するフォント名
     # font = Noto Sans JP
-    font = 
+    font = MS UI Gothic
 
     # PDFのプロパティに表示される著者名
     author = 
