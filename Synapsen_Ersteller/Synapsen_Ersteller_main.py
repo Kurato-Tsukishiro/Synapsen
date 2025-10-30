@@ -29,6 +29,11 @@ class Synapsen_Ersteller(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
+        # 用紙サイズを保持する変数
+        self.paper_size = "A4"  # デフォルト
+        self.paper_width = Helper.A4_WIDTH
+        self.paper_height = Helper.A4_HEIGHT
+
         self.load_config()
 
         self.all_notes_info = []
@@ -120,6 +125,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 'font_path': r'C:\windows\fonts\msgothic.ttc'
                 }
             config['LaTeX'] = {
+                'paper_size': "A4",
                 'font': 'MS UI Gothic',
                 'author': 'Your Name',
                 'title_prefix': '月刊 統合ノート'
@@ -211,6 +217,18 @@ class Synapsen_Ersteller(ctk.CTk):
         self.create_individual_csv = config.getboolean(
             'Automation', 'create_individual_csv', fallback=False
             )
+
+        self.paper_size = config.get(
+            'LaTeX', 'paper_size', fallback='A4').upper()
+        if self.paper_size == 'A5':
+            self.paper_width = Helper.A5_WIDTH
+            self.paper_height = Helper.A5_HEIGHT
+            print("[DEBUG] Ersteller paper size set to A5")
+        else:
+            self.paper_size = 'A4'  # 不正な値はA4に
+            self.paper_width = Helper.A4_WIDTH
+            self.paper_height = Helper.A4_HEIGHT
+            print("[DEBUG] Ersteller paper size set to A4")
 
         self.latex_font = config.get('LaTeX', 'font', fallback='Yu Gothic')
         self.latex_author = config.get('LaTeX', 'author', fallback='Your Name')
@@ -521,7 +539,7 @@ class Synapsen_Ersteller(ctk.CTk):
             }
             # 新しいモジュールの関数を呼び出す
             latex_source = Generator.create_latex_source(
-                self.all_notes_info, latex_config, pdf_title
+                self.all_notes_info, latex_config, pdf_title, self.paper_size
             )
 
             tex_filepath = Path(temp_dir) / "mokuji.tex"
@@ -656,7 +674,8 @@ class Synapsen_Ersteller(ctk.CTk):
                 original_reader = PdfReader(note["filepath"])
                 for i in range(len(original_reader.pages)):
                     if note_page_cursor >= index_start_page:
-                        print(f"ページ数計算エラー: note_page_cursor({note_page_cursor})が上限({index_start_page})を超えました。")
+                        print(f"ページ数計算エラー:note_page_cursor({
+                            note_page_cursor})が上限({index_start_page})を超えました。")
                         continue
 
                     template_page = draft_reader.pages[note_page_cursor]
@@ -666,11 +685,12 @@ class Synapsen_Ersteller(ctk.CTk):
                     original_height = float(content_page.mediabox.height)
                     if original_width == 0 or original_height == 0:
                         continue
-                    scale_w = Helper.A4_WIDTH / original_width
-                    scale_h = Helper.A4_HEIGHT / original_height
+
+                    scale_w = self.paper_width / original_width
+                    scale_h = self.paper_height / original_height
                     scale = min(scale_w, scale_h)
-                    tx = (Helper.A4_WIDTH - original_width * scale) / 2
-                    ty = (Helper.A4_HEIGHT - original_height * scale) / 2
+                    tx = (self.paper_width - original_width * scale) / 2
+                    ty = (self.paper_height - original_height * scale) / 2
                     transform = Transformation().scale(
                         sx=scale, sy=scale
                         ).translate(

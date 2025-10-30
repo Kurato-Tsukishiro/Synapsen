@@ -2,7 +2,7 @@ from pathlib import Path
 import PDFMargeHelper as Helper
 
 
-def create_latex_source(notes_info, config, title):
+def create_latex_source(notes_info, config, title, paper_size="A4"):
     """
     ノート情報と設定から、統合PDFの元となるLaTeXソースコードを生成する。
     """
@@ -21,8 +21,16 @@ def create_latex_source(notes_info, config, title):
     key_icons = config.get('key_icons', {})
     key_colors = config.get('key_colors', {})
 
+    # paper_size に応じてdocumentclassのオプションを変更
+    paper_option =\
+        "a5paper" if paper_size.upper() == "A5" else "a4paper"
+    font_size =\
+        "10pt" if paper_size.upper() == "A5" else "11pt"
+    margin_setting =\
+        "margin=2cm" if paper_size.upper() == "A5" else "margin=2.5cm"
+
     preamble = fr"""
-\documentclass[a4paper, 11pt, lualatex]{{ltjsarticle}}
+\documentclass[{paper_option}, {font_size}, lualatex]{{ltjsarticle}}
 \usepackage{{luatexja-fontspec}}
 \usepackage{{fancyhdr}}
 \usepackage{{imakeidx}}
@@ -31,8 +39,8 @@ def create_latex_source(notes_info, config, title):
 \usepackage{{multido}}
 \usepackage{{xcolor}}
 \usepackage[
-    a4paper,
-    margin=2.5cm,
+    {paper_option},
+    {margin_setting},
     headheight=2.5cm,
     headsep=1cm,
     footskip=1.5cm

@@ -7,7 +7,12 @@ from pathlib import Path
 import customtkinter as ctk
 
 # PDF処理関数を別ファイルからインポート
-from pdf_utils import high_fidelity_flatten, normalize_pdf_to_a4
+from pdf_utils import high_fidelity_flatten, normalize_pdf_to_papersize
+
+A4_WIDTH = 595.276
+A4_HEIGHT = 841.89
+A5_WIDTH = 419.528
+A5_HEIGHT = 595.276
 
 
 class Synapsen_Normalisierer(ctk.CTk):
@@ -32,12 +37,15 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.title("Synapsen Normalisierer")
         self.geometry("500x250")
 
-        self.font_path = self._load_font_path()
+        self.font_path = None
+        self.paper_width = A4_WIDTH  # デフォルト
+        self.paper_height = A4_HEIGHT  # デフォルト
+        self._load_config()
 
         # --- ウィジェットの配置 ---
         self.label = ctk.CTkLabel(
             self,
-            text="フォームのテキスト化 及び A4縦サイズ正規化を、\n注釈を維持したまま行います。 "
+            text="フォームのテキスト化 及び 指定サイズ正規化を、\n注釈を維持したまま行います。"
         )
         self.label.pack(pady=20, padx=20)
 
@@ -80,50 +88,53 @@ class Synapsen_Normalisierer(ctk.CTk):
             print(f"Error finding icon path: {e}")
         return None
 
-    def _load_font_path(self) -> str:
+    def _load_config(self) -> None:
         """
-        config.iniファイルからフォントパスを読み込みます。
-
-        実行可能ファイル(PyInstaller等)かスクリプト実行かを判別し、
-        `config.ini`の相対パスを解決します。
-        環境変数（%LOCALAPPDATA%など）も展開します。
-
-        Returns:
-            str: 'Paths'セクションの'font_path'の値。見つからない場合は空文字。
+        config.iniファイルからフォントパスと用紙サイズを読み込みます。
+        ( ... docstring ... )
         """
+        # 0. config.ini のパスを決定
         if getattr(sys, 'frozen', False):
-            # 実行可能ファイルの場合 (e.g., PyInstaller)
+            # ( ... config_path 決定ロジック ... )
             base_path = os.path.dirname(sys.executable)
         else:
-            # 通常のスクリプト実行の場合
             base_path = os.path.dirname(os.path.abspath(__file__))
 
-        # .exe実行かスクリプト実行かで config.ini の場所を切り替える
         if getattr(sys, 'frozen', False):
-            # .exe実行の場合（config.ini は .exe と同じフォルダ）
             config_path = os.path.join(base_path, 'config.ini')
         else:
-            # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
             config_path = os.path.join(
                 os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
             )
         print(f"[DEBUG] Loading config from: {config_path}")
 
-        # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)
-
         config = configparser.ConfigParser(interpolation=None)
         config.read(config_path, encoding='utf-8')
 
+        # 1. フォントパスの読み込み
         font_path_from_config = config.get('Paths', 'font_path', fallback='')
         expanded_path = os.path.expandvars(font_path_from_config)  # 環境変数を展開
 
         if os.path.isabs(expanded_path):
-            # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合
-            return expanded_path
+            self.font_path = expanded_path
         else:
-            # configの値が相対パスの場合、config_dir と結合する
-            return os.path.join(config_dir, expanded_path)
+            self.font_path = os.path.join(config_dir, expanded_path)
+
+        # 用紙サイズの読み込み
+        paper_size_str = config.get(
+            'LaTeX', 'paper_size', fallback='A4').upper()
+        if paper_size_str == 'A5':
+            self.paper_width = A5_WIDTH
+            self.paper_height = A5_HEIGHT
+            print(f"[DEBUG] Paper size set to A5 ({
+                self.paper_width}x{self.paper_height})")
+        else:
+            # デフォルトはA4
+            self.paper_width = A4_WIDTH
+            self.paper_height = A4_HEIGHT
+            print(f"[DEBUG] Paper size set to A4 ({
+                self.paper_width}x{self.paper_height})")
 
     def run_process(self):
         """
@@ -178,10 +189,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.font_path
                 )
 
-                # 2. A4サイズに正規化（最終出力先に出力）
-                normalize_pdf_to_a4(
+                # 2. 指定サイズに正規化（最終出力先に出力）
+                normalize_pdf_to_papersize(
                     str(temp_flattened_pdf),
-                    str(final_output_pdf)
+                    str(final_output_pdf),
+                    self.paper_width,
+                    self.paper_height
                 )
 
             messagebox.showinfo("完了", f"{total_files}個のPDFファイルの処理が完了しました。")

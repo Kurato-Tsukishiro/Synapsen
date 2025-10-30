@@ -6,30 +6,15 @@ from pathlib import Path
 # 定数定義
 # ==============================================================================
 
-# A4サイズの寸法 (ポイント単位)
-A4_WIDTH: float = 595.276
-A4_HEIGHT: float = 841.89
-
-# --- LaTeXのgeometry設定に基づくマージン計算（ポイント単位） ---
 CM_TO_PT: float = 72 / 2.54
-
-# LaTeX設定値 (cm)
 MARGIN_CM: float = 0
 HEAD_SEP_CM: float = 1.0
-
-# ポイント単位に変換
 MARGIN: float = MARGIN_CM * CM_TO_PT
 HEAD_SEP: float = HEAD_SEP_CM * CM_TO_PT
-
-# ヘッダーとフッターを避け、左右の余白をなくす設定
-TOP_MARGIN: float = MARGIN + HEAD_SEP  # 上部余白は維持
-BOTTOM_MARGIN: float = MARGIN           # 下部余白は維持
-LEFT_MARGIN: float = 0                  # 左余白を0に
-RIGHT_MARGIN: float = 0                 # 右余白を0に
-
-# コンテンツを描画する領域のサイズ
-DRAWABLE_WIDTH: float = A4_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
-DRAWABLE_HEIGHT: float = A4_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN
+TOP_MARGIN: float = MARGIN + HEAD_SEP
+BOTTOM_MARGIN: float = MARGIN
+LEFT_MARGIN: float = 0
+RIGHT_MARGIN: float = 0
 # ==============================================================================
 
 
@@ -87,24 +72,30 @@ def high_fidelity_flatten(input_path: str, output_path: str, font_path: str):
     doc.close()
 
 
-def normalize_pdf_to_a4(input_path: str, output_path: str):
+def normalize_pdf_to_papersize(input_path: str, output_path: str, paper_width: float, paper_height: float):
     """
-    PDFの全ページを、A4縦サイズの中央にリサイズ・配置します。
+    PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
 
-    グローバル定数 (DRAWABLE_WIDTH, DRAWABLE_HEIGHT, etc.) に基づく
     マージン領域を考慮し、コンテンツがその領域内に収まるように
     アスペクト比を維持してスケーリングおよび中央配置を行います。
 
     Args:
         input_path (str): 入力PDFファイル（通常はフラット化済み）のパス。
-        output_path (str): A4に正規化された出力PDFファイルのパス。
+        output_path (str): 正規化された出力PDFファイルのパス。
+        paper_width (float): ターゲットの用紙幅 (ポイント単位)。
+        paper_height (float): ターゲットの用紙高 (ポイント単位)。
     """
     reader = PdfReader(input_path)
     writer = PdfWriter()
 
+    # 渡された用紙サイズから描画可能領域を計算
+    drawable_width: float = paper_width - LEFT_MARGIN - RIGHT_MARGIN
+    drawable_height: float = paper_height - TOP_MARGIN - BOTTOM_MARGIN
+
     for content_page in reader.pages:
-        # A4縦の白紙ページをテンプレートとして作成
-        template_page = writer.add_blank_page(width=A4_WIDTH, height=A4_HEIGHT)
+        # 指定された用紙サイズの白紙ページを作成
+        template_page = writer.add_blank_page(
+            width=paper_width, height=paper_height)
 
         original_width = float(content_page.mediabox.width)
         original_height = float(content_page.mediabox.height)
@@ -113,25 +104,20 @@ def normalize_pdf_to_a4(input_path: str, output_path: str):
             print(f"Skipping empty or invalid page in {input_path}")
             continue
 
-        # 描画可能領域 (DRAWABLE_WIDTH, DRAWABLE_HEIGHT) に
-        # 収まるようにスケーリング係数を計算
+        # 描画可能領域 (drawable_width, drawable_height) を使用
         scale = min(
-            DRAWABLE_WIDTH / original_width,
-            DRAWABLE_HEIGHT / original_height
+            drawable_width / original_width,
+            drawable_height / original_height
         )
 
-        # 描画可能領域内で中央に配置するための移動量(オフセット)を計算
-        # (tx, ty)はページの左下隅からのオフセット
-        tx = LEFT_MARGIN + (DRAWABLE_WIDTH - original_width * scale) / 2
-        ty = BOTTOM_MARGIN + (DRAWABLE_HEIGHT - original_height * scale) / 2
+        # 描画可能領域内で中央に配置
+        tx = LEFT_MARGIN + (drawable_width - original_width * scale) / 2
+        ty = BOTTOM_MARGIN + (drawable_height - original_height * scale) / 2
 
-        # 変換（スケーリングと移動）を定義
         transform =\
             Transformation().scale(sx=scale, sy=scale).translate(tx=tx, ty=ty)
 
-        # 変換を適用して、元のページコンテンツをテンプレートに合成
         template_page.merge_transformed_page(content_page, transform)
 
-    # 処理が完了したPDFを書き出し
     with open(output_path, "wb") as f:
         writer.write(f)
