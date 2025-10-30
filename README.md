@@ -91,6 +91,9 @@
     create_individual_csv = false
 
     [LaTeX]
+    # 正規化及び統合の用紙サイズの指定 (A4/A5)
+    paper_size = 
+
     # PDF生成時に使用するフォント名
     # font = Noto Sans JP
     font = 
