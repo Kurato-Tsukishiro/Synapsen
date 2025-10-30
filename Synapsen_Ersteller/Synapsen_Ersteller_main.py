@@ -9,7 +9,6 @@ import customtkinter as ctk
 import subprocess
 import shutil
 import tempfile
-import datetime
 import configparser
 
 import PDFMargeHelper as Helper
