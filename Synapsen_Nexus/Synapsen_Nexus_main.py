@@ -1,4 +1,3 @@
-import os
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import pandas as pd
@@ -26,6 +25,7 @@ class Synapsen_Nexus(ctk.CTk):
     def __init__(self):
         """アプリケーションを初期化し、ウィンドウと変数をセットアップする。"""
         super().__init__()
+        self.icon_path = self.get_icon_path()
         self.title("Synapsen Nexus")
         self.geometry("1200x800")
         self.grid_columnconfigure(0, weight=3)
@@ -49,6 +49,28 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.create_widgets()
         self.load_config()
+
+    def get_icon_path(self):
+        """
+        実行環境(.exe or .py)に応じて、
+        プロジェクトルートの 'assets' フォルダにある
+        'synapsen.ico' のパスを返す。
+        """
+        try:
+            if getattr(sys, 'frozen', False):
+                # .exe実行の場合 (exeと同じフォルダがプロジェクトルート)
+                project_root = Path(sys.executable).parent
+            else:
+                # .pyスクリプト実行の場合 (このファイルの親フォルダがプロジェクトルート)
+                project_root = Path(__file__).parent.parent
+
+            icon_path = project_root / 'assets' / 'synapsen.ico'
+
+            if icon_path.is_file():
+                return icon_path
+        except Exception as e:
+            print(f"Error finding icon path: {e}")
+        return None
 
     def load_config(self):
         """
@@ -666,26 +688,12 @@ class Synapsen_Nexus(ctk.CTk):
 
 if __name__ == "__main__":
     app = Synapsen_Nexus()
-# 1. 実行ファイル(.exe)かスクリプト(.py)かによって基準パスを取得
-    if getattr(sys, 'frozen', False):
-        # .exe実行の場合（実行ファイルの場所）
-        base_path = os.path.dirname(sys.executable)
-
-        # .exe の場合: 'assets\synapsen.ico' (base_path と同じ階層)
-        icon_path = os.path.join(base_path, "assets", "synapsen.ico")
+    if app.icon_path:  # <-- クラス内で取得したパスを利用
+        try:
+            # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
+            app.iconbitmap(default=str(app.icon_path))
+        except Exception as e:
+            print(f"Icon default setting error: {e}")
     else:
-        # スクリプト実行の場合（.pyファイルの場所）
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-        # スクリプトの場合: '..\assets\synapsen.ico' (base_path の1つ上の階層)
-        icon_path = os.path.join(base_path, "..", "assets", "synapsen.ico")
-
-    # 3. アイコンを設定 (存在する場合のみ)
-    # os.path.normpath() は '..' を解決してきれいなパスにします
-    iconfile = os.path.normpath(icon_path)
-
-    if os.path.exists(iconfile):
-        app.iconbitmap(default=iconfile)
-    else:
-        print(f"警告: アイコンファイルが見つかりません: {iconfile}")
+        print("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
     app.mainloop()

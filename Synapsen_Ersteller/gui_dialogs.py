@@ -11,6 +11,19 @@ class DataEditorWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.note_data = note_data
+
+        self._custom_icon_path = None  # 強制設定するアイコンパス
+        if hasattr(parent, 'icon_path') and parent.icon_path:
+            self._custom_icon_path = str(parent.icon_path)
+
+            # --- 初期アイコンをすぐに設定 ---
+            if self._custom_icon_path:
+                try:
+                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error: {e}")
+
         self.all_tags = all_tags
         self.temp_tags = list(self.note_data.get("tags", []))
         self.commonplace_key_options = commonplace_key_options
@@ -141,6 +154,28 @@ class DataEditorWindow(ctk.CTkToplevel):
             self.tag_entry.insert(0, selected_tag)
             self.add_tag_event()
 
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
 
 # ==============================================================================
 # 既存タグ選択ウィンドウ
@@ -148,6 +183,22 @@ class DataEditorWindow(ctk.CTkToplevel):
 class TagSelectorWindow(ctk.CTkToplevel):
     def __init__(self, parent, all_tags, current_tags):
         super().__init__(parent)
+
+        self._custom_icon_path = None
+        
+        # parent (DataEditorWindow) が 'parent' (メインアプリ) 属性を持ち、
+        # かつ、その 'parent' (メインアプリ) が 'icon_path' を持っているか確認
+        if hasattr(parent, 'parent') and hasattr(parent.parent, 'icon_path') and parent.parent.icon_path:
+            
+            # メインアプリ (parent.parent) の icon_path を直接取得
+            self._custom_icon_path = str(parent.parent.icon_path)
+            
+            if self._custom_icon_path:
+                try:
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error (TagSelector): {e}")
+
         self.selection = None
         self.title("既存のタグを選択")
         self.geometry("300x400")
@@ -175,6 +226,28 @@ class TagSelectorWindow(ctk.CTkToplevel):
         self.master.wait_window(self)
         return self.selection
 
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
 
 # ==============================================================================
 # 年月入力ダイアログ
@@ -182,6 +255,19 @@ class TagSelectorWindow(ctk.CTkToplevel):
 class DateInputDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
+
+        self._custom_icon_path = None  # 強制設定するアイコンパス
+        if hasattr(parent, 'icon_path') and parent.icon_path:
+            self._custom_icon_path = str(parent.icon_path)
+
+            # --- 初期アイコンをすぐに設定 ---
+            if self._custom_icon_path:
+                try:
+                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error: {e}")
+
         self.title("年月を指定")
         self.geometry("300x200")
         self.result = None
@@ -216,3 +302,25 @@ class DateInputDialog(ctk.CTkToplevel):
     def get_input(self):
         self.master.wait_window(self)
         return self.result
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass

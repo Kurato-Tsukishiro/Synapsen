@@ -28,6 +28,18 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.parent_app = parent_app  # メインアプリ本体
         self.note_data = note_data
 
+        self._custom_icon_path = None # 強制設定するアイコンパス
+        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+            self._custom_icon_path = str(parent_app.icon_path)
+            
+            # --- 初期アイコンをすぐに設定 ---
+            if self._custom_icon_path:
+                try:
+                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error: {e}")
+
         title = self.note_data.get('title', 'N/A')
         self.title(f"プレビュー: {title}")
         self.geometry("450x600")
@@ -118,6 +130,28 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.parent_app.key_icons,
             self.parent_app.key_colors
         )
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
     def open_pdf_action(self):
         """「PDFを開く」ボタンが押されたときの処理。"""
