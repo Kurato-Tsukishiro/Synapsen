@@ -65,20 +65,34 @@
 
 ## セットアップ
 
-1.  リポジトリをクローンまたはダウンロードします。
-2.  必要なPythonライブラリをインストールします。
-    > 1.  バッチファイル ( [Install.bat](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/Install.bat) ) を使用してインストールする
-    > 2.  ``pip install -r requirements.txt`` を使用してインストールする
-3.  `config.ini` ファイルをリポジトリのルート（`Synapsen` フォルダの内など、各スクリプトが参照できる場所）に作成し、環境に合わせて設定します。
+1.  **Synapsenのダウンロード:**
+    * リポジトリの [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、最新のソースコード（`.zip`）をダウンロードします。
 
-    **`config.ini` のテンプレート:**
+2.  **PDFテンプレートの入手 (推奨):**
+    * `Synapsen` をより便利に使うため、**専用のPDFテンプレート**（`DotLegalPad_Template-A4_Form.pdf` など）の使用を推奨します。
+    * これを使うと、ノート作成時にIndex Keyを選ぶだけで、後で `Ersteller` が自動で読み取ってくれるため、**手動でIndex Keyを登録する手間が省けます**。
+    * [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、以下のPDFテンプレートファイル（`.pdf`）をダウンロードしてください。
+        1.  **フォーム付き (`..._Form.pdf`):** Index Keyを選択するプルダウンが付いたPDF。QUADERNOでは「ドキュメント」として扱われ、**ページ追加ができません**。
+        2.  **フォーム無し (`...Template.pdf`):** ページ追加が可能な、通常の「ノート」テンプレート。
+    * ※ これらのテンプレートは `CC0 (パブリックドメイン)` です。自由にコピー、改変、再配布して構いません。
+
+3.  **ライブラリのインストール:**
+    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリをインストールします。
+    * （または、コマンドプロンプトで `pip install -r requirements.txt` を実行します）
+
+4.  **`config.ini` の設定:**
+    * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
+    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[Extraction]` や `[CommonplaceKeys]` は**変更不要**です。
+    * ※ **テンプレートを使わない場合**は、ご自身で `[Extraction]` の座標を調べるか、`Ersteller` でノートごとに手動でIndex Keyを登録する必要があります。
+
+    **`config.ini` のテンプレート (推奨設定済み):**
     ```ini
     [Paths] # 絶対パス 又は config.ini からの相対パスを指定
     # 事前定義タグを保存しているテキストファイルのパス
     tags_data_path = 
 
     # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
-    # font_path = %LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf
+    # Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" を使用して下さい
     font_path = C:\windows\fonts\msgothic.ttc
 
     # Nexusでの情報表示に使用するマスターCSVのパス
@@ -109,49 +123,81 @@
     title_prefix = 
 
     [Extraction]
-    # Erstrller でPDFの1ページ目から Index Keyを取得する範囲 (x0, y0, x1, y1)
-    # PyMuPDFの Rect(x0, y0, x1, y1) 形式
+    # Erstrller で読み取り Index Keyを取得する範囲 (DotLegalPadテンプレートの座標)
     key_rect = 0, 13, 391, 73
 
     [CommonplaceKeys]
     # Index Key の設定
-    # options = 決意 / タスク・好奇心,勇気
-    options = 
+    options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
 
     [KeyIcons]
     # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
-    # 決意 / タスク・好奇心 = ♥
+    タスク = ♥
+    アイデア = ♥
+    思考・考察 = ♥
+    コミュニケーション = ♥
+    学習・情報収集 = ♥
+    日常・その他 = ♥
 
     [KeyColors]
     # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
-    # アプリ内のリスト表示・統合ノートのヘッダーおよび索引で使用されます
-    # 決意 / タスク・好奇心 = #FE0000
+    # アプリ内のリスト表示・統合ノートのヘッダーおよび索引GbSで使用されます
+    タスク = #FE0000
+    アイデア = #FFFF02
+    思考・考察 = #8802FF
+    コミュニケーション = #02FF01
+    学習・情報収集 = #02FFFF
+    日常・その他 = #F2F2F2
     ```
 
 ## 使い方
+
+`Synapsen` はPDFテンプレートを使わなくても利用できます。その場合、`Ersteller` で「フォルダから新規読み込み」を行った後、リストから各ノートをクリックして、手動で「Index Key」を割り当ててください。
+
+以下は、推奨テンプレート（`DotLegalPad` など）を使用して、Index Keyの入力を自動化する推奨ワークフローです。
+
+---
+
+### ステップ0: ノートの作成 (テンプレート利用＠QUADERNO)
+
+QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを追加できません。以下の手順で2種類のテンプレートを使い分けます。
+
+1.  **1ページ目 (Index Keyの指定):**
+    * **フォーム付きPDF** (`..._Form.pdf`) をQUADERNO上で**複製**して、新しいノート（ドキュメント）とします。
+    * ファイル名を `YYYYMMDD_hhmmss_タイトル.pdf` の形式に変更します。
+    * ノート左上のプルダウンメニューから、そのノートの「Index Key」（例: 'アイデア'）を選択し、1ページ目の内容を書き込みます。
+
+2.  **2ページ目以降 (ページの追加):**
+    * **フォーム無しPDF** (`...Template.pdf`) を使って、QUADERNOの「**サイドノートを作成**」機能でページを追加します。
+    * `Synapsen Ersteller` は、このサイドノート (`..._Note.pdf`) を自動で親ノートと紐付け、Index Keyを継承させます。
+
+3.  **PCへのエクスポート:**
+    * 書き終わったら、1ページ目のドキュメント（`..._Form.pdf` を複製したもの）と、2ページ目以降のサイドノート（`..._Note.pdf`）の両方をPCにエクスポートします。
+    * (ScanSnapユーザーは、スキャンしたPDFを直接エクスポートフォルダに保存してください)
 
 ### ステップ1: 正規化 (Normalisierer)
 
 1.  `Synapsen_Normalisierer_main.py` を実行します。
 2.  「処理を開始する」をクリックします。
-3.  **入力元フォルダ**（スキャンしたPDFがある場所）を選択します。
+3.  **入力元フォルダ**（スキャン及びクアデルノで作成したPDFがある場所）を選択します。
 4.  **出力先フォルダ**（正規化済みPDFを保存する場所）を選択します。
+    * この処理で、フォームで選択した「Index Key」がテキストとしてPDFに焼き付けられます。
 
 ### ステップ2: 統合 (Ersteller)
 
 1.  `Synapsen_Ersteller_main.py` を実行します。
 2.  「フォルダから新規読み込み」で、ステップ1の「出力先フォルダ」を選択します。
-    * この際、ファイル名 (`YYYYMMDD_...`) と PDF内容 (`key_rect`) から情報が自動抽出されます。
+    * ファイル名 (`YYYYMMDD_hhmmss_...`) から日付とタイトルが、PDF内容 (`key_rect` の座標) から「Index Key」が自動で読み込まれます。
+    * サイドノート (`..._Note.pdf`) にも親のIndex Keyが自動で継承されます。
 3.  リストに表示されたPDFをクリックし、タグ、メモ、Index Keyを編集します。
-4.  「CSVに保存」で編集内容を保存できます（任意）。
-    * CSV読み込み後に「フォルダと同期」を押すと、フォルダ内のPDFとの差分を検出できます。
-5.  「統合PDFを生成」をクリックし、保存場所と年月を指定すると、統合PDFと目次CSV (`config.ini` で指定したパス) が生成・更新されます。
+4.  「統合PDFを生成」をクリックし、保存場所と年月を指定すると、統合PDFと目次CSV (`config.ini` で指定したパス) が生成・更新されます。
 
 ### ステップ3: 閲覧 (Nexus)
 
 1.  `Synapsen_Nexus_main.py` を実行します。
 2.  アプリは `config.ini` で指定されたマスターCSVを自動で読み込みます。
 3.  検索バーやフィルターを使ってノートを検索します。
+    * 検索例 : ``tag:Python, memo:[[key]], ikey:タスク AND (アイデア OR 思考)``
 4.  ノートをシングルクリックで詳細（メモ、**被リンク元**）を表示、ダブルクリックでPDFの該当ページを開きます。
 
 ---
@@ -173,10 +219,13 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 
 このリポジトリの **`assets/` フォルダ**に含まれるすべてのファイル（ロゴ、アイコン、`.png` 画像、および `.gvdesign` ソースファイル）は、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
 
-* **Attribution (表示):** 当リポジトリ（[Kurato-Tsukishiro/Synapsen]）のクレジットを表示する必要があります。
-* **ShareAlike (継承):** このアイコンを改変して配布する場合、同じ CC BY-SA 4.0 ライセンスで公開する必要があります。
-
 詳細は、同梱されている `LICENSE-ASSETS.md` ファイルを参照してください。
+
+### PDFテンプレート (CC0 - パブリックドメイン)
+
+[Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) や `PDF_Templates/xxx/PDF/` フォルダで配布されている **`.pdf` テンプレートファイル**（`DotLegalPad_Template-A4_Form.pdf` など）は、**CC0 (パブリックドメイン)** です。
+
+これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。
 
 ---
 
