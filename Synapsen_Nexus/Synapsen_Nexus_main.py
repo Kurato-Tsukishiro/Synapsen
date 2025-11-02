@@ -139,6 +139,15 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.search_entry.pack(fill="x")
 
+        # 本文検索(FTS)をトグルするチェックボックス
+        self.fts_checkbox = ctk.CTkCheckBox(
+            top_frame, text="本文検索"
+        )
+        self.fts_checkbox.pack(side="left", padx=5)
+
+        # チェックボックスの状態が変わったら検索を再実行
+        self.fts_checkbox.configure(command=self.perform_search)
+
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
         self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
@@ -493,10 +502,14 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 2. 検索クエリを適用
         query_text = self.search_entry.get().strip()
+        include_full_text = self.fts_checkbox.get()  # 本文検索が有効かを取得
+
         if query_text:
             try:
-                # search_parserの関数を呼び出し
-                final_mask = parse_or_expression(filtered_df, query_text)
+                # 2. 最初の関数 parse_or_expression にフラグを渡す
+                final_mask = parse_or_expression(
+                    filtered_df, query_text, include_full_text
+                )
                 filtered_df = filtered_df[final_mask]
             except Exception as e:
                 print(f"検索クエリの解析エラー: {e}")
