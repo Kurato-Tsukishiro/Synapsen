@@ -139,6 +139,15 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.search_entry.pack(fill="x")
 
+        # 本文検索(FTS)をトグルするチェックボックス
+        self.fts_checkbox = ctk.CTkCheckBox(
+            top_frame, text="本文検索"
+        )
+        self.fts_checkbox.pack(side="left", padx=5)
+
+        # チェックボックスの状態が変わったら検索を再実行
+        self.fts_checkbox.configure(command=self.perform_search)
+
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
         self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
