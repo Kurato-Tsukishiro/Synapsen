@@ -66,7 +66,7 @@
 ## セットアップ
 
 1.  **Synapsenのダウンロード:**
-    * リポジトリの [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、最新のソースコード（`.zip`）をダウンロードします。
+    * リポジトリの [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、最新のリリース（`.zip` (ソースコード 又は `.exe` が含まれるパッケージ)）をダウンロードします。
 
 2.  **PDFテンプレートの入手 (推奨):**
     * `Synapsen` をより便利に使うため、**専用のPDFテンプレート**（`DotLegalPad_Template-A4_Form.pdf` など）の使用を推奨します。
@@ -82,10 +82,10 @@
 
 4.  **`config.ini` の設定:**
     * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
-    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[Extraction]` や `[CommonplaceKeys]` は**変更不要**です。
+    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[Extraction]` や `[CommonplaceKeys]` は、リリースに同梱されている `config.ini` のデフォルト設定から**変更不要**です。
     * ※ **テンプレートを使わない場合**は、ご自身で `[Extraction]` の座標を調べるか、`Ersteller` でノートごとに手動でIndex Keyを登録する必要があります。
 
-    **`config.ini` のテンプレート (推奨設定済み):**
+    **`config.ini` の設定項目 (空のテンプレート):**
     ```ini
     [Paths] # 絶対パス 又は config.ini からの相対パスを指定
     # 事前定義タグを保存しているテキストファイルのパス
@@ -93,7 +93,7 @@
 
     # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
     # Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" を使用して下さい
-    font_path = C:\windows\fonts\msgothic.ttc
+    font_path = 
 
     # Nexusでの情報表示に使用するマスターCSVのパス
     default_csv_path = 
@@ -104,9 +104,9 @@
     [Automation]
     # Synapse Ersteller で統合PDFを生成した際、
     # [Paths]のdefault_csv_pathで指定されたマスターCSVに、目次情報を自動で「追記」するか (true/false)
-    auto_append_to_default_csv = true
+    auto_append_to_default_csv = 
     # 上記有効時、目次情報を個別で「保存」するか (true/false)
-    create_individual_csv = false
+    create_individual_csv = 
 
     [LaTeX]
     # 正規化及び統合の用紙サイズの指定 (A4/A5)
@@ -114,7 +114,7 @@
 
     # PDF生成時に使用するフォント名
     # font = Noto Sans JP
-    font = MS UI Gothic
+    font = 
 
     # PDFのプロパティに表示される著者名
     author = 
@@ -124,14 +124,47 @@
 
     [Extraction]
     # Erstrller で読み取り Index Keyを取得する範囲 (DotLegalPadテンプレートの座標)
-    key_rect = 0, 13, 391, 73
+    key_rect = 
 
     [CommonplaceKeys]
     # Index Key の設定 (DotLegalPadテンプレートの選択肢はこれと一致させる)
-    options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
+    options = 
 
     [KeyIcons]
     # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
+    
+    [KeyColors]
+    # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
+    
+    ```
+
+    <details>
+    <summary><b>▼ クリックして推奨設定例 (`config.ini` のデフォルト値) を表示</b></summary>
+
+    ```ini
+    [Paths] 
+    tags_data_path = PDFTags.txt
+    font_path = C:\windows\fonts\msgothic.ttc
+    default_csv_path = 統合ノート.csv
+    pdf_root_folder = ./
+
+    [Automation]
+    auto_append_to_default_csv = true
+    create_individual_csv = false
+
+    [LaTeX]
+    paper_size = A4
+    font = MS UI Gothic
+    author = Synapsen Ersteller
+    title_prefix = 月刊 統合ノート
+
+    [Extraction]
+    key_rect = 0, 13, 391, 73
+
+    [CommonplaceKeys]
+    options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
+
+    [KeyIcons]
     タスク = ♥
     アイデア = ♥
     思考・考察 = ♥
@@ -140,8 +173,6 @@
     日常・その他 = ♥
 
     [KeyColors]
-    # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
-    # アプリ内のリスト表示・統合ノートのヘッダーおよび索引GbSで使用されます
     タスク = #FE0000
     アイデア = #FFFF02
     思考・考察 = #8802FF
@@ -149,6 +180,7 @@
     学習・情報収集 = #02FFFF
     日常・その他 = #F2F2F2
     ```
+    </details>
 
 ## 使い方
 
@@ -197,7 +229,7 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 1.  `Synapsen_Nexus_main.py` を実行します。
 2.  アプリは `config.ini` で指定されたマスターCSVを自動で読み込みます。
 3.  検索バーやフィルターを使ってノートを検索します。
-    * 検索文字列例 : ``tag:Python, memo:[[key]], ikey:タスク AND (アイデア OR 思考)``
+    * 検索文字列例 : `tag:Python`, `memo:[[key]]`, `ikey:タスク AND (アイデア OR 思考)`
 4.  ノートをシングルクリックで詳細（メモ、**被リンク元**）を表示、ダブルクリックでPDFの該当ページを開きます。
 
 ---
@@ -213,7 +245,7 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
     * `FONT_PATH` や `COLOR_LINE` などの他の設定も、好みに合わせて変更できます。
 
 2.  **ライブラリの確認:**
-    * テンプレートの生成には `PyMuPDF` ライブラリが必要です。
+    * テンプレートの生成には `PyMuPDF` ライブラリ が必要です。
     * セットアップ時に `Install.bat` を実行済みであれば、必要なライブラリはすでにインストールされています。
 
 3.  **生成スクリプトの実行:**
@@ -236,22 +268,20 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
 
 このプロジェクトの**ソースコード**（(`PDF_Templates` 内の生成スクリプトも含む)`.py` ファイル）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。
 
-これは、`Synapsen_Normalisierer` と `Synapsen_Ersteller` の中核機能（フォームのフラット化、PDFからの情報抽出など）において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリを使用しているためです。
+これは、`Synapsen_Normalisierer` と `Synapsen_Ersteller` の中核機能（フォームのフラット化、PDFからの情報抽出など）において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリ を使用しているためです。
 AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体も同じライセンスに従う必要があります。
-
-このソフトウェアを使用（特にネットワーク上でホスト・配布）する場合、**利用者がこのソフトウェアの完全なソースコードを入手できるようにしなければなりません。**
 
 詳細は、同梱されている `LICENSE` ファイルを参照してください。
 
 ### アイコンおよびグラフィックアセット (CC BY-SA 4.0)
 
-このリポジトリの **`assets/` フォルダ**に含まれるすべてのファイル（ロゴ、アイコン、`.png` 画像、および `.gvdesign` ソースファイル）は、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
+このリポジトリの **`assets/` フォルダ** に含まれるすべてのファイル（ロゴ、アイコン、`.png` 画像、および `.gvdesign` ソースファイル）は、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
 
 詳細は、同梱されている `LICENSE-ASSETS.md` ファイルを参照してください。
 
 ### PDFテンプレート (CC0 - パブリックドメイン)
 
-[Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) や `PDF_Templates/xxx/PDF/` フォルダで配布されている **`.pdf` テンプレートファイル**（`DotLegalPad_Template-A4_Form.pdf` など）は、**CC0 (パブリックドメイン)** です。
+[Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) や `PDF_Templates/PDF/` フォルダで配布されている **`.pdf` テンプレートファイル**（`DotLegalPad_Template-A4_Form.pdf` など）は、**CC0 (パブリックドメイン)** です。
 
 これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。
 
