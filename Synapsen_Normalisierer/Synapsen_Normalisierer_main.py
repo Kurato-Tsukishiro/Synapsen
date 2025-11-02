@@ -9,7 +9,7 @@ import customtkinter as ctk
 # PDF処理関数を別ファイルからインポート
 from pdf_utils import (
     high_fidelity_flatten, normalize_pdf_to_papersize,
-    perform_ocr_on_pdf
+    embed_ocr_text_in_pdf
 )
 
 A4_WIDTH = 595.276
@@ -194,8 +194,6 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 temp_flattened_pdf = temp_dir / pdf_file.name
                 final_output_pdf = dest_path / pdf_file.name
-                final_output_txt =\
-                    dest_path / pdf_file.with_suffix('.txt').name
 
                 # 1. フォームをフラット化（一時フォルダに出力）
                 self.label.configure(
@@ -220,16 +218,16 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.paper_height
                 )
 
-                # 3. OCR処理 (フラット化済みPDFをOCRにかける)
+                # 3. OCR処理 (最終PDFに直接テキストを埋め込む)
                 self.label.configure(
-                    text=f"({i+1}/{total_files}) OCR処理中...: {pdf_file.name}"
+                    text=f"({i+1}/{total_files}) OCR埋込処理中...: {pdf_file.name}"
                 )
                 self.update_idletasks()
                 try:
-                    perform_ocr_on_pdf(
-                        str(temp_flattened_pdf),
-                        str(final_output_txt),
-                        self.enable_tesseract_ocr
+                    embed_ocr_text_in_pdf(
+                        str(final_output_pdf),
+                        self.enable_tesseract_ocr,
+                        self.font_path
                     )
                 except Exception as ocr_e:
                     # Tesseractが見つからない場合など

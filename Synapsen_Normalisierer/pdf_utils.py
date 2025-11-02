@@ -4,6 +4,10 @@ from pathlib import Path
 import pytesseract
 from PIL import Image
 import io
+import pandas as pd
+from pytesseract import Output
+import csv
+import shutil  # <--- ファイル操作（上書きリネーム）のために必要
 
 # ==============================================================================
 # 定数定義
@@ -131,97 +135,151 @@ def normalize_pdf_to_papersize(
         writer.write(f)
 
 
-def perform_ocr_on_pdf(
+def embed_ocr_text_in_pdf(
     pdf_path_str: str,
-    output_txt_path_str: str,
     enable_tesseract: bool,
+    font_path: str,
     lang='jpn+jpn_vert'
 ):
     """
-    PDFからテキストを抽出する。
-
-    1. まず高速な組み込みテキスト抽出を試みる (既にOCR/テキストがある場合)。
-    2. 1.でテキストが取れなかった場合、enable_tesseract が True のみ、
-       Tesseract OCR (低速) を実行する。
+    PDFを解析し、必要に応じてTesseract OCRを実行し、
+    結果を「透明なテキストレイヤー」としてPDF自体に埋め込む。
 
     Args:
-        pdf_path_str (str): OCR対象のPDFファイルパス（フラット化済みのもの）。
-        output_txt_path_str (str): 抽出テキストの保存先パス。
+        pdf_path_str (str): 処理対象のPDFファイルパス（読み書きされる）。
         enable_tesseract (bool): Tesseract OCR (低速) を実行するかどうか。
+        font_path (str): 埋め込む日本語フォントファイルのパス。
         lang (str): Tesseractが使用する言語。
     """
-    full_text = ""
     doc = None
+    # 一時ファイルへの保存パスを定義
+    temp_output_path = pdf_path_str + "._temp_ocr.pdf"
+    
+    # 埋め込みに使うフォント名を定義
+    OCR_FONT_NAME = "synapsen_ocr_font" 
+
     try:
-        # 1. PyMuPDF (fitz) でPDFを開く
         doc = fitz.open(pdf_path_str)
+        if doc.is_encrypted:
+            print(f"  [Warn]暗号化されたPDFはスキップします: {Path(pdf_path_str).name}")
+            return
+
+        meaningful_text_threshold = 10
+        has_meaningful_text = False
 
         # 2. 高速なテキスト抽出を試みる
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            # "text" モードでテキストを抽出
-            page_text = page.get_text("text", sort=True)
-            if page_text:
-                full_text += page_text + "\n\n--- Page Break ---\n\n"
+        for page in doc:
+            page_text = page.get_text("text", sort=True).strip()
+            if len(page_text) > meaningful_text_threshold:
+                has_meaningful_text = True
+                break
 
         # 3. テキストが取得できたか確認
-        #    (空白文字を除いて10文字以上ある場合を「意味のあるテキスト」とみなす)
-        meaningful_text_threshold = 10
-        if len(full_text.strip()) > meaningful_text_threshold:
-            # 取得できた場合 (既にテキストレイヤーが存在した)
-            print(f"  [Info] 既存のテキストを抽出しました: {Path(pdf_path_str).name}")
-            with open(output_txt_path_str, "w", encoding="utf-8") as f:
-                f.write(full_text)
-            return  # ★ finallyが呼ばれてからreturnされる
+        if has_meaningful_text:
+            print(f"  [Info] 既存のテキストレイヤーが存在するためスキップ: {Path(pdf_path_str).name}")
+            return
 
         # 4. Tesseract OCR が無効化されているかチェック
         if not enable_tesseract:
-            print(f"  [Info] 既存テキストが見つからず、Tesseract OCR は無効です。スキップします: {
+            print(f"  [Info] 画像のみのPDFで、Tesseract OCR は無効です。スキップ: {
                   Path(pdf_path_str).name}")
-            # Ersteller がカラムを見失わないよう、空のテキストファイルを作成する
-            with open(output_txt_path_str, "w", encoding="utf-8") as f:
-                f.write("")  # 空のファイルを作成
-            return  # ★ finallyが呼ばれてからreturnされる
+            return
 
         # 5. 既存テキストが取れず、Tesseract が有効な場合のみ実行
-        print(f"  [Info] 既存テキストが見つかりません。Tesseract OCR を実行します: {
+        print(f"  [Info] Tesseract OCR を実行し、テキストを埋め込みます: {
               Path(pdf_path_str).name}")
-        full_text = ""  # テキストをリセット
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
 
-            # 6. 高解像度 (DPI=300) でページを画像(Pixmap)にレンダリング
-            pix = page.get_pixmap(dpi=300)
-            img_data = pix.tobytes("png")
-
-            # 7. PIL (Pillow) を使って画像データをTesseractが読める形式に変換
-            img = Image.open(io.BytesIO(img_data))
-
-            # 8. Tesseract OCR の実行
+        for page_num, page in enumerate(doc):
             try:
-                page_text = pytesseract.image_to_string(img, lang=lang)
-                full_text += page_text + "\n\n--- Page Break ---\n\n"
+                # 6. 高解像度 (DPI=300) でページを画像(Pixmap)にレンダリング
+                pix = page.get_pixmap(dpi=300)
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+
+                # 7. Tesseract OCR の実行 (TSVデータとして取得)
+                tsv_data = pytesseract.image_to_data(
+                    img, lang=lang, output_type=Output.STRING
+                )
+
+                if tsv_data is None or len(tsv_data.strip()) == 0:
+                    print(f"  [Warn] TesseractがTSVデータを返しませんでした (Page {page_num + 1})")
+                    continue
+                
+                # 8. TesseractのTSVデータを解析
+                try:
+                    df = pd.read_csv(io.StringIO(tsv_data), sep='\t',
+                                     quoting=csv.QUOTE_NONE, on_bad_lines='skip')
+                    df = df.dropna(subset=['conf', 'text'])
+                    df = df[df['conf'] > 30] # 信頼度が低いものは除外
+
+                    if df.empty:
+                        continue
+
+                    # 9. ページに日本語フォントを登録
+                    try:
+                        page.insert_font(fontname=OCR_FONT_NAME, fontfile=font_path)
+                    except Exception as e:
+                        pass # 既に登録済みなどのエラーは無視
+                    
+                    # 10. 日本語フォントを指定して、透明テキスト(render_mode=3)を挿入
+                    for _, row in df.iterrows():
+                        x0, y0, w, h = row['left'], row['top'], row['width'], row['height']
+                        scale = 72 / 300 # DPI=300 -> 72 DPI (ポイント) に座標を戻す
+                        rect = fitz.Rect(x0 * scale, y0 * scale, (x0 + w) * scale, (y0 + h) * scale)
+                        fs = max(h * scale * 0.8, 6.0) # フォントサイズ
+                        
+                        page.insert_text(
+                            rect.bottom_left,
+                            str(row['text']),
+                            fontname=OCR_FONT_NAME,  # ★ 日本語フォントを指定
+                            fontsize=fs,
+                            render_mode=3,     # ★ 3 = 透明
+                            rotate=0
+                        )
+                
+                except Exception as e_embed:
+                    print(f"  [Warn] テキストの埋め込みに失敗。")
+                    print(f"  [Debug] エラー詳細: {e_embed}")
+
             except pytesseract.TesseractNotFoundError:
-                raise Exception(
-                    "Tesseract-OCRが見つかりません。" +
-                    "Tesseract-OCRをインストールし、環境変数PATHを設定してください。"
-                )
+                raise Exception("Tesseract-OCRが見つかりません。")
             except Exception as ocr_err:
-                print(
-                    "  [Warn] Tesseract OCRエラー " +
-                    f"(Page {page_num + 1}): {ocr_err}"
-                )
+                print(f"  [Warn] Tesseract OCRエラー (Page {page_num + 1}): {ocr_err}")
                 continue
 
-        # 9. 抽出したテキストをファイルに保存
-        with open(output_txt_path_str, "w", encoding="utf-8") as f:
-            f.write(full_text)
+        # 9. 変更を「一時ファイル」に「完全な」上書き保存
+        # (PyMuPDFの制約 'save to original must be incremental' を回避するため)
+        doc.save(
+            temp_output_path,  # <-- 元のファイルではなく、一時ファイルに保存
+            garbage=4,         # 未使用のオブジェクトをクリーンアップ
+            deflate=True,      # 可能な限り圧縮
+            encryption=fitz.PDF_ENCRYPT_NONE  # 暗号化を解除
+        )
+        print(f"  [Info] テキスト埋め込み完了 (一時ファイル): {Path(temp_output_path).name}")
 
     except Exception as e:
-        print(f"  [Error] OCR処理中にエラーが発生 ({pdf_path_str}): {e}")
-        with open(output_txt_path_str, "w", encoding="utf-8") as f:
-            f.write(f"OCR処理中にエラーが発生しました: {e}")
+        print(f"  [Error] PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}")
+        # エラーが発生した場合、一時ファイルが残っていれば削除
+        if Path(temp_output_path).is_file():
+            try:
+                Path(temp_output_path).unlink()
+            except Exception as e_del:
+                print(f"  [Warn] エラー発生後の一時ファイル削除に失敗: {e_del}")
     finally:
-        # ★ どのような場合でも、ここでdocが安全に閉じられる
         if doc:
-            doc.close()
+            doc.close()  # 元のファイルを開放
+
+        # 10. ファイルのリネーム（上書き）
+        # 処理が正常に完了した場合のみ、一時ファイルが存在する
+        if Path(temp_output_path).is_file():
+            try:
+                # 一時ファイルを元のファイルパスにリネーム（上書き）
+                shutil.move(temp_output_path, pdf_path_str)
+                print(f"  [Info] 元ファイルに上書き完了: {Path(pdf_path_str).name}")
+            except Exception as e_move:
+                print(f"  [Error] PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}")
+                # 失敗したら一時ファイルを削除
+                try:
+                    Path(temp_output_path).unlink()
+                except Exception:
+                    pass
