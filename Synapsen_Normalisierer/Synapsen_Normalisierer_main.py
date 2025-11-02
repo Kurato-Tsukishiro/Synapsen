@@ -7,7 +7,10 @@ from pathlib import Path
 import customtkinter as ctk
 
 # PDF処理関数を別ファイルからインポート
-from pdf_utils import high_fidelity_flatten, normalize_pdf_to_papersize
+from pdf_utils import (
+    high_fidelity_flatten, normalize_pdf_to_papersize,
+    perform_ocr_on_pdf
+)
 
 A4_WIDTH = 595.276
 A4_HEIGHT = 841.89
@@ -40,6 +43,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.font_path = None
         self.paper_width = A4_WIDTH  # デフォルト
         self.paper_height = A4_HEIGHT  # デフォルト
+        self.enable_tesseract_ocr = False
         self._load_config()
 
         # --- ウィジェットの配置 ---
@@ -136,6 +140,15 @@ class Synapsen_Normalisierer(ctk.CTk):
             print(f"[DEBUG] Paper size set to A4 ({
                 self.paper_width}x{self.paper_height})")
 
+        # 2. Tesseract OCR の有効/無効 設定
+        self.enable_tesseract_ocr = config.getboolean(
+            'Automation', 'enable_tesseract_ocr', fallback=False
+        )
+        print(
+            f"[DEBUG] Tesseract OCR (slow) enabled: {
+                self.enable_tesseract_ocr}"
+                )
+
     def run_process(self):
         """
         「処理を開始する」ボタン押下時のメイン処理。
@@ -176,13 +189,19 @@ class Synapsen_Normalisierer(ctk.CTk):
             for i, pdf_file in enumerate(pdf_files):
                 self.label.configure(
                     text=f"処理中 ({i+1}/{total_files}): {pdf_file.name}"
-                    )
+                )
                 self.update_idletasks()  # GUIの表示を強制更新
 
                 temp_flattened_pdf = temp_dir / pdf_file.name
                 final_output_pdf = dest_path / pdf_file.name
+                final_output_txt =\
+                    dest_path / pdf_file.with_suffix('.txt').name
 
                 # 1. フォームをフラット化（一時フォルダに出力）
+                self.label.configure(
+                    text=f"({i+1}/{total_files}) フラット化中: {pdf_file.name}"
+                )
+                self.update_idletasks()
                 high_fidelity_flatten(
                     str(pdf_file),
                     str(temp_flattened_pdf),
@@ -190,12 +209,33 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # 2. 指定サイズに正規化（最終出力先に出力）
+                self.label.configure(
+                    text=f"({i+1}/{total_files}) 正規化中: {pdf_file.name}"
+                )
+                self.update_idletasks()
                 normalize_pdf_to_papersize(
                     str(temp_flattened_pdf),
                     str(final_output_pdf),
                     self.paper_width,
                     self.paper_height
                 )
+
+                # 3. OCR処理 (フラット化済みPDFをOCRにかける)
+                self.label.configure(
+                    text=f"({i+1}/{total_files}) OCR処理中...: {pdf_file.name}"
+                )
+                self.update_idletasks()
+                try:
+                    perform_ocr_on_pdf(
+                        str(temp_flattened_pdf),
+                        str(final_output_txt),
+                        self.enable_tesseract_ocr
+                    )
+                except Exception as ocr_e:
+                    # Tesseractが見つからない場合など
+                    messagebox.showerror("OCR エラー", str(ocr_e))
+                    self.label.configure(text="OCRエラー。処理を中断しました。")
+                    return
 
             messagebox.showinfo("完了", f"{total_files}個のPDFファイルの処理が完了しました。")
             self.label.configure(text="処理が完了しました。")

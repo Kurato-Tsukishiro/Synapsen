@@ -1,6 +1,9 @@
 import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter, Transformation
 from pathlib import Path
+import pytesseract
+from PIL import Image
+import io
 
 # ==============================================================================
 # 定数定義
@@ -72,7 +75,12 @@ def high_fidelity_flatten(input_path: str, output_path: str, font_path: str):
     doc.close()
 
 
-def normalize_pdf_to_papersize(input_path: str, output_path: str, paper_width: float, paper_height: float):
+def normalize_pdf_to_papersize(
+        input_path: str,
+        output_path: str,
+        paper_width: float,
+        paper_height: float
+        ):
     """
     PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
 
@@ -121,3 +129,99 @@ def normalize_pdf_to_papersize(input_path: str, output_path: str, paper_width: f
 
     with open(output_path, "wb") as f:
         writer.write(f)
+
+
+def perform_ocr_on_pdf(
+    pdf_path_str: str,
+    output_txt_path_str: str,
+    enable_tesseract: bool,
+    lang='jpn+jpn_vert'
+):
+    """
+    PDFからテキストを抽出する。
+
+    1. まず高速な組み込みテキスト抽出を試みる (既にOCR/テキストがある場合)。
+    2. 1.でテキストが取れなかった場合、enable_tesseract が True のみ、
+       Tesseract OCR (低速) を実行する。
+
+    Args:
+        pdf_path_str (str): OCR対象のPDFファイルパス（フラット化済みのもの）。
+        output_txt_path_str (str): 抽出テキストの保存先パス。
+        enable_tesseract (bool): Tesseract OCR (低速) を実行するかどうか。
+        lang (str): Tesseractが使用する言語。
+    """
+    full_text = ""
+    doc = None
+    try:
+        # 1. PyMuPDF (fitz) でPDFを開く
+        doc = fitz.open(pdf_path_str)
+
+        # 2. 高速なテキスト抽出を試みる
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            # "text" モードでテキストを抽出
+            page_text = page.get_text("text", sort=True)
+            if page_text:
+                full_text += page_text + "\n\n--- Page Break ---\n\n"
+
+        # 3. テキストが取得できたか確認
+        #    (空白文字を除いて10文字以上ある場合を「意味のあるテキスト」とみなす)
+        meaningful_text_threshold = 10
+        if len(full_text.strip()) > meaningful_text_threshold:
+            # 取得できた場合 (既にテキストレイヤーが存在した)
+            print(f"  [Info] 既存のテキストを抽出しました: {Path(pdf_path_str).name}")
+            with open(output_txt_path_str, "w", encoding="utf-8") as f:
+                f.write(full_text)
+            return  # ★ finallyが呼ばれてからreturnされる
+
+        # 4. Tesseract OCR が無効化されているかチェック
+        if not enable_tesseract:
+            print(f"  [Info] 既存テキストが見つからず、Tesseract OCR は無効です。スキップします: {
+                  Path(pdf_path_str).name}")
+            # Ersteller がカラムを見失わないよう、空のテキストファイルを作成する
+            with open(output_txt_path_str, "w", encoding="utf-8") as f:
+                f.write("")  # 空のファイルを作成
+            return  # ★ finallyが呼ばれてからreturnされる
+
+        # 5. 既存テキストが取れず、Tesseract が有効な場合のみ実行
+        print(f"  [Info] 既存テキストが見つかりません。Tesseract OCR を実行します: {
+              Path(pdf_path_str).name}")
+        full_text = ""  # テキストをリセット
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+
+            # 6. 高解像度 (DPI=300) でページを画像(Pixmap)にレンダリング
+            pix = page.get_pixmap(dpi=300)
+            img_data = pix.tobytes("png")
+
+            # 7. PIL (Pillow) を使って画像データをTesseractが読める形式に変換
+            img = Image.open(io.BytesIO(img_data))
+
+            # 8. Tesseract OCR の実行
+            try:
+                page_text = pytesseract.image_to_string(img, lang=lang)
+                full_text += page_text + "\n\n--- Page Break ---\n\n"
+            except pytesseract.TesseractNotFoundError:
+                raise Exception(
+                    "Tesseract-OCRが見つかりません。" +
+                    "Tesseract-OCRをインストールし、環境変数PATHを設定してください。"
+                )
+            except Exception as ocr_err:
+                print(
+                    "  [Warn] Tesseract OCRエラー " +
+                    f"(Page {page_num + 1}): {ocr_err}"
+                )
+                continue
+
+        # 9. 抽出したテキストをファイルに保存
+        with open(output_txt_path_str, "w", encoding="utf-8") as f:
+            f.write(full_text)
+
+    except Exception as e:
+        print(f"  [Error] OCR処理中にエラーが発生 ({pdf_path_str}): {e}")
+        with open(output_txt_path_str, "w", encoding="utf-8") as f:
+            f.write(f"OCR処理中にエラーが発生しました: {e}")
+    finally:
+        # ★ どのような場合でも、ここでdocが安全に閉じられる
+        if doc:
+            doc.close()

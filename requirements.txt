@@ -2,3 +2,5 @@ customtkinter
 pandas
 pypdf
 PyMuPDF
+Pillow
+pytesseract
