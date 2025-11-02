@@ -43,7 +43,7 @@ def split_respecting_parens(query, operator):
     return [p for p in parts if p]  # 空の文字列を除外
 
 
-def evaluate_simple_term(df, term):
+def evaluate_simple_term(df, term, include_full_text=False):
     """
     プレフィックス検索、またはグローバル検索を実行する。
 
@@ -111,10 +111,17 @@ def evaluate_simple_term(df, term):
             df['date'].str.contains(
                 final_search_term, case=False, na=False, regex=False)
         )
+
+        # 「本文検索」が有効な場合、full_text カラムも検索対象に加える
+        if include_full_text and 'full_text' in df.columns:
+            term_condition |= df['full_text'].str.contains(
+                final_search_term, case=False, na=False, regex=False
+            )
+
     return term_condition
 
 
-def parse_term(df, query):
+def parse_term(df, query, include_full_text=False):
     """
     括弧、NOT(ハイフン)、または単純な検索語を処理する。
 
@@ -133,16 +140,16 @@ def parse_term(df, query):
         query = query[1:].strip()
 
     if query.startswith('(') and query.endswith(')'):
-        # 括弧の中身を再帰的に評価 (最上位のORから)
-        mask = parse_or_expression(df, query[1:-1])
+        # 括弧の中身を評価するため、最上位のOR関数にフラグを渡して再帰呼び出し
+        mask = parse_or_expression(df, query[1:-1], include_full_text)
     else:
-        # 単純な検索語を評価
-        mask = evaluate_simple_term(df, query)
+        # 最終的な検索実行関数にフラグを渡す
+        mask = evaluate_simple_term(df, query, include_full_text)
 
     return ~mask if is_not else mask
 
 
-def parse_and_expression(df, query):
+def parse_and_expression(df, query, include_full_text=False):
     """
     AND 演算子で式を結合する。
 
@@ -162,11 +169,11 @@ def parse_and_expression(df, query):
     mask = pd.Series([True] * len(df), index=df.index)
 
     for part in and_parts:
-        mask &= parse_term(df, part)
+        mask &= parse_term(df, part, include_full_text)
     return mask
 
 
-def parse_or_expression(df, query):
+def parse_or_expression(df, query, include_full_text=False):
     """
     OR 演算子で式を結合する (最上位の演算)。
 
@@ -186,5 +193,5 @@ def parse_or_expression(df, query):
 
     for part in or_parts:
         # 各パーツを AND 式として評価 (ANDが優先されるため)
-        mask |= parse_and_expression(df, part)
+        mask |= parse_and_expression(df, part, include_full_text)
     return mask
