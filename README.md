@@ -222,7 +222,11 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
     * `python Generate_DotLegalPad.py` を実行すると、フォーム無しの（ページ追加用）PDFが生成されます。
 
 > **重要:**
-> `DotLegalPad_Config.py` の `OPTIONS` を変更した場合、Synapsen本体の `config.ini` の `[CommonplaceKeys]` セクションにある `options = ...` の内容も、一致させてください。
+> `DotLegalPad_Config.py` の `OPTIONS` を変更した場合、Synapsen本体の `config.ini` の `[CommonplaceKeys]` セクションにある `options = ...` の内容も、必ず一致させてください。
+
+> **ライセンスに関する注意:**
+> このセクションで変更する `.py` ファイル（生成スクリプト）は、`AGPL-3.0` ライセンスの対象です。
+> もし、あなたが**変更を加えた生成スクリプト自体を再配布・公開する場合**は、`AGPL-3.0` の条項に従う必要があります（生成された `.pdf` ファイルは `CC0` のため、自由に配布して問題ありません）。
 
 ---
 
