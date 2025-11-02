@@ -127,7 +127,7 @@
     key_rect = 0, 13, 391, 73
 
     [CommonplaceKeys]
-    # Index Key の設定
+    # Index Key の設定 (DotLegalPadテンプレートの選択肢はこれと一致させる)
     options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
 
     [KeyIcons]
@@ -197,8 +197,32 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 1.  `Synapsen_Nexus_main.py` を実行します。
 2.  アプリは `config.ini` で指定されたマスターCSVを自動で読み込みます。
 3.  検索バーやフィルターを使ってノートを検索します。
-    * 検索例 : ``tag:Python, memo:[[key]], ikey:タスク AND (アイデア OR 思考)``
+    * 検索文字列例 : ``tag:Python, memo:[[key]], ikey:タスク AND (アイデア OR 思考)``
 4.  ノートをシングルクリックで詳細（メモ、**被リンク元**）を表示、ダブルクリックでPDFの該当ページを開きます。
+
+---
+
+## PDFテンプレートのカスタマイズ (上級者向け)
+
+配布されているPDFテンプレート (`DotLegalPad_Template-A4_Form.pdf` など) は、リポジトリ内のPythonスクリプトによって生成されています。
+Index Keyの選択肢（タグ）、フォント、レイアウトなどを変更したい場合は、以下の手順で自分専用のテンプレートを生成できます。
+
+1.  **設定ファイルの編集:**
+    * `PDF_Templates/DotLegalPad/DotLegalPad_Config.py` をテキストエディタで開きます。
+    * `OPTIONS = [...]` のリストを編集すると、PDFのプルダウンメニューに表示されるIndex Keyの選択肢を変更できます。
+    * `FONT_PATH` や `COLOR_LINE` などの他の設定も、好みに合わせて変更できます。
+
+2.  **ライブラリの確認:**
+    * テンプレートの生成には `PyMuPDF` ライブラリが必要です。
+    * セットアップ時に `Install.bat` を実行済みであれば、必要なライブラリはすでにインストールされています。
+
+3.  **生成スクリプトの実行:**
+    * コマンドプロンプト（ターミナル）で `PDF_Templates/DotLegalPad/` フォルダに移動します。
+    * `python Generate_DotLegalPad_Form_Template.py` を実行すると、フォーム付きのPDFが生成されます。
+    * `python Generate_DotLegalPad.py` を実行すると、フォーム無しの（ページ追加用）PDFが生成されます。
+
+> **重要:**
+> `DotLegalPad_Config.py` の `OPTIONS` を変更した場合、Synapsen本体の `config.ini` の `[CommonplaceKeys]` セクションにある `options = ...` の内容も、一致させてください。
 
 ---
 
@@ -206,7 +230,7 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 
 ### ソースコード (AGPL-3.0)
 
-このプロジェクトの**ソースコード**（`.py` ファイルなど）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。
+このプロジェクトの**ソースコード**（(`PDF_Templates` 内の生成スクリプトも含む)`.py` ファイル）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。
 
 これは、`Synapsen_Normalisierer` と `Synapsen_Ersteller` の中核機能（フォームのフラット化、PDFからの情報抽出など）において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリを使用しているためです。
 AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体も同じライセンスに従う必要があります。
