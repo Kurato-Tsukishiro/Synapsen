@@ -182,7 +182,13 @@ def load_sql_data_file(filepath: Path):
         raise Exception(f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}")
 
 
-def build_memo_display(parent_frame, memo_text, df, open_preview_callback, frame_width=450):
+def build_memo_display(
+        parent_frame,
+        memo_text,
+        df,
+        open_preview_callback,
+        frame_width=450
+        ):
     """
     メモテキストを解析し、[[key]]リンクをクリック可能なラベルとして
     指定された親フレーム内に動的に構築する。
@@ -396,6 +402,89 @@ def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
     # 2. 統合PDFがない場合、元のPDF (original_pdf) を試みる
     else:
         _open_original_pdf(row_data, pdf_root_folder)
+
+
+def update_note_in_db(db_path: Path, key: str, new_data: dict):
+    """
+    SQLiteデータベース内の指定されたノートを更新する。
+
+    Args:
+        db_path (Path): データベースのパス。
+        key (str): 更新するノートのユニークID。
+        new_data (dict): 更新するデータ ('memo', 'tags', 'commonplace_key')。
+
+    Raises:
+        Exception: データベースの更新に失敗した場合。
+    """
+    if not db_path or not db_path.is_file():
+        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
+
+    # タグをリストから ';' 区切りの文字列に変換
+    if 'tags' in new_data and isinstance(new_data['tags'], list):
+        tags_str = ";".join(sorted(new_data['tags']))
+    else:
+        tags_str = new_data.get('tags', '')
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # SQL UPDATE文
+        cursor.execute(
+            """
+            UPDATE notes
+            SET memo = ?, tags = ?, commonplace_key = ?
+            WHERE key = ?
+            """,
+            (
+                new_data.get('memo', ''),
+                tags_str,
+                new_data.get('commonplace_key', ''),
+                key
+            )
+        )
+        conn.commit()
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise Exception(f"データベースの更新に失敗しました: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def delete_note_from_db(db_path: Path, key: str):
+    """
+    SQLiteデータベースから指定されたノートを削除する。
+
+    Args:
+        db_path (Path): データベースのパス。
+        key (str): 削除するノートのユニークID。
+
+    Raises:
+        Exception: データベースからの削除に失敗した場合。
+    """
+    if not db_path or not db_path.is_file():
+        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # SQL DELETE文
+        cursor.execute("DELETE FROM notes WHERE key = ?", (key,))
+        conn.commit()
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise Exception(f"データベースからの削除に失敗しました: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def _open_original_pdf(row_data, pdf_root_folder):

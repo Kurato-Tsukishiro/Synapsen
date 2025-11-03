@@ -8,10 +8,13 @@ import sys
 # 分割したモジュールをインポート
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
-    build_memo_display, build_references_display, find_backlinks_df
+    build_memo_display, build_references_display, find_backlinks_df,
+    update_note_in_db, delete_note_from_db
 )
 from search_parser import parse_or_expression
+
 from preview_window import NotePreviewWindow
+from editor_window import NoteEditorWindow
 
 
 class Synapsen_Nexus(ctk.CTk):
@@ -134,7 +137,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.search_entry = ctk.CTkEntry(
             search_container,
-            placeholder_text="検索 (AND, OR, - , ( ) を使用可, プレフィックスを使用する事で検索対象を絞る(例: date:YYYYMM / date:YYYYMMDD))"
+            placeholder_text={
+                "検索 (AND, OR, - , ( ) を使用可, プレフィックスを使用する事で検索対象を絞る" +
+                "(例: date:YYYYMM / date:YYYYMMDD))"
+                }
         )
         self.search_entry.pack(fill="x")
 
@@ -261,6 +267,28 @@ class Synapsen_Nexus(ctk.CTk):
             row=7, column=1, padx=10, pady=5, sticky="nsew"
             )
 
+        self.edit_button_frame = ctk.CTkFrame(
+            self.details_frame, fg_color="transparent")
+        self.edit_button_frame.grid(row=8, column=0, columnspan=2, pady=10)
+
+        self.edit_button = ctk.CTkButton(
+            self.edit_button_frame,
+            text="このノートを編集",
+            command=self.open_edit_dialog,
+            state="disabled"
+        )
+        self.edit_button.pack(side="left", padx=10)
+
+        self.delete_button = ctk.CTkButton(
+            self.edit_button_frame,
+            text="DBから削除",
+            command=self.confirm_delete_note,
+            fg_color="#D9534F",  # 赤色
+            hover_color="#C9302C",  # 濃い赤色
+            state="disabled"
+        )
+        self.delete_button.pack(side="left", padx=10)
+
         # フィルターパネルの初期表示を同期
         self.sync_filter_panel_view()
 
@@ -278,7 +306,8 @@ class Synapsen_Nexus(ctk.CTk):
         self.selected_suggestion_index = -1
         query = self.search_entry.get()
         # " AND " や " OR " で区切られた最後の単語を取得
-        last_word = re.split(r'\s+(?:AND|OR)\s+', query, flags=re.IGNORECASE)[-1].strip()
+        last_word = re.split(
+            r'\s+(?:AND|OR)\s+', query, flags=re.IGNORECASE)[-1].strip()
 
         suggestions = []
         if query == "" or query.upper().endswith(" AND ") or query.upper().endswith(" OR "):
@@ -541,16 +570,22 @@ class Synapsen_Nexus(ctk.CTk):
             icon = self.key_icons.get(cp_key, '•')
             color = self.key_colors.get(cp_key, 'gray')
 
-            icon_label = ctk.CTkLabel(item_frame, text=icon, text_color=color, font=("", 16), width=20)
+            icon_label = ctk.CTkLabel(
+                item_frame,
+                text=icon,
+                text_color=color,
+                font=("", 16), width=20
+                )
             icon_label.pack(side="left")
 
             display_text = f"[{row.get('date')}] {row.get('title', 'N/A')}"
-            text_label = ctk.CTkLabel(item_frame, text=display_text, anchor="w")
+            text_label = ctk.CTkLabel(
+                item_frame, text=display_text, anchor="w")
             text_label.pack(side="left", fill="x", expand=True)
 
             # --- イベントバインド ---
             # シングルクリックで詳細表示
-            command = lambda e, idx=index: self.show_details(idx)
+            command = lambda e, r=row: self.show_details(r)
             item_frame.bind("<Button-1>", command)
             icon_label.bind("<Button-1>", command)
             text_label.bind("<Button-1>", command)
@@ -568,6 +603,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.cpkey_label.configure(text="")
         self.tags_label.configure(text="")
 
+        # 選択中ノートとボタンの状態をクリア
+        self.current_selected_row = None
+        self.edit_button.configure(state="disabled")
+        self.delete_button.configure(state="disabled")
+
         # memo_display_frame内のすべてのウィジェット（ラベル）を削除
         for widget in self.memo_display_frame.winfo_children():
             widget.destroy()
@@ -581,13 +621,14 @@ class Synapsen_Nexus(ctk.CTk):
 
     def open_preview_window(self, key):
         """
-        指定されたキーのノートを新しいプレビューウィンドウで開く。
+        指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
+        (メモ欄の [[key]] リンククリック時の動作)
 
         Args:
             key (str): 表示するノートの 'key' (ID)。
         """
         if self.df is None:
-            messagebox.showwarning("データなし", "CSVデータが読み込まれていません。")
+            messagebox.showwarning("データなし", "データベースが読み込まれていません。")
             return
 
         target_note_row = self.df[self.df['key'] == key]
@@ -598,30 +639,41 @@ class Synapsen_Nexus(ctk.CTk):
 
         note_data = target_note_row.iloc[0]
 
-        # プレビューウィンドウのインスタンスを作成
+        # プレビューウィンドウ (読み取り専用) のインスタンスを作成
         preview_win = NotePreviewWindow(self, note_data)
         preview_win.focus()  # ウィンドウにフォーカスを当てる
 
-    def show_details(self, index):
+    def show_details(self, row_data):
         """
         選択されたノートの詳細を右ペインに表示する。
-        utils.build_memo_display を使用してメモ欄を構築する。
 
         Args:
-            index (int): 表示するノートのDataFrameインデックス。
+            row_data (pd.Series): 表示するノートの行データ。
         """
-        if self.df is None or index not in self.df.index:
+        if not isinstance(row_data, pd.Series):
+            print(f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}")
+            self.clear_details()
             return
 
-        row = self.df.loc[index]
+        # 選択中の行データを保持し、ボタンを有効化
+        self.current_selected_row = row_data
+        self.edit_button.configure(state="normal")
+        self.delete_button.configure(state="normal")
+
+        row = row_data  # 分かりやすくするため
         self.title_label.configure(text=row.get('title', ''))
         self.key_label.configure(text=row.get('key', ''))
         self.cpkey_label.configure(text=row.get('commonplace_key', ''))
-        self.tags_label.configure(
-            text=str(row.get('tags', '')).replace(';', ', ')
-            )
 
-        # utilsの関数でメモ欄を構築
+        # タグ表示（文字列をリストに変換して表示）
+        tags_str = str(row.get('tags', ''))
+        tags_list = [tag for tag in tags_str.split(';') if tag]
+        self.tags_label.configure(text=", ".join(tags_list))
+
+        # メモ表示（リンク構築）
+        for widget in self.memo_display_frame.winfo_children():
+            widget.destroy()
+
         memo_text = str(row.get('memo', ''))
         frame_width = 450  # 詳細ペインのメモ欄の幅
 
@@ -643,7 +695,7 @@ class Synapsen_Nexus(ctk.CTk):
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            self.open_preview_window,  # リンククリック時のコールバック
+            self.open_preview_window,  # <-- リンククリック時のコールバック
             self.key_icons,
             self.key_colors
         )
@@ -695,6 +747,92 @@ class Synapsen_Nexus(ctk.CTk):
             self.loaded_db_path,
             self.pdf_root_folder
         )
+
+    def open_edit_dialog(self, note_data=None):
+        """
+        編集ボタン押下時、またはリンククリック時に編集ウィンドウを開く。
+        """
+        if note_data is None:
+            if self.current_selected_row is None:
+                messagebox.showerror("エラー", "編集するノートが選択されていません。")
+                return
+            note_data = self.current_selected_row
+
+        if self.df is None:
+            messagebox.showwarning("データなし", "データベースが読み込まれていません。")
+            return
+
+        # 編集ウィンドウ (書き込み可能) のインスタンスを作成
+        editor_win = NoteEditorWindow(
+            self,
+            note_data,
+            self.commonplace_key_options,
+            self.predefined_tags,
+            self.save_edit_callback  # <-- 保存時に呼んでほしい関数
+        )
+        editor_win.focus()  # ウィンドウにフォーカスを当てる
+
+    def save_edit_callback(self, new_data_dict):
+        """
+        編集ウィンドウ(NoteEditorWindow)の保存ボタンから呼び出される。
+
+        Args:
+            new_data_dict (dict): 編集された新しいノートデータ。
+        """
+        if not self.loaded_db_path:
+            raise Exception("データベースのパスが不明です。")
+
+        key_to_update = new_data_dict.get("key")
+        if not key_to_update:
+            raise Exception("更新対象のKeyが不明です。")
+
+        # 1. utilsのDB更新関数を呼び出す
+        update_note_in_db(self.loaded_db_path, key_to_update, new_data_dict)
+
+        # 2. 変更をUIに反映するため、DBを再読み込み
+        print(f"ノート {key_to_update} を更新しました。DBを再読み込みします。")
+        self.load_db_from_path(self.loaded_db_path)
+
+    def confirm_delete_note(self):
+        """
+        削除ボタン押下時。確認ダイアログを表示する。
+        """
+        if self.current_selected_row is None:
+            messagebox.showerror("エラー", "削除するノートが選択されていません。")
+            return
+
+        key_to_delete = self.current_selected_row.get("key")
+        title_to_delete = self.current_selected_row.get("title")
+
+        if not key_to_delete:
+            messagebox.showerror("エラー", "Keyが不明なため削除できません。")
+            return
+
+        # 最終確認
+        answer = messagebox.askyesno(
+            "削除の最終確認",
+            f"以下のノートをマスターデータベースから完全に削除しますか？\n\n"
+            f"Key: {key_to_delete}\n"
+            f"Title: {title_to_delete}\n\n"
+            f"この操作は元に戻せません。",
+            parent=self
+        )
+
+        if answer:  # Yesが押されたら
+            try:
+                # 1. utilsのDB削除関数を呼び出す
+                delete_note_from_db(self.loaded_db_path, key_to_delete)
+
+                # 2. 変更をUIに反映するため、DBを再読み込み
+                print(f"ノート {key_to_delete} を削除しました。DBを再読み込みします。")
+                self.load_db_from_path(self.loaded_db_path)
+
+                messagebox.showinfo(
+                    "削除完了", f"ノート {key_to_delete} を削除しました。", parent=self)
+
+            except Exception as e:
+                messagebox.showerror(
+                    "削除エラー", f"データベースからの削除に失敗しました:\n{e}", parent=self)
 
 
 if __name__ == "__main__":
