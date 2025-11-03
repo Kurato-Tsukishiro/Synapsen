@@ -93,3 +93,33 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "full_text": "",
             "is_warning": True
         }
+
+
+# ==============================================================================
+# full_text 抽出ヘルパー関数
+# ==============================================================================
+def get_full_text(pdf_path: Path) -> str:
+    """
+    指定されたPDFファイルから埋め込みテキスト（full_text）のみを抽出する。
+    get_note_info のテキスト抽出部分と同一のロジック。
+
+    Args:
+        pdf_path (Path): 処理対象のPDFパス。
+
+    Returns:
+        str: 抽出されたテキスト。
+    """
+    full_text = ""
+    doc = None
+    try:
+        doc = fitz.open(pdf_path)
+        # 全ページのテキストを抽出 (埋め込まれたOCRテキストを含む)
+        for page in doc:
+            full_text += page.get_text("text", sort=True) + "\n"
+        return full_text.strip()
+    except Exception as e:
+        print(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
+        return ""  # エラー時は空文字を返す
+    finally:
+        if doc:
+            doc.close()  # 確実に閉じる

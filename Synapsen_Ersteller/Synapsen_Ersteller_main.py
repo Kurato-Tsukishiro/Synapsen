@@ -301,6 +301,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     row["tags"] = row.get("tags", "").split(";") if row.get("tags") else []
                     row["pages"] = int(row.get("pages", 0))
                     row["is_warning"] = row.get("date") in ["日付不明", "読み込み失敗"]
+                    row["full_text"] = row.get("full_text", "")
                     new_notes_info.append(row)
             self.all_notes_info = new_notes_info
             self.update_note_list()
@@ -563,6 +564,37 @@ class Synapsen_Ersteller(ctk.CTk):
         if not self.all_notes_info:
             self.label.configure(text="PDF生成対象のデータがありません。")
             return
+
+        self.label.configure(text="PDFから本文(full_text)を抽出中...")
+        self.update_idletasks()
+
+        missing_text_count = 0
+        for note in self.all_notes_info:
+            # メモリ上の full_text が空の場合のみ、PDFから再取得
+            if not note.get("full_text"):
+                pdf_path = Path(note.get("filepath", ""))
+                if pdf_path.is_file():
+                    try:
+                        # pdf_processor.py の新しいヘルパー関数を呼ぶ
+                        extracted_text = Process.get_full_text(pdf_path)
+                        note["full_text"] = extracted_text
+                        if not extracted_text:
+                            missing_text_count += 1
+                    except Exception as e:
+                        print(f"警告: {pdf_path.name} のfull_text抽出に失敗: {e}")
+                else:
+                    print(
+                        f"警告: {note.get('title')} のファイルパスが見つかりません" +
+                        "（full_text取得不可）。"
+                        )
+
+        if missing_text_count > 0:
+            print(
+                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした" +
+                "（画像のみのPDFの可能性）。")
+
+        self.label.configure(text="PDF生成中... しばらくお待ちください。")  # 元のラベルに戻す
+        self.update_idletasks()
 
         dialog = Dialogs.DateInputDialog(self)
         date_input = dialog.get_input()
