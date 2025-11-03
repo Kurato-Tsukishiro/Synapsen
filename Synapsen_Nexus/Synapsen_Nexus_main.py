@@ -7,7 +7,7 @@ import sys
 
 # 分割したモジュールをインポート
 from utils import (
-    load_app_config, load_csv_data_file, open_pdf_viewer,
+    load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df
 )
 from search_parser import parse_or_expression
@@ -39,7 +39,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.key_colors = {}  # IndexKeyごとの色
         self.commonplace_keys_options = []  # IndexKeyの全オプション
         self.predefined_tags = []  # オートコンプリート用のタグリスト
-        self.loaded_csv_path = None  # 現在開いているCSVのパス
+        self.loaded_db_path = None  # 現在開いているDBのパス
         self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
 
@@ -99,14 +99,13 @@ class Synapsen_Nexus(ctk.CTk):
             # フィルターチェックボックスをUIに反映
             self.populate_key_filters()
 
-            # デフォルトCSVが設定されていれば自動で読み込む
-            default_csv_path = config_data.get('default_csv_path')
-            if default_csv_path and default_csv_path.is_file():
-                self.load_csv_from_path(default_csv_path)
-                # print(f"[DEBUG] CSV: {default_csv_path}")
+            # デフォルトDBが設定されていれば自動で読み込む
+            default_db_path = config_data.get('database_path')
+            if default_db_path and default_db_path.is_file():
+                self.load_db_from_path(default_db_path)
             else:
-                if default_csv_path:
-                    print(f"デフォルトCSVが見つかりません: {default_csv_path}")
+                if default_db_path:
+                    print(f"デフォルトデータベースが見つかりません: {default_db_path}")
                 self.perform_search()  # 空の状態で検索を実行
 
         except FileNotFoundError as e:
@@ -127,7 +126,7 @@ class Synapsen_Nexus(ctk.CTk):
         top_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkButton(
-            top_frame, text="目次CSVファイルを開く", command=self.load_csv_data
+            top_frame, text="目次データベースを開く", command=self.load_database_dialog
         ).pack(side="left", padx=5)
 
         search_container = ctk.CTkFrame(top_frame, fg_color="transparent")
@@ -420,29 +419,28 @@ class Synapsen_Nexus(ctk.CTk):
                     icon_label.pack(side="left", padx=2)
 
     # --- データ読み込み・検索実行メソッド ---
-
-    def load_csv_data(self):
-        """「目次CSVファイルを開く」ボタンの動作。ファイルダイアログを開く。"""
+    def load_database_dialog(self):
+        """「目次データベースを開く」ボタンの動作。ファイルダイアログを開く。"""
         filepath = filedialog.askopenfilename(
-            title="目次CSVファイルを選択",
-            filetypes=[("CSV files", "*.csv")]
+            title="目次データベースファイルを選択",
+            filetypes=[("SQLite Database", "*.db"), ("All files", "*.*")]
         )
         if not filepath:
             return
-        self.load_csv_from_path(filepath)
+        self.load_db_from_path(Path(filepath))
 
-    def load_csv_from_path(self, filepath):
+    def load_db_from_path(self, filepath: Path):
         """
-        指定されたパスからCSVを読み込み、DataFrameを更新する。
-        utils.load_csv_data_file を使用する。
+        指定されたパスからDBを読み込み、DataFrameを更新する。
+        utils.load_sql_data_file を使用する。
 
         Args:
-            filepath (str or Path): 読み込むCSVファイルのパス。
+            filepath (Path): 読み込むDBファイルのパス。
         """
         try:
             # utilsの関数でDataFrameを読み込む
-            self.df = load_csv_data_file(filepath)
-            self.loaded_csv_path = filepath
+            self.df = load_sql_data_file(filepath)
+            self.loaded_db_path = filepath
 
             # UIをリセット・更新
             self.perform_search()
@@ -451,7 +449,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.sync_filter_panel_view()
 
         except Exception as e:
-            messagebox.showerror("CSV読み込みエラー", str(e))
+            messagebox.showerror("データベース読み込みエラー", str(e))
 
     def populate_key_filters(self):
         """config.iniの情報に基づき、IndexKeyフィルターのUIを構築する。"""
@@ -694,7 +692,7 @@ class Synapsen_Nexus(ctk.CTk):
         # utilsの関数に、必要な設定値（パス情報）と共に渡す
         open_pdf_viewer(
             row_data,
-            self.loaded_csv_path,
+            self.loaded_db_path,
             self.pdf_root_folder
         )
 
