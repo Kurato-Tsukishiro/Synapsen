@@ -53,13 +53,13 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame, text="フォルダから新規読み込み", command=self.scan_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="CSVから読み込み", command=self.load_from_csv
+            top_button_frame, text="リスト読込 (CSV)", command=self.load_from_csv
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="フォルダと同期", command=self.sync_with_folder
+            top_button_frame, text="リストをフォルダと同期", command=self.sync_with_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="CSVに保存", command=self.save_to_csv
+            top_button_frame, text="リスト保存 (CSV)", command=self.save_to_csv
             ).pack(side="left", padx=5)
         ctk.CTkButton(
             top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
