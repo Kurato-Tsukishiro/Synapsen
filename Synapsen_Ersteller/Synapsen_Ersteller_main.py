@@ -29,7 +29,8 @@ class Synapsen_Ersteller(ctk.CTk):
         self.title("Synapse Ersteller")
         self.geometry("800x700")
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        # ボタン用に row=1, 2 を確保し、リスト用に row=3 の weight を 1 に設定
+        self.grid_rowconfigure(3, weight=1)
 
         # 用紙サイズを保持する変数
         self.paper_size = "A4"  # デフォルト
@@ -42,35 +43,67 @@ class Synapsen_Ersteller(ctk.CTk):
         self.predefined_tags = []
         self.load_predefined_tags()
 
+        # 一括編集機能のための選択状態保持
+        self.selected_notes = set()  # 選択されたノートの 'key' を保持する
+
         self.label = ctk.CTkLabel(
             self, text="Synapsen Normalisiererで処理済みのフォルダを読み込んでください。"
             )
         self.label.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
+        # --- 1段目のボタフレーム (ファイル操作 + PDF生成) ---
         top_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         top_button_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+
+        # フォルダ/CSV操作 (左側)
+        load_frame = ctk.CTkFrame(top_button_frame, fg_color="transparent")
+        load_frame.pack(side="left", padx=0)
         ctk.CTkButton(
-            top_button_frame, text="フォルダから新規読み込み", command=self.scan_folder
+            load_frame, text="フォルダから新規読み込み", command=self.scan_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="リスト読込 (CSV)", command=self.load_from_csv
+            load_frame, text="リスト読込 (CSV)", command=self.load_from_csv
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="リストをフォルダと同期", command=self.sync_with_folder
+            load_frame, text="リストをフォルダと同期", command=self.sync_with_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="リスト保存 (CSV)", command=self.save_to_csv
+            load_frame, text="リスト保存 (CSV)", command=self.save_to_csv
             ).pack(side="left", padx=5)
+
+        # PDF生成 (右側)
         ctk.CTkButton(
             top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
             fg_color="green", hover_color="darkgreen"
-            ).pack(side="left", padx=10)
+            ).pack(side="right", padx=10)  # 1段目の右側に配置
+
+        # --- 2段目のボタフレーム (一括編集) ---
+        batch_button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        batch_button_frame.grid(row=2, column=0, padx=10, pady=0, sticky="ew")
+
+        self.batch_edit_button = ctk.CTkButton(
+            batch_button_frame, text="一括編集 (0)",
+            command=self.open_batch_editor,
+            state="disabled",
+            fg_color="#585a9c",      # 桔梗色
+            hover_color="#494B83"   # 濃い桔梗色
+        )
+        self.batch_edit_button.pack(side="left", padx=5)
+
+        self.deselect_all_button = ctk.CTkButton(
+            batch_button_frame, text="選択解除",
+            command=self.deselect_all,
+            state="disabled",
+            fg_color="#6C757D",      # セカンダリ・グレー
+            hover_color="#5A6268"   # 濃いグレー
+        )
+        self.deselect_all_button.pack(side="left", padx=5)
 
         self.scrollable_frame = ctk.CTkScrollableFrame(
             self, label_text="読み込み結果"
             )
         self.scrollable_frame.grid(
-            row=2, column=0, padx=10, pady=10, sticky="nsew"
+            row=3, column=0, padx=10, pady=10, sticky="nsew"
             )
 
     def get_icon_path(self):
@@ -171,7 +204,10 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.font_path = os.path.join(config_dir, expanded_path)
-            # print(f"[DEBUG] Font path is RELATIVE, resolved to: {self.font_path}")
+            # print(
+            #     "[DEBUG] Font path is RELATIVE," +
+            #     f" resolved to: {self.font_path}"
+            #    )
 
         # 5. tags_data_pathの解決
         tags_path_from_config = config.get(
@@ -184,7 +220,7 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.tags_data_path = os.path.join(
-                config_dir, expanded_path
+                config_dir, tags_path_from_config
                 )
 
         # 6. default_db_path (追記先のマスターDBパス) の解決
@@ -304,6 +340,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     row["full_text"] = row.get("full_text", "")
                     new_notes_info.append(row)
             self.all_notes_info = new_notes_info
+            self.deselect_all()  # 読み込み時は選択をリセット
             self.update_note_list()
             self.label.configure(text=f"読み込み完了: {os.path.basename(filepath)}")
         except Exception as e:
@@ -471,12 +508,17 @@ class Synapsen_Ersteller(ctk.CTk):
             print(f"DEBUG: {keys_inherited_count}件のサイドノートにIndex Keyを継承しました。")
 
         self.all_notes_info.sort(key=lambda note: (note['date'], note['time']))
+        self.deselect_all()  # 読み込み時は選択をリセット
         self.update_note_list()
         self.label.configure(text=f"読み込み完了！ {len(self.all_notes_info)}件のファイルを読み込みました。")
 
     def update_note_list(self):
+        """
+        リストUIを再描画する。
+        """
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
+
         if not self.all_notes_info:
             ctk.CTkLabel(
                 self.scrollable_frame, text="PDFファイルが見つかりませんでした。"
@@ -484,11 +526,34 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             default_text_color = ("#1F1F1F", "#1F1F1F")
             warning_text_color = ("#f08300", "#FF4500")
+
             for note_data in self.all_notes_info:
                 row_frame = ctk.CTkFrame(
                     self.scrollable_frame,
                     fg_color="transparent"
                 )
+
+                # チェックボックスの追加
+                note_key = note_data.get('key')
+                # チェックボックスの状態を self.selected_notes と同期
+                var = ctk.StringVar(
+                    value='on' if note_key and note_key in self.selected_notes else 'off')
+
+                checkbox = ctk.CTkCheckBox(
+                    row_frame, text="",
+                    variable=var,
+                    onvalue='on', offvalue='off',
+                    width=25,
+                    # チェックボックスが押されたら toggle_selection を呼ぶ
+                    command=lambda note=note_data, v=var: self.toggle_selection(note, v.get())
+                )
+                # keyがないノート (読み込み失敗など) は選択不可に
+                if not note_key:
+                    checkbox.configure(state="disabled")
+
+                checkbox.pack(side="left", padx=(0, 5))
+
+                # --- アイコン ---
                 cp_key = note_data.get('commonplace_key', '')
                 icon = self.key_icons.get(cp_key.lower(), '')
                 icon_color = self.key_colors.get(
@@ -501,8 +566,11 @@ class Synapsen_Ersteller(ctk.CTk):
                         text=icon, text_color=icon_color, font=("", 14)
                         )
                     icon_label.pack(side="left", padx=(0, 5))
-                key_display = f" [ID: {note_data.get('key')}]" if note_data.get('key') else ""
+
+                # --- テキストラベル ---
+                key_display = f" [ID: {note_key}]" if note_key else ""
                 tags_display = " [タグ: " + ", ".join(sorted(note_data.get("tags", []))) + "]" if note_data.get("tags") else ""
+
                 if note_data.get("is_warning"):
                     display_text = f"【警告】[{note_data.get('date')}] {note_data.get('title')}{key_display}{tags_display}"
                     text_color = warning_text_color
@@ -511,19 +579,24 @@ class Synapsen_Ersteller(ctk.CTk):
                     time_display = f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
                     display_text = f"日付: {note_data.get('date')} {time_display},{key_display} タイトル: {note_data.get('title')}{tags_display}"
                     text_color = default_text_color
+
                 text_label = ctk.CTkLabel(
                     row_frame,
                     text=display_text, text_color=text_color, anchor="w"
                     )
                 text_label.pack(side="left")
+
+                # バインドの変更
+                # ラベルクリックで「個別編集」を開く
                 command = lambda e, note=note_data: self.open_data_editor(note)
-                row_frame.bind("<Button-1>", command)
                 text_label.bind("<Button-1>", command)
                 if 'icon_label' in locals() and icon_label.winfo_exists():
                     icon_label.bind("<Button-1>", command)
+
                 row_frame.pack(fill="x", padx=5, pady=2)
 
-    def _copy_bookmarks_recursive(self, outline_items, writer, reader, parent=None):
+    def _copy_bookmarks_recursive(
+            self, outline_items, writer, reader, parent=None):
         """
         pypdfの目次(outline)の階層構造を再帰的にたどり、writerにコピーする関数
         """
@@ -553,7 +626,8 @@ class Synapsen_Ersteller(ctk.CTk):
         for note in self.all_notes_info:
             session_tags.update(note.get('tags', []))
         combined_tags = session_tags.union(set(self.predefined_tags))
-        if hasattr(self, 'editor_window') and self.editor_window.winfo_exists():
+        if hasattr(
+                self, 'editor_window') and self.editor_window.winfo_exists():
             self.editor_window.focus()
             return
         self.editor_window = Dialogs.DataEditorWindow(
@@ -851,7 +925,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     msg = (f"統合PDFの生成が完了しました。\n"
                            f"PDF: {pdf_name}\n\n"
                            f"（マスターDBへの追記、個別CSVの保存は両方無効です）")
-                    self.label.configure(text=f"成功！ 統合PDFを生成しました（保存なし）。")
+                    self.label.configure(text="成功！ 統合PDFを生成しました（保存なし）。")
 
                 messagebox.showinfo("成功", msg)
 
@@ -894,22 +968,143 @@ class Synapsen_Ersteller(ctk.CTk):
                         ) not in deleted_paths
                     ]
                 deleted_count = len(deleted_paths)
+                # 削除されたノートが選択されていた場合、選択状態からも削除
+                keys_in_memory = {note.get('key') for note in self.all_notes_info}
+                self.selected_notes = self.selected_notes.intersection(keys_in_memory)
+
         if added_paths:
             for path in sorted(list(added_paths)):
                 info = Process.get_note_info(Path(path), self.key_rect)
                 if info:
                     self.all_notes_info.append(info)
             added_count = len(added_paths)
+
         if added_count > 0 or deleted_count > 0:
             self.all_notes_info.sort(
                 key=lambda note: (note['date'], note['time'])
                 )
-            self.update_note_list()
+            self.update_note_list()  # UIを再描画
+            self.update_batch_buttons_state()  # ボタン状態を更新
             self.label.configure(
                 text=f"同期完了！ {added_count}件追加, {deleted_count}件削除"
                 )
         else:
             self.label.configure(text="変更はありませんでした。")
+
+    def toggle_selection(self, note_data, state_str):
+        """
+        チェックボックスがクリックされたときに呼び出され、
+        ノートの選択状態を切り替える。
+        """
+        key = note_data.get('key')
+        if not key:
+            return  # key がないノートは選択不可
+
+        if state_str == 'on':
+            self.selected_notes.add(key)
+        else:
+            self.selected_notes.discard(key)   # removeと違い、存在しなくてもエラーにならない
+
+        self.update_batch_buttons_state()
+
+    def update_batch_buttons_state(self):
+        """
+        選択されているノートの数に応じて、
+        一括編集ボタンと選択解除ボタンの状態を更新する。
+        """
+        count = len(self.selected_notes)
+        if count > 0:
+            self.batch_edit_button.configure(
+                text=f"一括編集 ({count})", state="normal"
+                )
+            self.deselect_all_button.configure(state="normal")
+        else:
+            self.batch_edit_button.configure(
+                text="一括編集 (0)", state="disabled"
+                )
+            self.deselect_all_button.configure(state="disabled")
+
+    def deselect_all(self):
+        """
+        すべてのノートの選択を解除し、UIを更新する。
+        """
+        self.selected_notes.clear()
+        self.update_batch_buttons_state()
+        self.update_note_list()  # チェックボックスをすべて外すために再描画
+
+    def open_batch_editor(self):
+        """
+        「一括編集」ボタンが押されたときに、
+        一括編集ダイアログ (BatchEditWindow) を開く。
+        """
+        if not self.selected_notes:
+            return
+
+        # ダイアログの「既存タグから選択」で使うためのタグリストを作成
+        session_tags = set()
+        for note in self.all_notes_info:
+            session_tags.update(note.get('tags', []))
+        combined_tags = session_tags.union(set(self.predefined_tags))
+
+        # gui_dialogs.py に追加した BatchEditWindow を呼び出す
+        dialog = Dialogs.BatchEditWindow(
+            self,
+            len(self.selected_notes),
+            list(combined_tags),
+            self.commonplace_key_options
+        )
+
+        # ダイアログの結果待機
+        result = dialog.get_input()
+
+        if result:
+            # ユーザーが「適用」を押した場合
+            self.apply_batch_edits(
+                result.get('index_key'),
+                result.get('tags_to_add', []),
+                result.get('tags_to_remove', [])
+            )
+
+    def apply_batch_edits(self, index_key_to_set, tags_to_add, tags_to_remove):
+        """
+        BatchEditWindow で指定された内容に基づき、
+        選択中のすべてのノートのデータを変更する。
+        """
+        if index_key_to_set is None and not tags_to_add and not tags_to_remove:
+            print("一括編集: 変更内容がありません。")
+            return
+
+        modified_count = 0
+
+        # メモリ上の self.all_notes_info を直接変更
+        for note in self.all_notes_info:
+            note_key = note.get('key')
+            if note_key and note_key in self.selected_notes:
+
+                # 1. Index Key の設定
+                if index_key_to_set is not None:
+                    note['commonplace_key'] = index_key_to_set
+
+                # 2. タグの変更
+                current_tags = set(note.get('tags', []))
+
+                # 2a. タグの追加 (階層も考慮)
+                for tag_to_add in tags_to_add:
+                    parts = tag_to_add.split('_')
+                    for i in range(len(parts)):
+                        hierarchical_tag = "_".join(parts[:i+1])
+                        current_tags.add(hierarchical_tag)
+
+                # 2b. タグの削除
+                current_tags.difference_update(tags_to_remove)
+
+                note['tags'] = sorted(list(current_tags))
+                modified_count += 1
+
+        print(f"{modified_count} 件のノートを一括編集しました。")
+
+        # 変更をUIに反映
+        self.deselect_all()  # 選択解除 (UI再描画も含まれる)
 
 
 if __name__ == "__main__":

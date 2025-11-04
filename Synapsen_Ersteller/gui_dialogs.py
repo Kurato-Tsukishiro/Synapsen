@@ -185,14 +185,18 @@ class TagSelectorWindow(ctk.CTkToplevel):
         super().__init__(parent)
 
         self._custom_icon_path = None
-        
+
         # parent (DataEditorWindow) が 'parent' (メインアプリ) 属性を持ち、
         # かつ、その 'parent' (メインアプリ) が 'icon_path' を持っているか確認
-        if hasattr(parent, 'parent') and hasattr(parent.parent, 'icon_path') and parent.parent.icon_path:
-            
+        if hasattr(
+                parent, 'parent'
+                ) and hasattr(
+                    parent.parent, 'icon_path'
+                    ) and parent.parent.icon_path:
+
             # メインアプリ (parent.parent) の icon_path を直接取得
             self._custom_icon_path = str(parent.parent.icon_path)
-            
+
             if self._custom_icon_path:
                 try:
                     super().iconbitmap(self._custom_icon_path)
@@ -320,6 +324,281 @@ class DateInputDialog(ctk.CTkToplevel):
                 pass
         else:
             # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
+
+# ==============================================================================
+# 既存タグ選択ウィンドウ (BatchEditWindow用)
+# ==============================================================================
+class BatchTagSelectorWindow(ctk.CTkToplevel):
+    """
+    BatchEditWindow が「追加するタグ」を選択するために使用するウィンドウ。
+    DataEditorWindow が使う TagSelectorWindow とほぼ同じだが、
+    アイコンの参照元が異なるため別クラスとして定義する。
+    """
+    def __init__(self, parent, all_tags, current_tags):
+        super().__init__(parent)
+
+        self._custom_icon_path = None
+
+        # parent (BatchEditWindow) が 'parent' (メインアプリ) 属性を持ち、
+        # かつ、その 'parent' (メインアプリ) が 'icon_path' を持っているか確認
+        if hasattr(
+                parent, 'parent'
+                ) and hasattr(
+                    parent.parent, 'icon_path'
+                    ) and parent.parent.icon_path:
+
+            # メインアプリ (parent.parent) の icon_path を直接取得
+            self._custom_icon_path = str(parent.parent.icon_path)
+
+            if self._custom_icon_path:
+                try:
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error (BatchTagSelector): {e}")
+
+        self.selection = None
+        self.title("既存のタグを選択")
+        self.geometry("300x400")
+        self.transient(parent)
+        self.grab_set()
+        scroll_frame = ctk.CTkScrollableFrame(self)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
+        for tag in tags_to_show:
+            btn = ctk.CTkButton(
+                scroll_frame,
+                text=tag,
+                text_color=("#1F1F1F", "#1F1F1F"),
+                fg_color="transparent",
+                anchor="w",
+                command=lambda t=tag: self.select_tag(t)
+            )
+            btn.pack(fill="x")
+
+    def select_tag(self, tag):
+        self.selection = tag
+        self.destroy()
+
+    def get_selection(self):
+        self.master.wait_window(self)
+        return self.selection
+
+    def iconbitmap(self, *args, **kwargs):
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
+
+# ==============================================================================
+# 一括編集ウィンドウ
+# ==============================================================================
+class BatchEditWindow(ctk.CTkToplevel):
+    def __init__(
+            self, parent, selected_count, all_tags, commonplace_key_options):
+        super().__init__(parent)
+        self.parent = parent
+        self.all_tags = all_tags
+        self.commonplace_key_options = commonplace_key_options
+        self.result = None
+
+        # 一時的なタグリスト
+        self.tags_to_add = []
+        self.tags_to_remove = []
+
+        self._custom_icon_path = None
+        if hasattr(parent, 'icon_path') and parent.icon_path:
+            self._custom_icon_path = str(parent.icon_path)
+            if self._custom_icon_path:
+                try:
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    print(f"Initial icon set error: {e}")
+
+        self.title(f"一括編集 ({selected_count} 件)")
+        self.geometry("600x700")
+        self.transient(parent)
+        self.grab_set()
+
+        # --- 1. Index Key ---
+        cp_key_frame = ctk.CTkFrame(self)
+        cp_key_frame.pack(pady=10, padx=10, fill="x")
+        ctk.CTkLabel(
+            cp_key_frame,
+            text="Index Key を設定:",
+            width=150,
+            anchor="w"
+        ).pack(side="left")
+
+        # [変更しない] オプションを追加
+        cp_key_values = ["[ 変更しない ]"] + self.commonplace_key_options
+        self.cp_key_combo = ctk.CTkComboBox(
+            cp_key_frame,
+            values=cp_key_values
+        )
+        self.cp_key_combo.pack(side="left", expand=True, fill="x")
+        self.cp_key_combo.set("[ 変更しない ]")  # デフォルト
+
+        # --- 2. 追加するタグ ---
+        add_tag_frame = ctk.CTkFrame(self)
+        add_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        ctk.CTkLabel(add_tag_frame, text="追加するタグ:").pack(anchor="w")
+
+        add_tag_input_frame = ctk.CTkFrame(
+            add_tag_frame, fg_color="transparent")
+        add_tag_input_frame.pack(pady=5, fill="x")
+        self.add_tag_entry = ctk.CTkEntry(
+            add_tag_input_frame,
+            placeholder_text="Enterで追加"
+        )
+        self.add_tag_entry.pack(
+            side="left", padx=(0, 5), expand=True, fill="x")
+        self.add_tag_entry.bind("<Return>", self.add_tag_to_add_list)
+        ctk.CTkButton(
+            add_tag_input_frame,
+            text="既存タグから選択",
+            command=self.open_tag_selector_for_add
+        ).pack(side="left")
+
+        self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
+        self.add_tags_display_frame.pack(fill="both", expand=True)
+
+        # --- 3. 削除するタグ ---
+        remove_tag_frame = ctk.CTkFrame(self)
+        remove_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        ctk.CTkLabel(remove_tag_frame, text="削除するタグ:").pack(anchor="w")
+
+        remove_tag_input_frame = ctk.CTkFrame(
+            remove_tag_frame, fg_color="transparent")
+        remove_tag_input_frame.pack(pady=5, fill="x")
+        self.remove_tag_entry = ctk.CTkEntry(
+            remove_tag_input_frame,
+            placeholder_text="Enterで追加"
+        )
+        self.remove_tag_entry.pack(
+            side="left", padx=(0, 5), expand=True, fill="x")
+        self.remove_tag_entry.bind("<Return>", self.add_tag_to_remove_list)
+
+        self.remove_tags_display_frame = ctk.CTkScrollableFrame(
+            remove_tag_frame)
+        self.remove_tags_display_frame.pack(fill="both", expand=True)
+
+        # --- 4. 適用 / キャンセルボタン ---
+        bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_button_frame.pack(pady=10, side="bottom")
+        ctk.CTkButton(
+            bottom_button_frame,
+            text="適用",
+            command=self.apply_changes
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            bottom_button_frame,
+            text="キャンセル",
+            command=self.destroy
+        ).pack(side="left", padx=5)
+
+    def get_input(self):
+        self.master.wait_window(self)
+        return self.result
+
+    def apply_changes(self):
+        index_key_to_set = self.cp_key_combo.get()
+        if index_key_to_set == "[ 変更しない ]":
+            index_key_to_set = None  # 変更しない場合は None を返す
+
+        self.result = {
+            'index_key': index_key_to_set,
+            'tags_to_add': self.tags_to_add,
+            'tags_to_remove': self.tags_to_remove
+        }
+        self.destroy()
+
+    # --- 「追加するタグ」リストの管理 ---
+    def add_tag_to_add_list(self, event=None):
+        new_tag = self.add_tag_entry.get().strip()
+        if new_tag:
+            parts = new_tag.split('_')
+            for i in range(len(parts)):
+                hierarchical_tag = "_".join(parts[:i+1])
+                if hierarchical_tag not in self.tags_to_add:
+                    self.tags_to_add.append(hierarchical_tag)
+        self.update_add_tags_display()
+        self.add_tag_entry.delete(0, "end")
+
+    def remove_tag_from_add_list(self, tag_to_remove):
+        self.tags_to_add.remove(tag_to_remove)
+        self.update_add_tags_display()
+
+    def update_add_tags_display(self):
+        for widget in self.add_tags_display_frame.winfo_children():
+            widget.destroy()
+        for tag in sorted(self.tags_to_add):
+            tag_frame = ctk.CTkFrame(self.add_tags_display_frame)
+            ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
+            ctk.CTkButton(
+                tag_frame,
+                text="x",
+                width=20,
+                command=lambda t=tag: self.remove_tag_from_add_list(t)
+            ).pack(side="left", padx=5)
+            tag_frame.pack(anchor="w", pady=2, fill="x")
+
+    def open_tag_selector_for_add(self):
+        selector = BatchTagSelectorWindow(
+            self, self.all_tags, self.tags_to_add)
+        selected_tag = selector.get_selection()
+        if selected_tag:
+            self.add_tag_entry.delete(0, "end")
+            self.add_tag_entry.insert(0, selected_tag)
+            self.add_tag_to_add_list()
+
+    # --- 「削除するタグ」リストの管理 ---
+    def add_tag_to_remove_list(self, event=None):
+        new_tag = self.remove_tag_entry.get().strip()
+        if new_tag and new_tag not in self.tags_to_remove:
+            # 削除は階層を考慮しない
+            self.tags_to_remove.append(new_tag)
+        self.update_remove_tags_display()
+        self.remove_tag_entry.delete(0, "end")
+
+    def remove_tag_from_remove_list(self, tag_to_remove):
+        self.tags_to_remove.remove(tag_to_remove)
+        self.update_remove_tags_display()
+
+    def update_remove_tags_display(self):
+        for widget in self.remove_tags_display_frame.winfo_children():
+            widget.destroy()
+        for tag in sorted(self.tags_to_remove):
+            tag_frame = ctk.CTkFrame(self.remove_tags_display_frame)
+            ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
+            ctk.CTkButton(
+                tag_frame,
+                text="x",
+                width=20,
+                command=lambda t=tag: self.remove_tag_from_remove_list(t)
+            ).pack(side="left", padx=5)
+            tag_frame.pack(anchor="w", pady=2, fill="x")
+
+    def iconbitmap(self, *args, **kwargs):
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
             try:
                 super().iconbitmap(*args, **kwargs)
             except Exception:
