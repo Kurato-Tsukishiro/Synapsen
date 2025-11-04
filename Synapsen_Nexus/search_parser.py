@@ -53,6 +53,7 @@ def evaluate_simple_term(df, term, include_full_text=False):
     Args:
         df (pd.DataFrame): 検索対象のDataFrame。
         term (str): 単純な検索語 (例: 'Python', 'title:Python')。
+        include_full_text (bool): グローバル検索時に本文も対象にするか。
 
     Returns:
         pd.Series: 検索条件に一致した行がTrueとなるboolマスク。
@@ -66,7 +67,9 @@ def evaluate_simple_term(df, term, include_full_text=False):
             'memo': 'memo',
             'cpkey': 'commonplace_key',
             'indexkey': 'commonplace_key',
-            'ikey': 'commonplace_key'  # IndexKeyとその略称でも検索可
+            'ikey': 'commonplace_key',  # IndexKeyのエイリアス
+            'fulltext': 'full_text',
+            'text': 'full_text'         # fulltextのエイリアス
     }
 
     target_column = None
@@ -95,6 +98,9 @@ def evaluate_simple_term(df, term, include_full_text=False):
             term_condition = df[target_column].str.contains(
                 final_search_term, case=False, na=False, regex=False
             )
+        # (もし target_column が 'full_text' であっても、
+        #  df['full_text'] が検索されるだけで、include_full_text フラグは不要)
+
     else:
         # --- グローバル検索: 主要な列を検索 ---
         term_condition = (
