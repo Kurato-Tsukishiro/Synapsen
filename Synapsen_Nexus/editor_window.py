@@ -211,6 +211,7 @@ class TagSelectorWindow(ctk.CTkToplevel):
             btn = ctk.CTkButton(
                 scroll_frame,
                 text=tag,
+                text_color=("#1F1F1F", "#1F1F1F"),
                 fg_color="transparent",
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t)

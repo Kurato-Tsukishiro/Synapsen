@@ -766,7 +766,7 @@ class Synapsen_Nexus(ctk.CTk):
         editor_win = NoteEditorWindow(
             self,
             note_data,
-            self.commonplace_key_options,
+            self.commonplace_keys_options,
             self.predefined_tags,
             self.save_edit_callback  # <-- 保存時に呼んでほしい関数
         )
