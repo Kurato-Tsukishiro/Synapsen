@@ -9,7 +9,8 @@ import sys
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df,
-    update_note_in_db, delete_note_from_db
+    update_note_in_db, delete_note_from_db,
+    get_pdf_page_image
 )
 from search_parser import parse_or_expression
 
@@ -30,7 +31,7 @@ class Synapsen_Nexus(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Nexus")
-        self.geometry("1200x800")
+
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(1, weight=1)
@@ -46,12 +47,37 @@ class Synapsen_Nexus(ctk.CTk):
         self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
 
+        # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
+        self.preview_image_object = None
+
         # --- オートコンプリート関連 ---
         self.selected_suggestion_index = -1
         self.current_suggestions = []
 
         self.create_widgets()
         self.load_config()
+
+        # ウィンドウが初めて表示されたら on_map を呼ぶ
+        self.bind("<Map>", self.on_map)
+
+        # 最大化失敗時のフォールバックサイズ指定
+        self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
+
+    # --- ▼ [追加] ウィンドウ表示（Map）イベントハンドラ ▼ ---
+    def on_map(self, event):
+        """
+        ウィンドウが初めて画面に描画されたときに呼び出される。
+        ここで最大化を実行する。
+        """
+        try:
+            # 2回目以降は実行されないよう、バインドを解除
+            self.unbind("<Map>")
+            # ウィンドウを最大化
+            self.state('zoomed')
+            print("[DEBUG] ウィンドウを最大化しました。")
+        except Exception as e:
+            print(f"ウィンドウの最大化に失敗しました: {e}")
+            # 最大化が失敗した場合 (try...exceptが無くても geometry がフォールバックになる)
 
     def get_icon_path(self):
         """
@@ -209,8 +235,10 @@ class Synapsen_Nexus(ctk.CTk):
             row=1, column=1, padx=(0, 10), pady=10, sticky="nsew"
             )
 
-        self.details_frame.grid_rowconfigure(5, weight=2)  # <--- メモ欄 (重み2)
-        self.details_frame.grid_rowconfigure(7, weight=1)  # <--- 引用元欄 (重み1)
+        # グリッドの行設定 (プレビュー領域、メモ、引用元のために変更)
+        self.details_frame.grid_rowconfigure(4, weight=1)  # <-- ★ PDFプレビュー
+        self.details_frame.grid_rowconfigure(6, weight=2)  # <-- ★ メモ欄 (重み2)
+        self.details_frame.grid_rowconfigure(8, weight=1)  # <-- ★ 引用元欄 (重み1)
         self.details_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -245,31 +273,46 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.tags_label.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
+        # 4. PDFプレビュー
+        self.pdf_preview_label = ctk.CTkLabel(
+            self.details_frame,
+            text="ノートを選択するとプレビューが表示されます",
+            fg_color="gray20",  # プレースホルダーの背景色
+            anchor="center",
+            text_color="gray70"  # プレースホルダーの文字色
+        )
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+        )
+
+        # 5. メモ (ラベル)
         ctk.CTkLabel(
             self.details_frame, text="メモ:", anchor="w"
-            ).grid(row=4, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=5, column=0, padx=10, pady=5, sticky="nw")
 
-        # メモ表示用 (utils.build_memo_display で中身が構築される)
+        # 6. メモ (スクロールフレーム)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame)
         self.memo_display_frame.grid(
-            row=5, column=1, padx=10, pady=5, sticky="nsew"
+            row=6, column=1, padx=10, pady=5, sticky="nsew"
             )
 
-        # 引用元欄
+        # 7. 引用元 (ラベル)
         ctk.CTkLabel(
             self.details_frame, text="引用元:", anchor="w"
-            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=7, column=0, padx=10, pady=5, sticky="nw")
 
+        # 8. 引用元 (スクロールフレーム)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.details_frame, label_text="このノートを引用しているノート"
             )
         self.references_display_frame.grid(
-            row=7, column=1, padx=10, pady=5, sticky="nsew"
+            row=8, column=1, padx=10, pady=5, sticky="nsew"
             )
 
+        # 9. 編集ボタン
         self.edit_button_frame = ctk.CTkFrame(
             self.details_frame, fg_color="transparent")
-        self.edit_button_frame.grid(row=8, column=0, columnspan=2, pady=10)
+        self.edit_button_frame.grid(row=9, column=0, columnspan=2, pady=10)
 
         self.edit_button = ctk.CTkButton(
             self.edit_button_frame,
@@ -603,6 +646,16 @@ class Synapsen_Nexus(ctk.CTk):
         self.cpkey_label.configure(text="")
         self.tags_label.configure(text="")
 
+        # --- PDFプレビューのクリア ▼ ---
+        self.preview_image_object = None
+        self.pdf_preview_label.configure(
+            image=None,
+            text="ノートを選択するとプレビューが表示されます",
+            fg_color="gray20",
+            text_color="gray70"
+        )
+        # -----------------------------------
+
         # 選択中ノートとボタンの状態をクリア
         self.current_selected_row = None
         self.edit_button.configure(state="disabled")
@@ -670,7 +723,43 @@ class Synapsen_Nexus(ctk.CTk):
         tags_list = [tag for tag in tags_str.split(';') if tag]
         self.tags_label.configure(text=", ".join(tags_list))
 
+        # --- ▼ PDFプレビューの表示 ▼ ---
+
+        max_preview_width = 225  # プレビュー表示の最大幅
+
+        pil_image = get_pdf_page_image(
+            row_data,
+            self.loaded_db_path,
+            self.pdf_root_folder,
+            max_width=max_preview_width
+        )
+
+        if pil_image:
+            # Pillow Image を CTkImage に変換
+            self.preview_image_object = ctk.CTkImage(
+                light_image=pil_image,
+                dark_image=pil_image,
+                size=(pil_image.width, pil_image.height)
+            )
+            # プレビュー用ラベルに画像を設定
+            self.pdf_preview_label.configure(
+                image=self.preview_image_object,
+                text="",  # テキストを削除
+                fg_color="transparent"  # 背景を透明に
+            )
+        else:
+            # 画像取得失敗
+            self.preview_image_object = None
+            self.pdf_preview_label.configure(
+                image=None,
+                text="プレビューの読み込みに失敗しました",
+                fg_color="gray20",
+                text_color="#D9534F"  # 赤色
+            )
+        # -----------------------------------
+
         # メモ表示（リンク構築）
+        # (row=6, column=1 の memo_display_frame を使用)
         for widget in self.memo_display_frame.winfo_children():
             widget.destroy()
 
@@ -686,6 +775,7 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
         # 引用元の検索と表示
+        # (row=8, column=1 の references_display_frame を使用)
         current_key = row.get('key', '')
 
         # utilsの新関数を使って引用元DFを取得
@@ -701,7 +791,6 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
     # --- PDF関連メソッド ---
-
     def jump_to_key(self, key):
         """
         (現在未使用) 指定されたキーを検索窓に入力し、検索する。

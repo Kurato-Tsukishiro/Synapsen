@@ -8,6 +8,9 @@ import re
 from pathlib import Path
 from tkinter import messagebox
 import sqlite3
+import fitz  # PyMuPDF (PDF画像化のために追加)
+from PIL import Image  # Pillow (PDF画像化のために追加)
+import io  # (PDF画像化のために追加)
 
 
 def load_app_config(base_path):
@@ -518,3 +521,106 @@ def _open_original_pdf(row_data, pdf_root_folder):
         webbrowser.open(pdf_path.as_uri())
     except Exception as e:
         messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
+
+
+def get_pdf_page_image(
+    row_data: pd.Series,
+    loaded_db_path: Path,
+    pdf_root_folder: Path,
+    max_width: int = 400
+):
+    """
+    ノートデータに基づき、該当するPDFの1ページ目（または指定ページ）を
+    Pillow の Image オブジェクトとして取得し、リサイズして返す。
+
+    Args:
+        row_data (pd.Series): 対象のノートデータ。
+        loaded_db_path (Path): 読み込まれているDBのパス。
+        pdf_root_folder (Path): 元のPDFのルートフォルダパス。
+        max_width (int): プレビュー画像の最大幅。
+
+    Returns:
+        Image.Image or None: 取得・リサイズされたPillowイメージ。
+                             失敗した場合は None。
+    """
+    pdf_path = None
+    page_num_to_open = 0  # 0-indexed
+
+    merged_pdf_filename = row_data.get('merged_pdf_filename')
+    start_page_str = row_data.get('merged_start_page')
+
+    # 1. 統合PDF (merged_pdf) が指定されているか
+    if merged_pdf_filename and not pd.isna(
+            start_page_str) and start_page_str != '':
+        if loaded_db_path:
+            pdf_path = loaded_db_path.parent / merged_pdf_filename
+            try:
+                # merged_start_page は 1-indexed なので、0-indexed に変換
+                page_num_to_open = int(start_page_str) - 1
+            except ValueError:
+                page_num_to_open = 0
+
+        if not pdf_path or not pdf_path.is_file():
+            print(f"[Preview Error] 統合PDFが見つかりません: {pdf_path}")
+            pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
+
+    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
+    if pdf_path is None:
+        if not pdf_root_folder or not pdf_root_folder.is_dir():
+            print("[Preview Error] pdf_root_folder が未設定または存在しません。")
+            return None
+
+        filename = row_data.get('filepath')
+        if not filename:
+            print("[Preview Error] filepath がデータに含まれていません。")
+            return None
+
+        pdf_path = pdf_root_folder / Path(filename).name
+        page_num_to_open = 0  # 元のPDFは常に1ページ目 (index 0)
+
+        if not pdf_path.is_file():
+            print(f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}")
+            return None
+
+    # 3. PyMuPDFでPDFを開き、ページを画像化
+    doc = None
+    try:
+        doc = fitz.open(pdf_path)
+        if not (0 <= page_num_to_open < len(doc)):
+            print(f"[Preview Error] 無効なページ番号: {page_num_to_open}")
+            if doc:
+                doc.close()
+            return None
+
+        page = doc[page_num_to_open]
+
+        # ページをPixmap（ピクセルマップ）としてレンダリング (DPI=150)
+        # DPIを上げると高画質になるが遅くなる
+        pix = page.get_pixmap(dpi=150)
+
+        # Pixmapからバイトデータを取得
+        img_data = pix.tobytes("png")
+        if not img_data:
+            if doc:
+                doc.close()
+            return None
+
+        # バイトデータからPillowイメージを開く
+        pil_image = Image.open(io.BytesIO(img_data))
+
+        # 4. アスペクト比を維持してリサイズ
+        if pil_image.width > max_width:
+            scale = max_width / pil_image.width
+            new_height = int(pil_image.height * scale)
+            pil_image = pil_image.resize(
+                (max_width, new_height), Image.Resampling.LANCZOS
+            )
+
+        return pil_image
+
+    except Exception as e:
+        print(f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}")
+        return None
+    finally:
+        if doc:
+            doc.close()

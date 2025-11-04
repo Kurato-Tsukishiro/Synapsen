@@ -1,7 +1,9 @@
 import customtkinter as ctk
+
 # utilsからメモ欄構築関数をインポート
 from utils import (
-    build_memo_display, find_backlinks_df, build_references_display
+    build_memo_display, find_backlinks_df, build_references_display,
+    get_pdf_page_image  # <-- [追加] PDF画像化ヘルパーをインポート
 )
 
 
@@ -31,6 +33,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.parent_app = parent_app  # メインアプリ本体
         self.note_data = note_data
 
+        # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
+        self.preview_image_object = None
+
         self._custom_icon_path = None  # 強制設定するアイコンパス
         if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
             self._custom_icon_path = str(parent_app.icon_path)
@@ -43,13 +48,17 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         title = self.note_data.get('title', 'N/A')
         self.title(f"プレビュー: {title}")
-        self.geometry("450x600")
+
+        # 縦サイズを 600 -> 750 に拡大
+        self.geometry("450x750")
         self.transient(parent_app)  # 常にメインウィンドウより手前に表示
-        self.grab_set()  # このウィンドウを閉じるまでメインを操作不可にする
 
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(5, weight=1)  # <--- メモ欄
-        self.grid_rowconfigure(7, weight=1)  # <--- 引用元欄
+
+        # [変更] グリッドの重み設定 (プレビュー、メモ、引用元)
+        self.grid_rowconfigure(4, weight=1)  # <-- ★ 4. PDFプレビュー
+        self.grid_rowconfigure(6, weight=1)  # <-- ★ 6. メモ欄
+        self.grid_rowconfigure(8, weight=1)  # <-- ★ 8. 引用元欄
 
         # --- ウィジェットの作成 (すべて読み取り専用) ---
 
@@ -90,33 +99,75 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self, text=tags_display, wraplength=300, justify="left", anchor="w"
             ).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
-        # 5. メモ (読み取り専用)
+        # 4. PDFプレビュー
+        self.pdf_preview_label = ctk.CTkLabel(
+            self,
+            text="プレビューを読込中...",
+            fg_color="gray20",
+            anchor="center",
+            text_color="gray70"
+        )
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+        )
+
+        # 5. メモ (ラベル)
         ctk.CTkLabel(
             self, text="メモ:", anchor="w"
-            ).grid(row=4, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=5, column=0, padx=10, pady=5, sticky="nw")
+
+        # 6. メモ (フレーム)
         self.memo_display_frame = ctk.CTkScrollableFrame(self)
         self.memo_display_frame.grid(
-            row=5, column=1, padx=10, pady=5, sticky="nsew"
+            row=6, column=1, padx=10, pady=5, sticky="nsew"
             )
         self._build_memo_display()
 
-        # 6. 引用元 (読み取り専用)
+        # 7. 引用元 (ラベル)
         ctk.CTkLabel(
             self, text="引用元:", anchor="w"
-            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=7, column=0, padx=10, pady=5, sticky="nw")
+
+        # 8. 引用元 (フレーム)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self, label_text="このノートを引用"
             )
         self.references_display_frame.grid(
-            row=7, column=1, padx=10, pady=5, sticky="nsew"
+            row=8, column=1, padx=10, pady=5, sticky="nsew"
             )
         self._build_references_display()
 
-        # 7. 「PDFを開く」ボタン
+        # 9. 「PDFを開く」ボタン
         pdf_button = ctk.CTkButton(
             self, text="PDFを開く", command=self.open_pdf_action
             )
-        pdf_button.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
+        pdf_button.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
+
+        # --- PDFプレビューの読み込み処理 ▼ ---
+        max_preview_width = 250  # プレビュー表示の最大幅
+        pil_image = get_pdf_page_image(
+            self.note_data,
+            self.parent_app.loaded_db_path,
+            self.parent_app.pdf_root_folder,
+            max_width=max_preview_width
+        )
+
+        if pil_image:
+            self.preview_image_object = ctk.CTkImage(
+                light_image=pil_image,
+                dark_image=pil_image,
+                size=(pil_image.width, pil_image.height)
+            )
+            self.pdf_preview_label.configure(
+                image=self.preview_image_object, text="",
+                fg_color="transparent"
+            )
+        else:
+            self.pdf_preview_label.configure(
+                text="プレビューの読み込みに失敗しました", text_color="#D9534F"
+            )
+
+        self.grab_set()  # このウィンドウを閉じるまでメインを操作不可にする
 
     def iconbitmap(self, *args, **kwargs):
         """
