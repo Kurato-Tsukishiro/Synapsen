@@ -5,9 +5,9 @@ import pandas as pd
 import configparser
 import webbrowser
 import re
-import re
 from pathlib import Path
 from tkinter import messagebox
+import sqlite3
 
 
 def load_app_config(base_path):
@@ -109,19 +109,19 @@ def load_app_config(base_path):
             except Exception as e:
                 print(f"tags.txtの読み込み中にエラー: {e}")
 
-        # デフォルトCSVパスの読み込み ([Paths] 'default_csv_path')
-        default_csv_path_str = parser.get(
-            'Paths', 'default_csv_path', fallback=''
+        # デフォルトDBパスの読み込み ([Paths] 'database_path')
+        default_db_path_str = parser.get(
+            'Paths', 'database_path', fallback=''
             )
-        if default_csv_path_str:
+        if default_db_path_str:
             # 環境変数を展開
-            csv_path = Path(os.path.expandvars(default_csv_path_str))
-            if not csv_path.is_absolute():
+            db_path = Path(os.path.expandvars(default_db_path_str))
+            if not db_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
-                csv_path = config_path.parent / csv_path
-            config_data['default_csv_path'] = csv_path.resolve()
+                db_path = config_path.parent / db_path
+            config_data['database_path'] = db_path.resolve()  # <-- キーを変更
         else:
-            config_data['default_csv_path'] = None
+            config_data['database_path'] = None
 
         return config_data
 
@@ -130,27 +130,46 @@ def load_app_config(base_path):
         raise Exception(f"config.iniの読み込みに失敗しました: {e}")
 
 
-def load_csv_data_file(filepath):
+def load_sql_data_file(filepath: Path):
     """
-    指定されたパスから目次CSVファイルを読み込み、DataFrameを返す。
+    指定されたパスからSynapsenのSQLiteデータベースファイルを読み込み、DataFrameを返す。
     必須列は文字列型(str)に変換する。
 
     Args:
-        filepath (str or Path): 読み込むCSVファイルのパス。
+        filepath (Path): 読み込むSQLiteデータベースファイルのパス。
 
     Returns:
         pd.DataFrame: 読み込まれたデータ。
 
     Raises:
-        Exception: CSVファイルの読み込みまたは処理に失敗した場合。
+        Exception: データベースの読み込みまたは処理に失敗した場合。
     """
+    if not filepath.is_file():
+        # DBファイルが存在しない場合、空のDataFrameを返す
+        print(f"データベースファイルが見つかりません: {filepath}")
+        # 空でもカラムは定義しておく (OCR機能で追加した full_text も含む)
+        cols = [
+            'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
+            'full_text', 'time', 'pages', 'filepath',
+            'merged_pdf_filename', 'merged_start_page'
+        ]
+        return pd.DataFrame(columns=cols)
+
     try:
-        df = pd.read_csv(filepath, encoding='utf-8-sig').fillna('')
+        conn = sqlite3.connect(filepath)
+        # 'notes' テーブルから全データを読み込む
+        df = pd.read_sql_query("SELECT * FROM notes", conn)
+        conn.close()
+
+        df = df.fillna('')
         df.columns = df.columns.str.strip()
 
         # 検索対象となる主要な列を文字列型(str)として明示的に変換
-        # これにより、数値キーなどが検索できなくなる問題を回避する
-        for col in ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date']:
+        # (OCR機能で追加した 'full_text' も含む)
+        for col in [
+            'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
+            'full_text', 'time', 'pages', 'merged_start_page'
+        ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
             else:
@@ -160,10 +179,16 @@ def load_csv_data_file(filepath):
         return df
     except Exception as e:
         # エラーをラップして呼び出し元 (main.py) で処理する
-        raise Exception(f"CSVファイルの読み込みに失敗しました:\n{filepath}\n\n{e}")
+        raise Exception(f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}")
 
 
-def build_memo_display(parent_frame, memo_text, df, open_preview_callback, frame_width=450):
+def build_memo_display(
+        parent_frame,
+        memo_text,
+        df,
+        open_preview_callback,
+        frame_width=450
+        ):
     """
     メモテキストを解析し、[[key]]リンクをクリック可能なラベルとして
     指定された親フレーム内に動的に構築する。
@@ -336,15 +361,15 @@ def build_references_display(
             text_label.bind("<Button-1>", command)
 
 
-def open_pdf_viewer(row_data, loaded_csv_path, pdf_root_folder):
+def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
     """
     ノートデータに基づき、統合PDFまたは元のPDFを開く。
 
     Args:
         row_data (pd.Series):
             PDFを開く対象のノートデータ（DataFrameの1行）。
-        loaded_csv_path (str or Path):
-            現在読み込まれている目次CSVのパス (統合PDFの基準パスとして使用)。
+        loaded_db_path (str or Path):  # <-- 'loaded_csv_path' から変更
+            現在読み込まれているデータベースのパス (統合PDFの基準パスとして使用)。
         pdf_root_folder (str or Path):
             config.iniで指定された元のPDFのルートフォルダパス。
     """
@@ -354,12 +379,12 @@ def open_pdf_viewer(row_data, loaded_csv_path, pdf_root_folder):
     # 1. 統合PDF (merged_pdf) が指定されている場合
     # pd.isna() で start_page が空 (NaN) でないことも確認
     if merged_pdf_filename and not pd.isna(start_page) and start_page != '':
-        if not loaded_csv_path:
-            messagebox.showerror("エラー", "CSVファイルが読み込まれていないため、PDFの場所を特定できません。")
+        if not loaded_db_path:
+            messagebox.showerror("エラー", "データベースが読み込まれていないため、PDFの場所を特定できません。")
             return
 
-        # 統合PDFはCSVファイルと同じディレクトリにあると想定
-        pdf_path = Path(loaded_csv_path).parent / merged_pdf_filename
+        # 統合PDFはDBファイルと同じディレクトリにあると想定
+        pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
 
         if not pdf_path.is_file():
             messagebox.showerror("ファイルエラー", f"統合PDFファイルが見つかりません: {pdf_path}")
@@ -377,6 +402,89 @@ def open_pdf_viewer(row_data, loaded_csv_path, pdf_root_folder):
     # 2. 統合PDFがない場合、元のPDF (original_pdf) を試みる
     else:
         _open_original_pdf(row_data, pdf_root_folder)
+
+
+def update_note_in_db(db_path: Path, key: str, new_data: dict):
+    """
+    SQLiteデータベース内の指定されたノートを更新する。
+
+    Args:
+        db_path (Path): データベースのパス。
+        key (str): 更新するノートのユニークID。
+        new_data (dict): 更新するデータ ('memo', 'tags', 'commonplace_key')。
+
+    Raises:
+        Exception: データベースの更新に失敗した場合。
+    """
+    if not db_path or not db_path.is_file():
+        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
+
+    # タグをリストから ';' 区切りの文字列に変換
+    if 'tags' in new_data and isinstance(new_data['tags'], list):
+        tags_str = ";".join(sorted(new_data['tags']))
+    else:
+        tags_str = new_data.get('tags', '')
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # SQL UPDATE文
+        cursor.execute(
+            """
+            UPDATE notes
+            SET memo = ?, tags = ?, commonplace_key = ?
+            WHERE key = ?
+            """,
+            (
+                new_data.get('memo', ''),
+                tags_str,
+                new_data.get('commonplace_key', ''),
+                key
+            )
+        )
+        conn.commit()
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise Exception(f"データベースの更新に失敗しました: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+def delete_note_from_db(db_path: Path, key: str):
+    """
+    SQLiteデータベースから指定されたノートを削除する。
+
+    Args:
+        db_path (Path): データベースのパス。
+        key (str): 削除するノートのユニークID。
+
+    Raises:
+        Exception: データベースからの削除に失敗した場合。
+    """
+    if not db_path or not db_path.is_file():
+        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # SQL DELETE文
+        cursor.execute("DELETE FROM notes WHERE key = ?", (key,))
+        conn.commit()
+
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise Exception(f"データベースからの削除に失敗しました: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 
 def _open_original_pdf(row_data, pdf_root_folder):

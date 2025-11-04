@@ -5,6 +5,9 @@ from utils import (
 )
 
 
+# ==============================================================================
+# 簡易プレビューウィンドウ (読み取り専用)
+# ==============================================================================
 class NotePreviewWindow(ctk.CTkToplevel):
     """
     ノートのメタデータをプレビュー表示するための専用Toplevelウィンドウ。
@@ -28,14 +31,12 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.parent_app = parent_app  # メインアプリ本体
         self.note_data = note_data
 
-        self._custom_icon_path = None # 強制設定するアイコンパス
+        self._custom_icon_path = None  # 強制設定するアイコンパス
         if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
             self._custom_icon_path = str(parent_app.icon_path)
-            
-            # --- 初期アイコンをすぐに設定 ---
+
             if self._custom_icon_path:
                 try:
-                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
                     print(f"Initial icon set error: {e}")
@@ -50,7 +51,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.grid_rowconfigure(5, weight=1)  # <--- メモ欄
         self.grid_rowconfigure(7, weight=1)  # <--- 引用元欄
 
-        # --- ウィジェットの作成 ---
+        # --- ウィジェットの作成 (すべて読み取り専用) ---
 
         # 1. タイトル
         ctk.CTkLabel(
@@ -80,9 +81,13 @@ class NotePreviewWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             self, text="タグ:", anchor="w"
             ).grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        tags_str = str(self.note_data.get('tags', '')).replace(';', ', ')
+
+        tags_str = str(self.note_data.get('tags', ''))
+        tags_list = [tag for tag in tags_str.split(';') if tag]
+        tags_display = ", ".join(tags_list)
+
         ctk.CTkLabel(
-            self, text=tags_str, wraplength=300, justify="left", anchor="w"
+            self, text=tags_display, wraplength=300, justify="left", anchor="w"
             ).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
         # 5. メモ (読み取り専用)
@@ -93,43 +98,25 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.memo_display_frame.grid(
             row=5, column=1, padx=10, pady=5, sticky="nsew"
             )
-
-        # メモ欄の動的ビルドメソッドを呼び出す
         self._build_memo_display()
 
+        # 6. 引用元 (読み取り専用)
         ctk.CTkLabel(
             self, text="引用元:", anchor="w"
             ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
-
-        # 引用元表示用フレーム
         self.references_display_frame = ctk.CTkScrollableFrame(
             self, label_text="このノートを引用"
             )
         self.references_display_frame.grid(
             row=7, column=1, padx=10, pady=5, sticky="nsew"
             )
+        self._build_references_display()
 
-        # 6. 「PDFを開く」ボタン
+        # 7. 「PDFを開く」ボタン
         pdf_button = ctk.CTkButton(
             self, text="PDFを開く", command=self.open_pdf_action
             )
         pdf_button.grid(row=8, column=0, columnspan=2, padx=10, pady=10)
-
-        current_key = self.note_data.get('key', '')
-
-        # メインアプリのDataFrameと設定を使って検索
-        backlinks_df = find_backlinks_df(
-            self.parent_app.df, current_key
-        )
-
-        # utilsの新関数を使って引用元UIを構築
-        build_references_display(
-            self.references_display_frame,
-            backlinks_df,
-            self.parent_app.open_preview_window,  # Callback to main app
-            self.parent_app.key_icons,
-            self.parent_app.key_colors
-        )
 
     def iconbitmap(self, *args, **kwargs):
         """
@@ -141,13 +128,10 @@ class NotePreviewWindow(ctk.CTkToplevel):
         """
         if self._custom_icon_path:
             try:
-                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
                 super().iconbitmap(self._custom_icon_path)
             except Exception:
-                # ウィンドウが存在しない場合などのエラーを無視
                 pass
         else:
-            # カスタムアイコンがない場合は、通常の動作をさせる
             try:
                 super().iconbitmap(*args, **kwargs)
             except Exception:
@@ -162,18 +146,35 @@ class NotePreviewWindow(ctk.CTkToplevel):
     def _build_memo_display(self):
         """
         プレビューウィンドウのメモ欄に、クリック可能なリンク付きラベルを生成する。
-        utils.build_memo_display を使用する。
         """
         memo_text = str(self.note_data.get('memo', ''))
+        frame_width = 300  # プレビューウィンドウの幅
 
-        # プレビューウィンドウの幅に合わせてテキストが折り返すように設定
-        frame_width = 300
-
-        # メインアプリのDataFrameとプレビュー展開メソッドをコールバックとして渡す
+        # メインアプリのDataFrameと「プレビュー展開」メソッドをコールバックとして渡す
         build_memo_display(
             self.memo_display_frame,
             memo_text,
             self.parent_app.df,  # リンク先タイトルの検索用
             self.parent_app.open_preview_window,  # リンククリック時の動作
             frame_width
+        )
+
+    def _build_references_display(self):
+        """
+        プレビューウィンドウの引用元欄を構築する。
+        """
+        current_key = self.note_data.get('key', '')
+
+        # メインアプリのDataFrameと設定を使って検索
+        backlinks_df = find_backlinks_df(
+            self.parent_app.df, current_key
+        )
+
+        # utilsの関数を使って引用元UIを構築
+        build_references_display(
+            self.references_display_frame,
+            backlinks_df,
+            self.parent_app.open_preview_window,  # Callback to main app
+            self.parent_app.key_icons,
+            self.parent_app.key_colors
         )

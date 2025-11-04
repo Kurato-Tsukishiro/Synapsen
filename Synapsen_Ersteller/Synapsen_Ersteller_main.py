@@ -10,6 +10,8 @@ import subprocess
 import shutil
 import tempfile
 import configparser
+import sqlite3
+import pandas as pd
 
 import PDFMargeHelper as Helper
 import pdf_processor as Process
@@ -51,13 +53,13 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame, text="フォルダから新規読み込み", command=self.scan_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="CSVから読み込み", command=self.load_from_csv
+            top_button_frame, text="リスト読込 (CSV)", command=self.load_from_csv
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="フォルダと同期", command=self.sync_with_folder
+            top_button_frame, text="リストをフォルダと同期", command=self.sync_with_folder
             ).pack(side="left", padx=5)
         ctk.CTkButton(
-            top_button_frame, text="CSVに保存", command=self.save_to_csv
+            top_button_frame, text="リスト保存 (CSV)", command=self.save_to_csv
             ).pack(side="left", padx=5)
         ctk.CTkButton(
             top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
@@ -185,29 +187,32 @@ class Synapsen_Ersteller(ctk.CTk):
                 config_dir, expanded_path
                 )
 
-        # 6. default_csv_path (追記先のマスターCSVパス) の解決
-        default_csv_path_str = config.get(
-            'Paths', 'default_csv_path', fallback=''
+        # 6. default_db_path (追記先のマスターDBパス) の解決
+        default_db_path_str = config.get(
+            'Paths', 'database_path', fallback=''
             )
-        expanded_path = os.path.expandvars(default_csv_path_str)  # 環境変数を展開
+        expanded_path = os.path.expandvars(default_db_path_str)  # 環境変数を展開
 
         if not expanded_path:
-            self.default_csv_path = None
-            print("DEBUG: config.ini [Paths][default_csv_path] が未設定です。")
+            self.default_db_path = None
+            print("DEBUG: config.ini [Paths][database_path] が未設定です。")
         elif os.path.isabs(expanded_path):
-            self.default_csv_path = expanded_path
+            self.default_db_path = expanded_path
         else:
             # configの値が相対パスの場合、config_dir と結合する
-            self.default_csv_path = os.path.join(config_dir, expanded_path)
+            self.default_db_path = os.path.join(config_dir, expanded_path)
 
         # 7. Automation設定の読み込み
         # 自動結合設定の読み込み
-        self.auto_append_csv = config.getboolean(
-            'Automation', 'auto_append_to_default_csv', fallback=False
+        self.auto_append_db = config.getboolean(
+            'Automation', 'auto_append_to_default_db', fallback=False
             )
-        if self.auto_append_csv and not self.default_csv_path:
-            print("警告: auto_append_to_default_csv が True ですが、default_csv_path が未設定のため無効化されます。")
-            self.auto_append_csv = False
+        if self.auto_append_db and not self.default_db_path:
+            print(
+                "警告: auto_append_to_default_db が True ですが、" +
+                "database_path が未設定のため無効化されます。"
+            )
+            self.auto_append_db = False
 
         # 個別出力設定の読み込み
         self.create_individual_csv = config.getboolean(
@@ -296,6 +301,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     row["tags"] = row.get("tags", "").split(";") if row.get("tags") else []
                     row["pages"] = int(row.get("pages", 0))
                     row["is_warning"] = row.get("date") in ["日付不明", "読み込み失敗"]
+                    row["full_text"] = row.get("full_text", "")
                     new_notes_info.append(row)
             self.all_notes_info = new_notes_info
             self.update_note_list()
@@ -303,31 +309,85 @@ class Synapsen_Ersteller(ctk.CTk):
         except Exception as e:
             self.label.configure(text=f"エラー: 読み込み失敗 - {e}")
 
-    def append_to_master_csv(self, notes_to_append):
+    def append_to_master_db(self, notes_to_append):
         """
-        マスターCSV（config.iniのdefault_csv_path）に、
-        ヘッダーを考慮しながらノート情報を追記する。
+        マスターDB（config.iniのdatabase_path）に、
+        重複をチェックしながらノート情報を追記する。
         """
-        master_csv_path = Path(self.default_csv_path)
-        
-        # ファイルが存在し、中身が空でないかを確認
-        file_exists_and_has_content = master_csv_path.is_file() and master_csv_path.stat().st_size > 0
-        
-        with open(master_csv_path, "a", newline="", encoding="utf-8-sig") as f:
-            header = [
-                "date", "time", "title", "pages", "tags",
-                "key", "memo", "commonplace_key",
+        master_db_path = Path(self.default_db_path)
+        table_name = 'notes'
+
+        if not notes_to_append:
+            return
+
+        # 1. 追記するノートをDataFrameに変換
+        df_new_notes = pd.DataFrame(notes_to_append)
+
+        # 'key' (ユニークID) がないノートは追記しない (以前の会話で実装した仕様)
+        df_new_notes = df_new_notes[
+            df_new_notes['key'].notna() & (df_new_notes['key'] != '')
+        ]
+        if df_new_notes.empty:
+            print("DB追記対象のノート（有効なKeyを持つもの）がありません。")
+            return
+
+        # タグリストを ';' 区切りの文字列に変換
+        if 'tags' in df_new_notes.columns:
+            df_new_notes['tags'] = df_new_notes['tags'].apply(
+                lambda tags: ";".join(sorted(tags)) if isinstance(tags, list) else ''
+            )
+
+        conn = sqlite3.connect(master_db_path)
+        try:
+            # 2. 既存のキーをDBから取得
+            existing_keys = set()
+            try:
+                # テーブルが存在するか確認し、存在すればキーを取得
+                existing_keys = pd.read_sql_query(
+                    f"SELECT key FROM {table_name}", conn
+                )['key'].to_set()
+            except pd.io.sql.DatabaseError:
+                print(f"テーブル '{table_name}' が存在しません。新規に作成します。")
+
+            # 3. 既存キーと重複しないノートのみをフィルタリング
+            keys_to_append = df_new_notes['key']
+            df_to_append = df_new_notes[~keys_to_append.isin(existing_keys)]
+
+            if df_to_append.empty:
+                print("DBに追記する新規ノートはありません（すべて重複）。")
+                conn.close()
+                return
+
+            # 4. 新規ノートのみをDBに追記
+            #    (カラムが完全一致しなくても追記できるよう、必要なカラムを揃える)
+            all_columns = [
+                "date", "time", "title", "pages", "tags", "key", "memo",
+                "commonplace_key", "filepath", "full_text",
                 "merged_pdf_filename", "merged_start_page"
             ]
-            writer = csv.DictWriter(f, fieldnames=header, extrasaction='ignore')
-            
-            if not file_exists_and_has_content:
-                writer.writeheader() # ファイルが新規 or 空の場合のみヘッダーを書き込む
-                
-            for note in notes_to_append:
-                note_to_write = note.copy()
-                note_to_write["tags"] = ";".join(sorted(note_to_write.get("tags", [])))
-                writer.writerow(note_to_write)
+
+            # 追記用DataFrameのカラムをマスターリストに合わせて整える
+            df_final_append = pd.DataFrame(columns=all_columns)
+            for col in all_columns:
+                if col in df_to_append.columns:
+                    df_final_append[col] = df_to_append[col]
+                else:
+                    df_final_append[col] = ''  # 足りないカラムは空文字で埋める
+
+            df_final_append.to_sql(
+                table_name,
+                conn,
+                if_exists='append',
+                index=False
+            )
+            print(
+                f"{len(df_final_append)} 件の新規ノートを " +
+                f"{master_db_path.name} に追記しました。")
+
+        except Exception as e:
+            raise Exception(f"マスターDBへの追記に失敗しました: {e}")
+        finally:
+            conn.close()
 
     def save_merged_index_csv(self, notes_with_merged_info, merged_pdf_path):
         csv_filepath = Path(merged_pdf_path).with_suffix('.csv')
@@ -504,6 +564,37 @@ class Synapsen_Ersteller(ctk.CTk):
         if not self.all_notes_info:
             self.label.configure(text="PDF生成対象のデータがありません。")
             return
+
+        self.label.configure(text="PDFから本文(full_text)を抽出中...")
+        self.update_idletasks()
+
+        missing_text_count = 0
+        for note in self.all_notes_info:
+            # メモリ上の full_text が空の場合のみ、PDFから再取得
+            if not note.get("full_text"):
+                pdf_path = Path(note.get("filepath", ""))
+                if pdf_path.is_file():
+                    try:
+                        # pdf_processor.py の新しいヘルパー関数を呼ぶ
+                        extracted_text = Process.get_full_text(pdf_path)
+                        note["full_text"] = extracted_text
+                        if not extracted_text:
+                            missing_text_count += 1
+                    except Exception as e:
+                        print(f"警告: {pdf_path.name} のfull_text抽出に失敗: {e}")
+                else:
+                    print(
+                        f"警告: {note.get('title')} のファイルパスが見つかりません" +
+                        "（full_text取得不可）。"
+                        )
+
+        if missing_text_count > 0:
+            print(
+                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした" +
+                "（画像のみのPDFの可能性）。")
+
+        self.label.configure(text="PDF生成中... しばらくお待ちください。")  # 元のラベルに戻す
+        self.update_idletasks()
 
         dialog = Dialogs.DateInputDialog(self)
         date_input = dialog.get_input()
@@ -715,32 +806,59 @@ class Synapsen_Ersteller(ctk.CTk):
             with open(save_filepath, "wb") as f:
                 final_writer.write(f)
 
-            if self.auto_append_csv and self.default_csv_path:
-                # --- A. 自動追記モード ---
-                try:
-                    self.append_to_master_csv(updated_notes_info)
-                    
-                    self.label.configure(text=f"成功！ 統合PDFを生成し、マスターCSVに追記しました。")
-                    messagebox.showinfo(
-                        "成功",
-                        f"統合PDFの生成が完了しました。\n"
-                        f"PDF: {os.path.basename(save_filepath)}\n\n"
-                        f"目次情報は {os.path.basename(self.default_csv_path)} に自動追記されました。"
-                    )
-                except Exception as e:
-                    messagebox.showerror("CSV追記エラー", f"マスターCSVへの追記に失敗しました: {self.default_csv_path}\n\n{e}")
+            # --- 保存処理とメッセージング ---
+            db_saved = False
+            csv_saved = False
+            db_name = os.path.basename(self.default_db_path) if self.default_db_path else ""
+            csv_name = Path(save_filepath).with_suffix('.csv').name
+            pdf_name = os.path.basename(save_filepath)
 
-            if self.create_individual_csv or not self.auto_append_csv:
-                # --- B. 個別作成モード (自動追記が無効時 or 設定有効時) ---
-                self.save_merged_index_csv(updated_notes_info, save_filepath)
+            try:
+                # --- A. マスターDBへの自動追記 ---
+                if self.auto_append_db and self.default_db_path:
+                    self.append_to_master_db(updated_notes_info)
+                    db_saved = True
 
-                self.label.configure(text=f"成功！ 統合PDFと専用目次CSVを生成しました: {os.path.basename(save_filepath)}")
-                messagebox.showinfo(
-                    "成功",
-                    "統合PDFと専用目次CSVの生成が完了しました。\n" +
-                    f"PDF: {os.path.basename(save_filepath)}\n" +
-                    f"CSV: {Path(save_filepath).with_suffix('.csv').name}"
-                )
+                # --- B. 個別CSVのエクスポート ---
+                if self.create_individual_csv:
+                    self.save_merged_index_csv(updated_notes_info, save_filepath)
+                    csv_saved = True
+
+                # --- C. 成功メッセージの生成 ---
+                if db_saved and csv_saved:
+                    msg = (f"統合PDFの生成が完了しました。\n"
+                           f"PDF: {pdf_name}\n\n"
+                           f"目次情報はマスターDB ({db_name}) に追記され、\n"
+                           f"個別CSV ({csv_name}) としても保存されました。")
+                    self.label.configure(
+                        text="成功！ 統合PDFを生成し、DBと個別CSVに保存しました。")
+
+                elif db_saved:
+                    msg = (f"統合PDFの生成が完了しました。\n"
+                           f"PDF: {pdf_name}\n\n"
+                           f"目次情報は {db_name} に自動追記されました。")
+                    self.label.configure(text="成功！ 統合PDFを生成し、マスターDBに追記しました。")
+
+                elif csv_saved:
+                    msg = (f"統合PDFの生成が完了しました。\n"
+                           f"PDF: {pdf_name}\n\n"
+                           f"個別CSV ({csv_name}) として保存されました。\n"
+                           f"（マスターDBへの自動追記は無効です）")
+                    self.label.configure(text="成功！ 統合PDFと専用目次CSVを生成しました。")
+
+                else:
+                    # どちらもOFFの場合
+                    msg = (f"統合PDFの生成が完了しました。\n"
+                           f"PDF: {pdf_name}\n\n"
+                           f"（マスターDBへの追記、個別CSVの保存は両方無効です）")
+                    self.label.configure(text=f"成功！ 統合PDFを生成しました（保存なし）。")
+
+                messagebox.showinfo("成功", msg)
+
+            except Exception as e:
+                messagebox.showerror(
+                    "保存エラー", f"統合PDFの生成には成功しましたが、保存処理中にエラーが発生しました:\n{e}")
+                self.label.configure(text="エラー: 保存処理中に失敗しました。")
 
         finally:
             shutil.rmtree(temp_dir)

@@ -25,6 +25,7 @@
 
 * PDFフォームの入力内容を、注釈（アノテーション）を維持したままテキストに変換（フラット化）
 * すべてのPDFページを `config.ini` で指定された用紙サイズ（A4またはA5）の縦サイズに（アスペクト比を維持して）リサイズ・中央配置
+* (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、Tesseract OCR を使用して画像PDFからテキストを抽出し、PDFに埋め込みます。
 
 ### 2. Synapsen Ersteller (統合・作成ツール)
 
@@ -33,22 +34,25 @@
 * ファイル名から日付やタイトルを自動抽出 (`YYYYMMDD_hhmmss_タイトル.pdf` 形式を推奨)
 * PDFの特定座標からIndex Keyを自動抽出（`config.ini` の `[Extraction]` で設定）
 * "サイドノート"（例: `..._Note.pdf`）に親ノートのIndex Keyを自動継承
-  * これは 電子ペーパー「QUADERNO（クアデルノ）」の "サイドノート" 機能を意識した物です
+    * これは 電子ペーパー「QUADERNO（クアデルノ）」の "サイドノート" 機能を意識した物です
 * ノートごとにタグ、メモ、Index Key（索引キー）を編集
 * 指定した月のノート群を1つのPDFに統合
 * （LuaLaTeXを使用し）目次、タグ索引、Index Key索引を自動生成
-* 統合PDFの索引情報となるマスターCSVファイル（`Nexus`が使用）を作成・更新
-* 読み込んだCSVと実際のフォルダ内容を比較・同期する機能
+* 統合PDFの索引情報となる**マスターDB（.dbファイル）**（`Nexus`が使用）に**情報を追記**
+* 現在の作業リストを中間ファイル（CSV）として保存・読み込みする機能
+* 読み込んだリストと実際のフォルダ内容を比較・同期する機能
 
 ### 3. Synapsen Nexus (閲覧・検索ツール)
 
-`Ersteller` が作成したマスターCSVを読み込む、ノート閲覧・検索用のアプリケーションです。
+`Ersteller` が作成・追記した**マスターDB（.dbファイル）**を読み込む、ノート閲覧・検索用のアプリケーションです。
 
 * `AND`, `OR`, `NOT(-)`, `( )` 演算子を使った高度な検索
 * `tag:`, `memo:`, `date:`, `ikey:` (または `cpkey:`, `indexkey:`) などのプレフィックス検索
+* `config.ini` で `enable_tesseract_ocr` を有効にして抽出したPDF本文（`full_text`）を検索対象に含める「本文検索」チェックボックス
 * 検索結果のノートをダブルクリックすると、統合PDFの該当ページを直接表示（統合PDFが見つからない場合は、`config.ini` の `pdf_root_folder` から元の単一PDFを検索して表示）
 * メモ内の `[[key]]` 形式のリンクから、別のノートをプレビュー
 * ノート詳細表示時に、そのノートを引用している他のノート（被リンク元）を自動でリストアップ
+* ノートのメタデータ（メモ、タグ、Index Key）を**DBに直接書き込み・編集・削除**する機能
 
 ## 動作環境・依存関係
 
@@ -57,11 +61,18 @@
     * `Synapsen Ersteller` でのPDFビルドに必須です。
     * 導入方法は、こちらの解説記事などを参考にしてください。<br>
         → **[LaTeXの環境構築 \~VSCodeでLaTeXを使いたいだけなのに TeX Liveの導入が必要なのは何故?\~](https://qiita.com/Kurato-Tsukishiro/items/58232e619a1878692bed)**
-* **Pythonライブラリ**:
+* **(オプション) Tesseract OCR**
+    * `Normalisierer` で画像PDFのOCR（本文テキスト抽出）機能 を使う場合に必要です。
+    * インストール後、`pytesseract` が認識できるようPATHを通してください。
+    * 導入方法は、こちらの解説記事などを参考にしてください。<br>
+        → **[画像から文字を瞬時に読み取る！Tesseractとpytesseractの驚異の力【Python】](https://qiita.com/ryome/items/16fc42854fe93de78a2f)**
+* **Pythonライブラリ**: ( `requirements.txt` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
-    * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引CSVデータの管理・検索用
+    * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
     * [**PyMuPDF (fitz)**](https://github.com/pymupdf/PyMuPDF) (AGPL-3.0 License) - PDFの正規化・情報抽出用 (※プロジェクト全体のAGPLライセンスの要因)
     * [**pypdf**](https://github.com/py-pdf/pypdf) (BSD-3-Clause License) - PDFの統合・正規化用
+    * [**Pillow**](https://github.com/python-pillow/Pillow) (HPND License) - OCR処理のための画像操作用
+    * [**pytesseract**](https://github.com/madmaze/pytesseract) (Apache-2.0 License) - Tesseract OCRエンジン連携用
 
 ## セットアップ
 
@@ -95,18 +106,24 @@
     # Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" を使用して下さい
     font_path = 
 
-    # Nexusでの情報表示に使用するマスターCSVのパス
-    default_csv_path = 
+    # Nexusでの情報表示に使用するマスターDBのパス
+    database_path = 
 
-    # マスターCSVが存在するフォルダ下に統合PDFが存在しない場合に NexusがPDFを開く為に検索するフォルダのパス
+    # マスターDBが存在するフォルダ下に統合PDFが存在しない場合に NexusがPDFを開く為に検索するフォルダのパス
     pdf_root_folder = 
 
     [Automation]
     # Synapse Ersteller で統合PDFを生成した際、
-    # [Paths]のdefault_csv_pathで指定されたマスターCSVに、目次情報を自動で「追記」するか (true/false)
-    auto_append_to_default_csv = 
+    # [Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
+    auto_append_to_default_db = 
+    
     # 上記有効時、目次情報を個別で「保存」するか (true/false)
     create_individual_csv = 
+
+    # Normalisierer で Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
+    # false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+    # Tesseract-OCR をPCにインストールしていない場合は false にしてください。
+    enable_tesseract_ocr = 
 
     [LaTeX]
     # 正規化及び統合の用紙サイズの指定 (A4/A5)
@@ -145,12 +162,13 @@
     [Paths] 
     tags_data_path = PDFTags.txt
     font_path = C:\windows\fonts\msgothic.ttc
-    default_csv_path = 統合ノート.csv
+    database_path = Synapsen_Master.db
     pdf_root_folder = ./
 
     [Automation]
-    auto_append_to_default_csv = true
+    auto_append_to_default_db = true
     create_individual_csv = false
+    enable_tesseract_ocr = false
 
     [LaTeX]
     paper_size = A4
@@ -214,6 +232,7 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 3.  **入力元フォルダ**（スキャン及びクアデルノで作成したPDFがある場所）を選択します。
 4.  **出力先フォルダ**（正規化済みPDFを保存する場所）を選択します。
     * この処理で、フォームで選択した「Index Key」がテキストとしてPDFに焼き付けられます。
+    * (オプション) `config.ini` でOCRを有効にしている場合、ここで本文のテキスト抽出も実行されます。
 
 ### ステップ2: 統合 (Ersteller)
 
@@ -222,15 +241,17 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
     * ファイル名 (`YYYYMMDD_hhmmss_...`) から日付とタイトルが、PDF内容 (`key_rect` の座標) から「Index Key」が自動で読み込まれます。
     * サイドノート (`..._Note.pdf`) にも親のIndex Keyが自動で継承されます。
 3.  リストに表示されたPDFをクリックし、タグ、メモ、Index Keyを編集します。
-4.  「統合PDFを生成」をクリックし、保存場所と年月を指定すると、統合PDFと目次CSV (`config.ini` で指定したパス) が生成・更新されます。
+    * (オプション) `リスト保存 (CSV)` / `リスト読込 (CSV)` をクリックすると、現在の編集状態を中間ファイルとして保存/読み込みできます。
+4.  「統合PDFを生成」をクリックし、保存場所と年月を指定すると、統合PDFが生成され、目次情報が **マスターDB (`config.ini` で指定したパス) に追記**されます。
 
 ### ステップ3: 閲覧 (Nexus)
 
 1.  `Synapsen_Nexus_main.py` を実行します。
-2.  アプリは `config.ini` で指定されたマスターCSVを自動で読み込みます。
+2.  アプリは `config.ini` で指定された**マスターDB**を自動で読み込みます。
 3.  検索バーやフィルターを使ってノートを検索します。
     * 検索文字列例 : `tag:Python`, `memo:[[key]]`, `ikey:タスク AND (アイデア OR 思考)`
 4.  ノートをシングルクリックで詳細（メモ、**被リンク元**）を表示、ダブルクリックでPDFの該当ページを開きます。
+5.  「このノートを編集」ボタンから、メモやタグを直接編集できます。
 
 ---
 
@@ -290,6 +311,6 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 ## 謝辞 (Acknowledgements)
 
 このソフトウェアは、多くの優れたオープンソースライブラリによって実現しています。
-特に、GUI構築のための **CustomTkinter**、データ操作のための **pandas**、そしてPDF処理の中核を担う **PyMuPDF** と **pypdf** の開発者コミュニティに心から感謝申し上げます。
+特に、GUI構築のための **CustomTkinter**、データ操作のための **pandas**、PDF処理の中核を担う **PyMuPDF** と **pypdf**、そしてOCR機能を実現する **Pillow** と **pytesseract** の開発者コミュニティに心から感謝申し上げます。
 
 また、このコードの作成、リファクタリング、およびドキュメント整備の多くは、GoogleのAIである **Gemini** の支援を受けて行われました。
