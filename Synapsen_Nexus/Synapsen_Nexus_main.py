@@ -1007,7 +1007,13 @@ class Synapsen_Nexus(ctk.CTk):
           },
           "interaction": {
             "tooltipDelay": 200,
-            "hideEdgesOnDrag": true
+            "hideEdgesOnDrag": true,
+
+            "hover": true,
+            "hoverConnectedEdges": true,
+            "selectConnectedEdges": true,
+            "navigationButtons": true,
+            "keyboard": { "enabled": true }
           },
           "edges": {
             "arrows": {
