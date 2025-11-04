@@ -64,6 +64,8 @@
 * **(オプション) Tesseract OCR**
     * `Normalisierer` で画像PDFのOCR（本文テキスト抽出）機能 を使う場合に必要です。
     * インストール後、`pytesseract` が認識できるようPATHを通してください。
+    * 導入方法は、こちらの解説記事などを参考にしてください。<br>
+        → **[画像から文字を瞬時に読み取る！Tesseractとpytesseractの驚異の力【Python】](https://qiita.com/ryome/items/16fc42854fe93de78a2f)**
 * **Pythonライブラリ**: ( `requirements.txt` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
