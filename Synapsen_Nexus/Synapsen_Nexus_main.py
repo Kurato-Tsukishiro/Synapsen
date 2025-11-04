@@ -31,7 +31,7 @@ class Synapsen_Nexus(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Nexus")
-        self.geometry("1200x800")
+
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(1, weight=1)
@@ -56,6 +56,28 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.create_widgets()
         self.load_config()
+
+        # ウィンドウが初めて表示されたら on_map を呼ぶ
+        self.bind("<Map>", self.on_map)
+
+        # 最大化失敗時のフォールバックサイズ指定
+        self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
+
+    # --- ▼ [追加] ウィンドウ表示（Map）イベントハンドラ ▼ ---
+    def on_map(self, event):
+        """
+        ウィンドウが初めて画面に描画されたときに呼び出される。
+        ここで最大化を実行する。
+        """
+        try:
+            # 2回目以降は実行されないよう、バインドを解除
+            self.unbind("<Map>")
+            # ウィンドウを最大化
+            self.state('zoomed')
+            print("[DEBUG] ウィンドウを最大化しました。")
+        except Exception as e:
+            print(f"ウィンドウの最大化に失敗しました: {e}")
+            # 最大化が失敗した場合 (try...exceptが無くても geometry がフォールバックになる)
 
     def get_icon_path(self):
         """
@@ -624,7 +646,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.cpkey_label.configure(text="")
         self.tags_label.configure(text="")
 
-        # --- ▼ PDFプレビューのクリア ▼ ---
+        # --- PDFプレビューのクリア ▼ ---
         self.preview_image_object = None
         self.pdf_preview_label.configure(
             image=None,
@@ -702,7 +724,8 @@ class Synapsen_Nexus(ctk.CTk):
         self.tags_label.configure(text=", ".join(tags_list))
 
         # --- ▼ PDFプレビューの表示 ▼ ---
-        max_preview_width = 200  # プレビュー表示の最大幅
+
+        max_preview_width = 225  # プレビュー表示の最大幅
 
         pil_image = get_pdf_page_image(
             row_data,
