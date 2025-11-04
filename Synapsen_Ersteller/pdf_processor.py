@@ -13,26 +13,23 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
     """
     try:
         commonplace_key = ""
-        full_text = ""
+        full_text = ""  # full_text は空で初期化 (抽出しない)
         doc = None
         try:
+            # PyMuPDF を使って Index Key のみ取得
             doc = fitz.open(pdf_path)
             if len(doc) > 0:
                 page = doc[0]
                 if key_rect and len(key_rect) == 4:
                     commonplace_key = page.get_textbox(key_rect).strip()
 
-            # 全ページのテキストを抽出 (埋め込まれたOCRテキストを含む)
-            for page in doc:
-                full_text += page.get_text("text", sort=True) + "\n"
-            full_text = full_text.strip()
-
         except Exception as e:
-            print(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
+            print(f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}")
         finally:
             if doc:
                 doc.close()  # 確実に閉じる
 
+        # PyPDF でページ数を取得
         page_count = len(PdfReader(pdf_path).pages)
         filepath = str(pdf_path)
 
@@ -57,7 +54,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "memo": "",
             "commonplace_key": commonplace_key,
             "filepath": filepath,
-            "full_text": full_text
+            "full_text": full_text  # <-- ここでは空文字が設定される
         }
         if not match:
             return {
