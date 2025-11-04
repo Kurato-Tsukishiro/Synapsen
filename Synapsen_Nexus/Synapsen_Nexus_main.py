@@ -4,6 +4,9 @@ import pandas as pd
 from pathlib import Path
 import re
 import sys
+import webbrowser
+import networkx as nx
+from pyvis.network import Network
 
 # 分割したモジュールをインポート
 from utils import (
@@ -46,6 +49,9 @@ class Synapsen_Nexus(ctk.CTk):
         self.loaded_db_path = None  # 現在開いているDBのパス
         self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
+
+        self.filtered_df_cache = pd.DataFrame()
+        self.current_selected_row = None
 
         # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
         self.preview_image_object = None
@@ -178,6 +184,15 @@ class Synapsen_Nexus(ctk.CTk):
 
         # チェックボックスの状態が変わったら検索を再実行
         self.fts_checkbox.configure(command=self.perform_search)
+
+        # グラフ表示ボタンを追加
+        self.graph_button = ctk.CTkButton(
+            top_frame,
+            text="グラフ表示",
+            command=self.generate_and_show_graph,
+            width=80
+        )
+        self.graph_button.pack(side="left", padx=(5, 10))
 
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
@@ -586,6 +601,8 @@ class Synapsen_Nexus(ctk.CTk):
                 # エラー時は空の結果を表示
                 filtered_df = filtered_df.iloc[0:0]
 
+        self.filtered_df_cache = filtered_df
+
         self.update_results_list(filtered_df)
         self.update_collapsed_filter_view()
 
@@ -836,6 +853,151 @@ class Synapsen_Nexus(ctk.CTk):
             self.loaded_db_path,
             self.pdf_root_folder
         )
+
+    def generate_and_show_graph(self):
+        """
+        現在の検索結果（キャッシュ済み）に基づき、
+        ノート間のリンクグラフを生成してブラウザで表示する。
+        """
+
+        # 1. キャッシュされた検索結果（DataFrame）を取得
+        df = self.filtered_df_cache
+
+        if df is None or df.empty:
+            messagebox.showinfo(
+                "グラフ表示",
+                "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
+                parent=self
+            )
+            return
+
+        # 2. パフォーマンス制限 (ノードが多すぎるとブラウザが固まるため)
+        if len(df) > 500:
+            messagebox.showwarning(
+                "グラフ表示", 
+                f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
+                parent=self
+            )
+            df = df.head(500)
+
+        # 3. グラフ構築 (NetworkX)
+        G = nx.DiGraph()  # 有向グラフ
+
+        # グラフに表示されるノートのキーのセット (高速なルックアップ用)
+        notes_in_graph = set(df['key'])
+        link_pattern = re.compile(r"\[\[(.*?)\]\]")  # [[key]] の正規表現
+
+        # 3a. ノードを追加 (検索結果の全ノート)
+        for index, row in df.iterrows():
+            key = row.get('key')
+            title = row.get('title', 'N/A')
+            cp_key = row.get('commonplace_key', '').lower()
+
+            # config.ini の設定からアイコンと色を取得
+            icon_code = self.key_icons.get(cp_key, '•')
+            color_hex = self.key_colors.get(cp_key, '#FFFFFF')  # デフォルトは白
+
+            G.add_node(
+                key,
+                label=title,  # ノードのラベル
+                title=f"Key: {key}\nIndex: {cp_key}",  # マウスオーバー時のツールチップ
+                shape='icon',  # pyvis でアイコン形状を使用
+                icon={
+                    'code': icon_code,
+                    'color': color_hex,
+                    'size': 40
+                },
+                color=color_hex
+            )
+
+        # 3b. エッジを追加 (ノート間のリンク)
+        edge_count = 0
+        for index, row in df.iterrows():
+            source_key = row.get('key')
+            memo = row.get('memo', '')
+
+            for match in link_pattern.finditer(memo):
+                full_match_content = match.group(1).strip()
+                target_key = full_match_content.split(
+                    ':')[0].strip()  # key部分だけ取得
+
+                # リンク先 (target_key) も現在の検索結果に含まれている場合のみ、
+                # グラフのエッジとして追加する
+                if target_key in notes_in_graph:
+                    if source_key != target_key:  # 自分自身へのリンクは除外
+                        G.add_edge(source_key, target_key)
+                        edge_count += 1
+
+        print(f"グラフを生成: {len(df)} ノード, {edge_count} エッジ")
+
+        # 4. 視覚化 (Pyvis)
+        nt = Network(
+            height="95vh",        # 画面の高さの95%
+            width="100%",         # 画面の幅 100%
+            bgcolor="#222222",  # 背景色 (ダーク)
+            font_color="white",   # フォント色
+            directed=True,        # 有向グラフ (矢印あり)
+            notebook=False        # HTMLファイルとして出力
+        )
+        nt.from_nx(G)
+
+        # 5. 物理演算のオプションを設定 (ノードが重ならないように)
+        # (ForceAtlas2Based は高品質だが重め、barnesHut は速いが単純)
+        nt.set_options("""
+        var options = {
+          "physics": {
+            "solver": "barnesHut",
+            "barnesHut": {
+              "gravitationalConstant": -8000,
+              "centralGravity": 0.3,
+              "springLength": 95,
+              "springConstant": 0.04,
+              "damping": 0.09
+            },
+            "minVelocity": 0.75
+          },
+          "interaction": {
+            "tooltipDelay": 200,
+            "hideEdgesOnDrag": true
+          },
+          "edges": {
+            "arrows": {
+              "to": { "enabled": true, "scaleFactor": 0.5 }
+            },
+            "color": {
+              "color": "#848484",
+              "highlight": "#FFFFFF",
+              "hover": "#DDDDDD",
+              "inherit": false
+            },
+            "smooth": {
+              "type": "continuous",
+              "forceDirection": "none",
+              "roundness": 0.5
+            }
+          }
+        }
+        """)
+
+        # 6. HTMLファイルとして保存し、ブラウザで開く
+        try:
+            # .exe化した場合でもスクリプト(.py)と同じ場所に出力
+            if getattr(sys, 'frozen', False):
+                base_path = Path(sys.executable).parent
+            else:
+                base_path = Path(__file__).parent
+
+            graph_file_path = base_path / "synapsen_graph.html"
+
+            nt.save_graph(str(graph_file_path))
+
+            # デフォルトのWebブラウザで開く
+            webbrowser.open(graph_file_path.as_uri())
+
+        except Exception as e:
+            print(f"Graph display error: {e}")
+            messagebox.showerror(
+                "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
 
     def open_edit_dialog(self, note_data=None):
         """

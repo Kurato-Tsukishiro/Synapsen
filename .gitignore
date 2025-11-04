@@ -50,6 +50,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+Synapsen_Nexus/synapsen_graph.html
 
 # Translations
 *.mo
@@ -205,3 +206,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Products
+Synapsen_Nexus/synapsen_graph.html
