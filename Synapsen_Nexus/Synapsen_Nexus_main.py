@@ -192,7 +192,18 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.generate_and_show_graph,
             width=80
         )
-        self.graph_button.pack(side="left", padx=(5, 10))
+        self.graph_button.pack(side="left", padx=(5, 0))
+
+        # ランダムノートボタン
+        self.random_note_button = ctk.CTkButton(
+            top_frame,
+            text="閃き (R)",  # (R) はランダムの意
+            command=self.show_random_note,
+            width=80,
+            fg_color="#585a9c",      # 桔梗色 (Erstellerと統一)
+            hover_color="#494B83"    # 濃い桔梗色
+        )
+        self.random_note_button.pack(side="left", padx=(5, 10))
 
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
@@ -606,8 +617,46 @@ class Synapsen_Nexus(ctk.CTk):
         self.update_results_list(filtered_df)
         self.update_collapsed_filter_view()
 
-    # --- UI更新・表示メソッド ---
+    def show_random_note(self):
+        """
+        「閃き」ボタン押下時。
+        現在の検索結果（または全データ）からランダムに1件のノートを選択し、
+        詳細ペインに表示する。
+        """
 
+        # 1. 使用するDataFrameを選択
+        target_df = None
+        if self.filtered_df_cache is not None and not self.filtered_df_cache.empty:
+            # 現在の検索結果キャッシュが存在すれば、それを使用
+            target_df = self.filtered_df_cache
+        elif self.df is not None and not self.df.empty:
+            # 検索結果が空（または未検索）だが、DB自体は読み込まれている場合
+            target_df = self.df
+
+        # 2. 選択対象が存在するかチェック
+        if target_df is None or target_df.empty:
+            messagebox.showinfo(
+                "ランダムノート",
+                "表示できるノートがありません。\nデータベースを読み込んでいるか確認してください。",
+                parent=self
+            )
+            return
+
+        try:
+            # 3. DataFrameからランダムに1行を取得
+            # .sample() はランダムにDataFrameを返し、
+            # .iloc[0] でその最初の行 (Series) を取得
+            random_note_row = target_df.sample(n=1).iloc[0]
+
+            # 4. 詳細表示メソッドを呼び出す
+            self.show_details(random_note_row)
+
+        except Exception as e:
+            print(f"ランダムノートの表示中にエラー: {e}")
+            messagebox.showerror(
+                "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self)
+
+    # --- UI更新・表示メソッド ---
     def update_results_list(self, df_to_show):
         """
         フィルタリングされたDataFrameに基づき、検索結果リストUIを更新する。
