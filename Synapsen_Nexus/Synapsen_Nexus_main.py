@@ -13,7 +13,8 @@ from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df,
     update_note_in_db, delete_note_from_db,
-    get_pdf_page_image
+    get_pdf_page_image,
+    get_pdf_uri_for_note
 )
 from search_parser import parse_or_expression
 
@@ -907,6 +908,7 @@ class Synapsen_Nexus(ctk.CTk):
         """
         現在の検索結果（キャッシュ済み）に基づき、
         ノート間のリンクグラフを生成してブラウザで表示する。
+        （HTMLに直接ダブルクリックイベントを挿入する方式）
         """
 
         # 1. キャッシュされた検索結果（DataFrame）を取得
@@ -920,46 +922,56 @@ class Synapsen_Nexus(ctk.CTk):
             )
             return
 
-        # 2. パフォーマンス制限 (ノードが多すぎるとブラウザが固まるため)
+        # 2. パフォーマンス制限
         if len(df) > 500:
             messagebox.showwarning(
-                "グラフ表示", 
+                "グラフ表示",
                 f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
                 parent=self
             )
             df = df.head(500)
 
         # 3. グラフ構築 (NetworkX)
-        G = nx.DiGraph()  # 有向グラフ
-
-        # グラフに表示されるノートのキーのセット (高速なルックアップ用)
+        G = nx.DiGraph()
         notes_in_graph = set(df['key'])
-        link_pattern = re.compile(r"\[\[(.*?)\]\]")  # [[key]] の正規表現
+        link_pattern = re.compile(r"\[\[(.*?)\]\]")
 
-        # 3a. ノードを追加 (検索結果の全ノート)
+        # 3a. ノードを追加
         for index, row in df.iterrows():
             key = row.get('key')
             title = row.get('title', 'N/A')
             cp_key = row.get('commonplace_key', '').lower()
 
-            # config.ini の設定からアイコンと色を取得
             icon_code = self.key_icons.get(cp_key, '•')
-            color_hex = self.key_colors.get(cp_key, '#FFFFFF')  # デフォルトは白
+            color_hex = self.key_colors.get(cp_key, '#FFFFFF')
+
+            # PDFへのURIを取得
+            file_uri = get_pdf_uri_for_note(
+                row, self.loaded_db_path, self.pdf_root_folder
+            )
+
+            tooltip = f"Key: {key}\nIndex: {cp_key}"
+            if file_uri:
+                # --- ▼ [変更点 1/2] ツールチップの文言を変更 ▼ ---
+                tooltip += "\n(ダブルクリックしてPDFを開く)"
+                # -------------------------------------------
 
             G.add_node(
                 key,
-                label=title,  # ノードのラベル
-                title=f"Key: {key}\nIndex: {cp_key}",  # マウスオーバー時のツールチップ
-                shape='icon',  # pyvis でアイコン形状を使用
+                label=title,
+                title=tooltip,
+                shape='icon',
                 icon={
                     'code': icon_code,
                     'color': color_hex,
                     'size': 40
                 },
-                color=color_hex
+                color=color_hex,
+                # URIをノード属性に追加 (JavaScriptから参照)
+                pdf_url=file_uri if file_uri else ""
             )
 
-        # 3b. エッジを追加 (ノート間のリンク)
+        # 3b. エッジを追加
         edge_count = 0
         for index, row in df.iterrows():
             source_key = row.get('key')
@@ -967,13 +979,10 @@ class Synapsen_Nexus(ctk.CTk):
 
             for match in link_pattern.finditer(memo):
                 full_match_content = match.group(1).strip()
-                target_key = full_match_content.split(
-                    ':')[0].strip()  # key部分だけ取得
+                target_key = full_match_content.split(':')[0].strip()
 
-                # リンク先 (target_key) も現在の検索結果に含まれている場合のみ、
-                # グラフのエッジとして追加する
                 if target_key in notes_in_graph:
-                    if source_key != target_key:  # 自分自身へのリンクは除外
+                    if source_key != target_key:
                         G.add_edge(source_key, target_key)
                         edge_count += 1
 
@@ -981,17 +990,16 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 4. 視覚化 (Pyvis)
         nt = Network(
-            height="95vh",        # 画面の高さの95%
-            width="100%",         # 画面の幅 100%
-            bgcolor="#222222",  # 背景色 (ダーク)
-            font_color="white",   # フォント色
-            directed=True,        # 有向グラフ (矢印あり)
-            notebook=False        # HTMLファイルとして出力
+            height="95vh",
+            width="100%",
+            bgcolor="#222222",
+            font_color="white",
+            directed=True,
+            notebook=False
         )
         nt.from_nx(G)
 
-        # 5. 物理演算のオプションを設定 (ノードが重ならないように)
-        # (ForceAtlas2Based は高品質だが重め、barnesHut は速いが単純)
+        # 5. 物理演算のオプションを設定
         nt.set_options("""
         var options = {
           "physics": {
@@ -1008,7 +1016,6 @@ class Synapsen_Nexus(ctk.CTk):
           "interaction": {
             "tooltipDelay": 200,
             "hideEdgesOnDrag": true,
-
             "hover": true,
             "hoverConnectedEdges": true,
             "selectConnectedEdges": true,
@@ -1036,7 +1043,6 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 6. HTMLファイルとして保存し、ブラウザで開く
         try:
-            # .exe化した場合でもスクリプト(.py)と同じ場所に出力
             if getattr(sys, 'frozen', False):
                 base_path = Path(sys.executable).parent
             else:
@@ -1044,9 +1050,52 @@ class Synapsen_Nexus(ctk.CTk):
 
             graph_file_path = base_path / "synapsen_graph.html"
 
+            # 6a. HTMLファイルを保存
             nt.save_graph(str(graph_file_path))
 
-            # デフォルトのWebブラウザで開く
+            # 挿入するJavaScriptコード
+            click_handler_js = """
+            // DOM(HTML)の読み込み完了時に実行
+            document.addEventListener('DOMContentLoaded', function() {
+                // 'network' は pyvis がHTML内で定義するグローバル変数
+                if (typeof network !== 'undefined') {
+
+                    // グラフの 'doubleClick' (ダブルクリック) イベントに関数を登録
+                    network.on("doubleClick", function(properties) {
+                        var { nodes } = properties;
+                        if (nodes.length > 0) {
+                            var nodeId = nodes[0];
+                            // vis.js の内部APIでノードデータを取得
+                            var nodeData = this.body.nodes[nodeId].options;
+
+                            // G.add_node で設定した 'pdf_url' があれば
+                            if (nodeData.pdf_url && nodeData.pdf_url !== "") {
+                                // 新しいタブで file:// URI を開く
+                                window.open(nodeData.pdf_url, '_blank');
+                            }
+                        }
+                    });
+                }
+            });
+            """
+            # --------------------------------------------------------
+
+            # 6b. 保存したHTMLを読み込む
+            with open(graph_file_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            # 6c. </head> タグの直前に <script> ブロックを挿入
+            script_tag = {
+                "<script type=\"text/javascript\">\n" +
+                f"{click_handler_js}\n</script>\n</head>"
+                }
+            html_content = html_content.replace("</head>", script_tag, 1)
+
+            # 6d. 変更したHTMLを上書き保存
+            with open(graph_file_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            # 6e. 変更後のHTMLをブラウザで開く
             webbrowser.open(graph_file_path.as_uri())
 
         except Exception as e:
