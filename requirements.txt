@@ -4,3 +4,6 @@ pypdf
 PyMuPDF
 Pillow
 pytesseract
+networkx
+pyvis
+
