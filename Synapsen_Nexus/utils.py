@@ -407,6 +407,58 @@ def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
         _open_original_pdf(row_data, pdf_root_folder)
 
 
+def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
+    """
+    ノートデータに基づき、PDFを開くための file:// URI を生成して返す。
+    (open_pdf_viewer のロジックを再利用)
+
+    Returns:
+        str or None: "file:///path/to/doc.pdf#page=5" 形式のURI。
+                     失敗した場合は None。
+    """
+    merged_pdf_filename = row_data.get('merged_pdf_filename')
+    start_page_str = row_data.get('merged_start_page')
+
+    pdf_path = None
+    page_number = 1  # 1-indexed
+
+    # 1. 統合PDF (merged_pdf) が指定されている場合
+    if merged_pdf_filename and not pd.isna(start_page_str) and start_page_str != '':
+        if loaded_db_path:
+            pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
+
+        if not pdf_path or not pdf_path.is_file():
+            pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
+        else:
+            try:
+                page_number = int(start_page_str)
+            except (ValueError, TypeError):
+                page_number = 1
+
+    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
+    if pdf_path is None:
+        if not pdf_root_folder or not Path(pdf_root_folder).is_dir():
+            return None  # 元PDFのルートも不明
+
+        filename = row_data.get('filepath')
+        if not filename:
+            return None  # 元PDFのファイルパスも不明
+
+        pdf_path = Path(pdf_root_folder) / Path(filename).name
+        page_number = 1  # 元PDFは常に1ページ目
+
+        if not pdf_path.is_file():
+            return None  # 元PDFが見つからない
+
+    # 3. URIを構築
+    try:
+        # ページ指定で開くURI
+        file_uri = f"{pdf_path.as_uri()}#page={page_number}"
+        return file_uri
+    except Exception:
+        return None
+
+
 def update_note_in_db(db_path: Path, key: str, new_data: dict):
     """
     SQLiteデータベース内の指定されたノートを更新する。

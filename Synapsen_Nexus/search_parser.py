@@ -1,4 +1,5 @@
 import pandas as pd
+import re  # 正規表現ライブラリをインポート
 
 
 def split_respecting_parens(query, operator):
@@ -49,10 +50,11 @@ def evaluate_simple_term(df, term, include_full_text=False):
 
     'title:Python' のようなプレフィックス検索、または 'Python' のような
     グローバル検索を処理し、該当する行のboolマスク (pd.Series) を返す。
+    ['date'] プレフィックスの日時範囲検索 (>=, <=, YYYYMMDD-YYYYMMDD) にも対応。
 
     Args:
         df (pd.DataFrame): 検索対象のDataFrame。
-        term (str): 単純な検索語 (例: 'Python', 'title:Python')。
+        term (str): 単純な検索語 (例: 'Python', 'title:Python', 'date:>=20240101')。
         include_full_text (bool): グローバル検索時に本文も対象にするか。
 
     Returns:
@@ -73,7 +75,7 @@ def evaluate_simple_term(df, term, include_full_text=False):
     }
 
     target_column = None
-    final_search_term = term
+    search_value = term
 
     # プレフィックス (key:など) があるかチェック
     if ':' in term:
@@ -83,20 +85,58 @@ def evaluate_simple_term(df, term, include_full_text=False):
 
         if prefix in search_fields_map and value:
             target_column = search_fields_map[prefix]
-            final_search_term = value
+            search_value = value
 
-    if not final_search_term:
+    if not search_value:
         # 検索語が空なら、何もヒットしないマスクを返す
         return pd.Series([False] * len(df), index=df.index)
 
     term_condition = pd.Series([False] * len(df), index=df.index)
 
-    if target_column:
-        # --- プレフィックス検索: 指定された列のみ検索 ---
+    # 日付検索ロジック
+    if target_column == 'date':
+        try:
+            # YYYYMMDD-YYYYMMDD (範囲)
+            range_match = re.match(r'^(\d{8})-(\d{8})$', search_value)
+            # >=YYYYMMDD (以降)
+            gte_match = re.match(r'^>=(\d{8})$', search_value)
+            # <=YYYYMMDD (以前)
+            lte_match = re.match(r'^<=(\d{8})$', search_value)
+
+            # date列が文字列として比較可能であることを確認
+            if 'date' not in df.columns:
+                return pd.Series([False] * len(df), index=df.index)
+
+            # 比較のために df['date'] を str 型に強制 (na=False は効かないため)
+            date_series_str = df['date'].astype(str)
+
+            if range_match:
+                start_date = range_match.group(1)
+                end_date = range_match.group(2)
+                # .between() を使って範囲内の日付を検索
+                term_condition = date_series_str.between(start_date, end_date)
+            elif gte_match:
+                start_date = gte_match.group(1)
+                term_condition = date_series_str >= start_date
+            elif lte_match:
+                end_date = lte_match.group(1)
+                term_condition = date_series_str <= end_date
+            else:
+                # 通常の部分一致検索 (例: date:202401)
+                term_condition = date_series_str.str.contains(
+                    search_value, case=False, na=False, regex=False
+                )
+        except Exception as e:
+            print(f"日付検索エラー: {e}")
+            # エラー時は何もヒットしない (False) マスクを返す
+            term_condition = pd.Series([False] * len(df), index=df.index)
+
+    elif target_column:
+        # --- プレフィックス検索 (日付以外): 指定された列のみ検索 ---
         if target_column in df.columns:
             # .str.contains() を使用して部分一致検索
             term_condition = df[target_column].str.contains(
-                final_search_term, case=False, na=False, regex=False
+                search_value, case=False, na=False, regex=False
             )
         # (もし target_column が 'full_text' であっても、
         #  df['full_text'] が検索されるだけで、include_full_text フラグは不要)
@@ -105,23 +145,23 @@ def evaluate_simple_term(df, term, include_full_text=False):
         # --- グローバル検索: 主要な列を検索 ---
         term_condition = (
             df['title'].str.contains(
-                final_search_term, case=False, na=False, regex=False) |
+                search_value, case=False, na=False, regex=False) |
             df['tags'].str.contains(
-                final_search_term, case=False, na=False, regex=False) |
+                search_value, case=False, na=False, regex=False) |
             df['key'].str.contains(
-                final_search_term, case=False, na=False, regex=False) |
+                search_value, case=False, na=False, regex=False) |
             df['memo'].str.contains(
-                final_search_term, case=False, na=False, regex=False) |
+                search_value, case=False, na=False, regex=False) |
             df['commonplace_key'].str.contains(
-                final_search_term, case=False, na=False, regex=False) |
+                search_value, case=False, na=False, regex=False) |
             df['date'].str.contains(
-                final_search_term, case=False, na=False, regex=False)
+                search_value, case=False, na=False, regex=False)
         )
 
         # 「本文検索」が有効な場合、full_text カラムも検索対象に加える
         if include_full_text and 'full_text' in df.columns:
             term_condition |= df['full_text'].str.contains(
-                final_search_term, case=False, na=False, regex=False
+                search_value, case=False, na=False, regex=False
             )
 
     return term_condition
