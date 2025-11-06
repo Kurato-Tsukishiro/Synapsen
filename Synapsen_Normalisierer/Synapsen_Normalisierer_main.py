@@ -9,13 +9,18 @@ import customtkinter as ctk
 # PDF処理関数を別ファイルからインポート
 from pdf_utils import (
     high_fidelity_flatten, normalize_pdf_to_papersize,
-    embed_ocr_text_in_pdf
+    embed_ocr_text_in_pdf,
+    convert_image_to_pdf  # <--- [変更] 新しい関数をインポート
 )
+
 
 A4_WIDTH = 595.276
 A4_HEIGHT = 841.89
 A5_WIDTH = 419.528
 A5_HEIGHT = 595.276
+
+# <--- [追加] 処理対象の拡張子を定義
+SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
 
 
 class Synapsen_Normalisierer(ctk.CTk):
@@ -154,8 +159,8 @@ class Synapsen_Normalisierer(ctk.CTk):
         「処理を開始する」ボタン押下時のメイン処理。
 
         入力・出力フォルダをユーザーに選択させ、
-        一時フォルダを作成し、対象のPDFファイル群に対して
-        「フラット化」と「正規化」を順次実行します。
+        一時フォルダを作成し、対象のPDF「および画像」ファイル群に対して
+        「画像->PDF変換」「フラット化」「正規化」「OCR」を順次実行します。
         """
         source_folder = filedialog.askdirectory(title="入力元フォルダを選択してください")
         if not source_folder:
@@ -174,11 +179,25 @@ class Synapsen_Normalisierer(ctk.CTk):
         temp_dir = None  # finallyブロックで参照できるよう、外で定義
 
         try:
-            pdf_files = list(source_path.glob("*.pdf"))
-            total_files = len(pdf_files)
+            # <--- [変更] サポートする全拡張子のファイルを検索 ---
+            all_files = []
+            for ext in SUPPORTED_EXTENSIONS:
+                all_files.extend(source_path.glob(f"*{ext}"))
+                # .pdf 以外は、大文字の拡張子 (e.g., .PNG) も検索
+                if ext != ".pdf":
+                    all_files.extend(source_path.glob(f"*{ext.upper()}"))
+
+            # set() で重複を除去し、sorted() で処理順を一定にする
+            all_files = sorted(list(set(all_files)))
+            total_files = len(all_files)
+            # <--- 変更ここまで ---
 
             if total_files == 0:
-                messagebox.showinfo("情報", "処理対象のPDFファイルが見つかりませんでした。")
+                messagebox.showinfo(
+                    "情報",
+                    "処理対象のファイルが見つかりませんでした。\n" +
+                    f"(対象: {', '.join(SUPPORTED_EXTENSIONS)})"
+                )
                 self.label.configure(text="処理が完了しました（対象ファイルなし）。")
                 return
 
@@ -186,29 +205,56 @@ class Synapsen_Normalisierer(ctk.CTk):
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
 
-            for i, pdf_file in enumerate(pdf_files):
+            for i, input_file in enumerate(all_files):
                 self.label.configure(
-                    text=f"処理中 ({i+1}/{total_files}): {pdf_file.name}"
+                    text=f"処理中 ({i+1}/{total_files}): {input_file.name}"
                 )
                 self.update_idletasks()  # GUIの表示を強制更新
 
-                temp_flattened_pdf = temp_dir / pdf_file.name
-                final_output_pdf = dest_path / pdf_file.name
+                # 最終的な出力ファイル名 (常時 .pdf)
+                output_filename = input_file.with_suffix(".pdf").name
+                final_output_pdf = dest_path / output_filename
+
+                # フラット化処理の「出力先」
+                temp_flattened_pdf = temp_dir / f"flat_{output_filename}"
+
+                # フラット化処理の「入力元」 (PDFまたは変換後PDF)
+                path_to_flatten: Path
+
+                if input_file.suffix.lower() != ".pdf":
+                    self.label.configure(
+                        text=f"({i+1}/{total_files} )" +
+                        f"画像->PDF変換: {input_file.name}"
+                    )
+                    self.update_idletasks()
+
+                    # 変換したPDFを一時フォルダに保存
+                    temp_converted_pdf = temp_dir / output_filename
+                    try:
+                        convert_image_to_pdf(input_file, temp_converted_pdf)
+                        # 次のステップ（フラット化）の入力は、この変換したPDF
+                        path_to_flatten = temp_converted_pdf
+                    except Exception as e:
+                        print(f"警告: {input_file.name} のPDF変換に失敗: {e}")
+                        continue  # このファイルはスキップ
+                else:
+                    # 入力は元々PDF
+                    path_to_flatten = input_file
 
                 # 1. フォームをフラット化（一時フォルダに出力）
                 self.label.configure(
-                    text=f"({i+1}/{total_files}) フラット化中: {pdf_file.name}"
+                    text=f"({i+1}/{total_files}) フラット化中: {input_file.name}"
                 )
                 self.update_idletasks()
                 high_fidelity_flatten(
-                    str(pdf_file),
+                    str(path_to_flatten),
                     str(temp_flattened_pdf),
                     self.font_path
                 )
 
                 # 2. 指定サイズに正規化（最終出力先に出力）
                 self.label.configure(
-                    text=f"({i+1}/{total_files}) 正規化中: {pdf_file.name}"
+                    text=f"({i+1}/{total_files}) 正規化中: {input_file.name}"
                 )
                 self.update_idletasks()
                 normalize_pdf_to_papersize(
@@ -220,7 +266,10 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 # 3. OCR処理 (最終PDFに直接テキストを埋め込む)
                 self.label.configure(
-                    text=f"({i+1}/{total_files}) OCR埋込処理中...: {pdf_file.name}"
+                    text={
+                        f"({i+1}/{total_files}) OCR埋込処理中...: " +
+                        f"{input_file.name}"
+                        }
                 )
                 self.update_idletasks()
                 try:
@@ -235,7 +284,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.label.configure(text="OCRエラー。処理を中断しました。")
                     return
 
-            messagebox.showinfo("完了", f"{total_files}個のPDFファイルの処理が完了しました。")
+            messagebox.showinfo("完了", f"{total_files}個のPDF/画像ファイルの処理が完了しました。")
             self.label.configure(text="処理が完了しました。")
 
         except Exception as e:
