@@ -7,6 +7,8 @@ import sys
 import webbrowser
 import networkx as nx
 from pyvis.network import Network
+import datetime
+import shutil
 
 # 分割したモジュールをインポート
 from utils import (
@@ -20,6 +22,7 @@ from search_parser import parse_or_expression
 
 from preview_window import NotePreviewWindow
 from editor_window import NoteEditorWindow
+from saved_search_manager import SavedSearchManager
 
 
 class Synapsen_Nexus(ctk.CTk):
@@ -61,12 +64,16 @@ class Synapsen_Nexus(ctk.CTk):
         self.selected_suggestion_index = -1
         self.current_suggestions = []
 
+        self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
+
+        # 検索マネージャのインスタンス化
+        self.search_manager = SavedSearchManager(self)
+
         self.create_widgets()
         self.load_config()
 
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
-
         # 最大化失敗時のフォールバックサイズ指定
         self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
 
@@ -77,14 +84,11 @@ class Synapsen_Nexus(ctk.CTk):
         ここで最大化を実行する。
         """
         try:
-            # 2回目以降は実行されないよう、バインドを解除
             self.unbind("<Map>")
-            # ウィンドウを最大化
             self.state('zoomed')
             print("[DEBUG] ウィンドウを最大化しました。")
         except Exception as e:
             print(f"ウィンドウの最大化に失敗しました: {e}")
-            # 最大化が失敗した場合 (try...exceptが無くても geometry がフォールバックになる)
 
     def get_icon_path(self):
         """
@@ -111,17 +115,20 @@ class Synapsen_Nexus(ctk.CTk):
     def load_config(self):
         """
         config.iniファイルからアプリケーション設定を読み込み、適用する。
-        utils.load_app_config を使用する。
         """
         try:
             # 実行ファイルのパスを基準にconfig.iniを探す
             if getattr(sys, 'frozen', False):
-                base_path = Path(sys.executable).parent
+                # .exe実行の場合 (e.g., F:\Synapsen\dist)
+                # self.base_path は .exe と同じ場所
+                self.base_path = Path(sys.executable).parent
             else:
-                base_path = Path(__file__).parent
+                # .pyスクリプト実行の場合 (e.g., F:\Synapsen\Synapsen_Nexus)
+                # self.base_path は main.py と同じ場所
+                self.base_path = Path(__file__).parent
 
             # utilsから設定を辞書として読み込む
-            config_data = load_app_config(base_path)
+            config_data = load_app_config(self.base_path)
 
             # 読み込んだ設定をクラス属性にセット
             self.pdf_root_folder = config_data.get('pdf_root_folder', Path(''))
@@ -134,6 +141,20 @@ class Synapsen_Nexus(ctk.CTk):
 
             # フィルターチェックボックスをUIに反映
             self.populate_key_filters()
+
+            # 検索マネージャの読み込み
+            try:
+                # search_manager は config.ini と同じ場所(root) のパスを必要とする
+                if getattr(sys, 'frozen', False):
+                    # .exe の場合、self.base_path (e.g., dist/) が root
+                    root_path = self.base_path
+                else:
+                    # .py の場合、self.base_path.parent (e.g., Synapsen/) が root
+                    root_path = self.base_path.parent
+
+                self.search_manager.load_saved_searches(root_path)
+            except Exception as e:
+                print(f"保存済み検索の読み込みエラー: {e}")
 
             # デフォルトDBが設定されていれば自動で読み込む
             default_db_path = config_data.get('database_path')
@@ -154,41 +175,57 @@ class Synapsen_Nexus(ctk.CTk):
     def create_widgets(self):
         """アプリケーションのUIコンポーネントを作成し、配置する。"""
 
-        # --- トップフレーム (ファイル読み込みボタンと検索バー) ---
+        # --- トップフレーム ---
         top_frame = ctk.CTkFrame(self)
         top_frame.grid(
             row=0, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="ew"
             )
         top_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkButton(
-            top_frame, text="目次データベースを開く", command=self.load_database_dialog
-        ).pack(side="left", padx=5)
+        # ボタンを左側にまとめるフレーム
+        left_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        left_button_frame.pack(side="left", padx=5)
 
+        ctk.CTkButton(
+            left_button_frame, text="DBを開く", command=self.load_database_dialog
+        ).pack(side="left", padx=(0, 5))
+
+        # エクスポートボタン
+        self.export_button = ctk.CTkButton(
+            left_button_frame,
+            text="エクスポート",
+            command=self.export_search_results,
+            width=100
+        )
+        self.export_button.pack(side="left", padx=5)
+
+        # 検索バーコンテナ
         search_container = ctk.CTkFrame(top_frame, fg_color="transparent")
         search_container.pack(side="left", fill="x", expand=True, padx=5)
 
         self.search_entry = ctk.CTkEntry(
             search_container,
-            placeholder_text={
-                "検索 (AND, OR, - , ( ) を使用可, プレフィックスを使用する事で検索対象を絞る" +
-                "(例: date:YYYYMM / date:YYYYMMDD))"
-                }
+            placeholder_text=(
+                "検索 (例: (date:>=20240101 AND date:<=20240131) AND" +
+                " (tag:Python OR tag:C#))"
+            )
         )
         self.search_entry.pack(fill="x")
 
+        # 右側ボタンフレーム
+        right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        right_button_frame.pack(side="right", padx=(5, 10))
+
         # 本文検索(FTS)をトグルするチェックボックス
         self.fts_checkbox = ctk.CTkCheckBox(
-            top_frame, text="本文検索"
+            right_button_frame, text="本文検索"
         )
         self.fts_checkbox.pack(side="left", padx=5)
-
-        # チェックボックスの状態が変わったら検索を再実行
         self.fts_checkbox.configure(command=self.perform_search)
 
-        # グラフ表示ボタンを追加
+        # グラフ表示ボタン
         self.graph_button = ctk.CTkButton(
-            top_frame,
+            right_button_frame,
             text="グラフ表示",
             command=self.generate_and_show_graph,
             width=80
@@ -197,14 +234,47 @@ class Synapsen_Nexus(ctk.CTk):
 
         # ランダムノートボタン
         self.random_note_button = ctk.CTkButton(
-            top_frame,
-            text="閃き (R)",  # (R) はランダムの意
+            right_button_frame,
+            text="閃き (R)",
             command=self.show_random_note,
             width=80,
-            fg_color="#585a9c",      # 桔梗色 (Erstellerと統一)
-            hover_color="#494B83"    # 濃い桔梗色
+            fg_color="#585a9c",
+            hover_color="#494B83"
         )
-        self.random_note_button.pack(side="left", padx=(5, 10))
+        self.random_note_button.pack(side="left", padx=(5, 0))
+
+        # スマート検索UI
+        smart_search_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        smart_search_frame.pack(side="right", padx=5)
+
+        self.save_search_button = ctk.CTkButton(
+            smart_search_frame,
+            text="検索保存",
+            command=self.search_manager.save_current_search,
+            width=80
+        )
+        self.save_search_button.pack(side="left", padx=(5, 0))
+
+        # 保存済み検索管理ボタン
+        self.delete_search_button = ctk.CTkButton(
+            smart_search_frame,
+            text="管理",
+            command=self.search_manager.open_manage_searches_window,
+            width=50,
+            fg_color="#6C757D",
+            hover_color="#5A6268"
+        )
+        self.delete_search_button.pack(side="left", padx=5)
+
+        # 保存済み検索呼び出しボタン
+        self.saved_search_combo = ctk.CTkComboBox(
+            smart_search_frame,
+            values=["保存済み検索..."],
+            width=150,
+            command=self.search_manager.on_saved_search_selected
+        )
+        self.saved_search_combo.pack(side="left", padx=5)
+        self.saved_search_combo.set("保存済み検索...")
 
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
@@ -217,7 +287,7 @@ class Synapsen_Nexus(ctk.CTk):
         # オートコンプリート用の非表示フレーム
         self.autocomplete_frame = ctk.CTkScrollableFrame(self, label_text="")
 
-        # --- 左パネル (フィルターと検索結果) ---
+        # --- 左パネル ---
         self.left_panel = ctk.CTkFrame(self, fg_color="transparent")
         self.left_panel.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.left_panel.grid_rowconfigure(2, weight=1)
@@ -227,7 +297,6 @@ class Synapsen_Nexus(ctk.CTk):
         filter_container = ctk.CTkFrame(self.left_panel)
         filter_container.grid(row=0, column=0, sticky="ew")
         filter_container.grid_columnconfigure(1, weight=1)
-
         self.toggle_filter_button = ctk.CTkButton(
             filter_container, text="", command=self.toggle_filter_panel,
             width=20
@@ -256,16 +325,16 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
 
-        # --- 右パネル (詳細表示) ---
+        # --- 右パネル ---
         self.details_frame = ctk.CTkFrame(self)
         self.details_frame.grid(
             row=1, column=1, padx=(0, 10), pady=10, sticky="nsew"
             )
 
         # グリッドの行設定 (プレビュー領域、メモ、引用元のために変更)
-        self.details_frame.grid_rowconfigure(4, weight=1)  # <-- ★ PDFプレビュー
-        self.details_frame.grid_rowconfigure(6, weight=2)  # <-- ★ メモ欄 (重み2)
-        self.details_frame.grid_rowconfigure(8, weight=1)  # <-- ★ 引用元欄 (重み1)
+        self.details_frame.grid_rowconfigure(4, weight=1)  # PDFプレビュー
+        self.details_frame.grid_rowconfigure(6, weight=2)  # メモ欄 (重み2)
+        self.details_frame.grid_rowconfigure(8, weight=1)  # 引用元欄 (重み1)
         self.details_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
@@ -363,7 +432,6 @@ class Synapsen_Nexus(ctk.CTk):
         self.sync_filter_panel_view()
 
     # --- オートコンプリート関連メソッド ---
-
     def handle_keyrelease(self, event):
         """検索バーでのキー入力（リリース）イベントを処理する。"""
         if event.keysym in ("Up", "Down", "Return", "Escape"):
@@ -477,7 +545,6 @@ class Synapsen_Nexus(ctk.CTk):
         self.hide_autocomplete()
 
     # --- フィルターパネル関連メソッド ---
-
     def sync_filter_panel_view(self):
         """フィルターパネルの開閉状態をUIに同期させる。"""
         if self.filter_panel_expanded:
@@ -551,7 +618,6 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showerror("データベース読み込みエラー", str(e))
 
     def populate_key_filters(self):
-        """config.iniの情報に基づき、IndexKeyフィルターのUIを構築する。"""
         for widget in self.key_filter_frame.winfo_children():
             widget.destroy()
         self.filter_checkboxes.clear()
@@ -780,7 +846,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.edit_button.configure(state="normal")
         self.delete_button.configure(state="normal")
 
-        row = row_data  # 分かりやすくするため
+        row = row_data
         self.title_label.configure(text=row.get('title', ''))
         self.key_label.configure(text=row.get('key', ''))
         self.cpkey_label.configure(text=row.get('commonplace_key', ''))
@@ -823,7 +889,6 @@ class Synapsen_Nexus(ctk.CTk):
                 fg_color="gray20",
                 text_color="#D9534F"  # 赤色
             )
-        # -----------------------------------
 
         # メモ表示（リンク構築）
         # (row=6, column=1 の memo_display_frame を使用)
@@ -845,14 +910,14 @@ class Synapsen_Nexus(ctk.CTk):
         # (row=8, column=1 の references_display_frame を使用)
         current_key = row.get('key', '')
 
-        # utilsの新関数を使って引用元DFを取得
+        # 引用元DFを取得
         backlinks_df = find_backlinks_df(self.df, current_key)
 
-        # utilsの新関数を使って引用元UIを構築
+        # 引用元UIを構築
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            self.open_preview_window,  # <-- リンククリック時のコールバック
+            self.open_preview_window,
             self.key_icons,
             self.key_colors
         )
@@ -904,31 +969,38 @@ class Synapsen_Nexus(ctk.CTk):
             self.pdf_root_folder
         )
 
-    def generate_and_show_graph(self):
+    # --- グラフ生成メソッド ---
+    def generate_and_show_graph(self, output_path=None):
         """
         現在の検索結果（キャッシュ済み）に基づき、
-        ノート間のリンクグラフを生成してブラウザで表示する。
-        （HTMLに直接ダブルクリックイベントを挿入する方式）
+        ノート間のリンクグラフを生成してブラウザで表示、またはファイルに保存する。
+
+        Args:
+            output_path (Path, optional):
+                指定された場合、グラフをこのパスにHTMLとして保存し、
+                ブラウザでは開かない。
         """
 
         # 1. キャッシュされた検索結果（DataFrame）を取得
         df = self.filtered_df_cache
 
         if df is None or df.empty:
-            messagebox.showinfo(
-                "グラフ表示",
-                "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
-                parent=self
-            )
+            if not output_path: # エクスポート時以外のみメッセージ表示
+                messagebox.showinfo(
+                    "グラフ表示",
+                    "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
+                    parent=self
+                )
             return
 
         # 2. パフォーマンス制限
         if len(df) > 500:
-            messagebox.showwarning(
-                "グラフ表示",
-                f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
-                parent=self
-            )
+            if not output_path:
+                messagebox.showwarning(
+                    "グラフ表示",
+                    f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
+                    parent=self
+                )
             df = df.head(500)
 
         # 3. グラフ構築 (NetworkX)
@@ -952,9 +1024,7 @@ class Synapsen_Nexus(ctk.CTk):
 
             tooltip = f"Key: {key}\nIndex: {cp_key}"
             if file_uri:
-                # --- ▼ [変更点 1/2] ツールチップの文言を変更 ▼ ---
                 tooltip += "\n(ダブルクリックしてPDFを開く)"
-                # -------------------------------------------
 
             G.add_node(
                 key,
@@ -1043,34 +1113,29 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 6. HTMLファイルとして保存し、ブラウザで開く
         try:
-            if getattr(sys, 'frozen', False):
-                base_path = Path(sys.executable).parent
+            if output_path:
+                graph_file_path = output_path
             else:
-                base_path = Path(__file__).parent
+                # デフォルトのパス (アプリと同じ場所)
+                if getattr(sys, 'frozen', False):
+                    base_path = Path(sys.executable).parent
+                else:
+                    base_path = Path(__file__).parent.parent
+                graph_file_path = base_path / "synapsen_graph.html"
 
-            graph_file_path = base_path / "synapsen_graph.html"
-
-            # 6a. HTMLファイルを保存
+            # 6a. まずHTMLファイルを保存
             nt.save_graph(str(graph_file_path))
 
-            # 挿入するJavaScriptコード
+            # 6b. ダブルクリックのJavaScriptを挿入
             click_handler_js = """
-            // DOM(HTML)の読み込み完了時に実行
             document.addEventListener('DOMContentLoaded', function() {
-                // 'network' は pyvis がHTML内で定義するグローバル変数
                 if (typeof network !== 'undefined') {
-
-                    // グラフの 'doubleClick' (ダブルクリック) イベントに関数を登録
                     network.on("doubleClick", function(properties) {
                         var { nodes } = properties;
                         if (nodes.length > 0) {
                             var nodeId = nodes[0];
-                            // vis.js の内部APIでノードデータを取得
                             var nodeData = this.body.nodes[nodeId].options;
-
-                            // G.add_node で設定した 'pdf_url' があれば
                             if (nodeData.pdf_url && nodeData.pdf_url !== "") {
-                                // 新しいタブで file:// URI を開く
                                 window.open(nodeData.pdf_url, '_blank');
                             }
                         }
@@ -1078,17 +1143,16 @@ class Synapsen_Nexus(ctk.CTk):
                 }
             });
             """
-            # --------------------------------------------------------
 
             # 6b. 保存したHTMLを読み込む
             with open(graph_file_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
 
             # 6c. </head> タグの直前に <script> ブロックを挿入
-            script_tag = {
+            script_tag = (
                 "<script type=\"text/javascript\">\n" +
                 f"{click_handler_js}\n</script>\n</head>"
-                }
+            )
             html_content = html_content.replace("</head>", script_tag, 1)
 
             # 6d. 変更したHTMLを上書き保存
@@ -1096,13 +1160,123 @@ class Synapsen_Nexus(ctk.CTk):
                 f.write(html_content)
 
             # 6e. 変更後のHTMLをブラウザで開く
-            webbrowser.open(graph_file_path.as_uri())
-
+            if not output_path:
+                webbrowser.open(graph_file_path.as_uri())
         except Exception as e:
             print(f"Graph display error: {e}")
-            messagebox.showerror(
-                "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
+            if not output_path:
+                messagebox.showerror(
+                    "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
 
+    # --- エクスポート機能 ---
+    def export_search_results(self):
+        """
+        「エクスポート」ボタン押下時。
+        現在の検索結果 (CSV)、メタデータ (TXT)、グラフ (HTML)、
+        および本文 (TXT) を指定したフォルダに保存する。
+        """
+
+        # 1. 検索結果があるか確認
+        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
+            messagebox.showinfo(
+                "エクスポート",
+                "エクスポートする検索結果がありません。",
+                parent=self
+            )
+            return
+
+        # 2. 保存先フォルダをユーザーに選択させる
+        export_folder_path = filedialog.askdirectory(
+            title="エクスポート先フォルダを選択"
+        )
+        if not export_folder_path:
+            return  # キャンセル
+
+        export_path = Path(export_folder_path)
+
+        now = datetime.datetime.now()
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        final_export_dir = export_path / f"Synapsen_Export_{timestamp}"
+
+        try:
+            final_export_dir.mkdir(parents=True, exist_ok=True)
+
+            # 3. メタデータ (検索クエリと日時) を保存
+            meta_path = final_export_dir / "export_meta.txt"
+            current_query = self.search_entry.get()
+
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                f.write("Synapsen Nexus エクスポート\n")
+                f.write(f"エクスポート日時: {now.isoformat()}\n")
+                f.write(f"検索結果件数: {len(self.filtered_df_cache)} 件\n")
+                f.write("="*30 + "\n")
+                f.write(f"検索クエリ:\n{current_query}\n")
+
+            # CSVファイル名を変更
+            csv_path = final_export_dir / "search_results_metadata.csv"
+
+            # .drop() を使って full_text 列を明示的に削除
+            df_to_export = self.filtered_df_cache.drop(
+                columns=['full_text'], errors='ignore'
+            )
+
+            # ( tags 列がリストの場合 ; 区切りに戻す - Nexus内では文字列のはずだが念のため )
+            if 'tags' in df_to_export.columns:
+                df_to_export['tags'] = df_to_export['tags'].apply(
+                    lambda x: ";".join(x) if isinstance(x, list) else str(x)
+                )
+
+            df_to_export.to_csv(csv_path, index=False, encoding='utf-8-sig')
+
+            # full_text を個別の .txt ファイルとして保存
+            text_export_dir = final_export_dir / "FullText_Contents"
+            text_export_dir.mkdir(exist_ok=True)
+
+            print(f"FullText を {text_export_dir} にエクスポート中...")
+
+            # 元の (full_textを含む) DataFrame を使用
+            for index, row in self.filtered_df_cache.iterrows():
+                key = row.get('key')
+                text_content = row.get('full_text', '')
+
+                if not key:
+                    # keyが無いノートはスキップ (ほぼあり得ないが念のため)
+                    continue
+
+                # ファイル名は {key}.txt (例: 20240101000000.txt)
+                text_file_path = text_export_dir / f"{key}.txt"
+
+                with open(text_file_path, 'w', encoding='utf-8') as f:
+                    f.write(text_content)
+
+            # 5. グラフ (HTML) を保存
+            graph_html_path = final_export_dir / "search_graph.html"
+            self.generate_and_show_graph(output_path=graph_html_path)
+
+            messagebox.showinfo(
+                "エクスポート完了",
+                f"検索結果を指定のフォルダに保存しました:\n\n"
+                f"・メタデータCSV (search_results_metadata.csv)\n"
+                f"・本文テキスト (FullText_Contents フォルダ)\n"
+                f"・関連グラフ (search_graph.html)\n\n"
+                f"保存先:\n{final_export_dir}",
+                parent=self
+            )
+
+        except Exception as e:
+            print(f"エクスポート処理中にエラー: {e}")
+            messagebox.showerror(
+                "エクスポートエラー",
+                f"エクスポートに失敗しました:\n{e}", parent=self
+                )
+            # (もしエラーが発生したら、中途半端に作成したフォルダを削除する)
+            if final_export_dir.exists():
+                try:
+                    shutil.rmtree(final_export_dir)
+                except Exception as e_del:
+                    print(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
+
+    # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
         """
         編集ボタン押下時、またはリンククリック時に編集ウィンドウを開く。
@@ -1123,7 +1297,7 @@ class Synapsen_Nexus(ctk.CTk):
             note_data,
             self.commonplace_keys_options,
             self.predefined_tags,
-            self.save_edit_callback  # <-- 保存時に呼んでほしい関数
+            self.save_edit_callback
         )
         editor_win.focus()  # ウィンドウにフォーカスを当てる
 
@@ -1192,7 +1366,7 @@ class Synapsen_Nexus(ctk.CTk):
 
 if __name__ == "__main__":
     app = Synapsen_Nexus()
-    if app.icon_path:  # <-- クラス内で取得したパスを利用
+    if app.icon_path:
         try:
             # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
             app.iconbitmap(default=str(app.icon_path))
