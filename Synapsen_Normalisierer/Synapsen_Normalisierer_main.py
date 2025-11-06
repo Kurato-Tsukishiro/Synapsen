@@ -5,21 +5,21 @@ import configparser
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
+from dnd_window import DragAndDropWindow
 
 # PDF処理関数を別ファイルからインポート
 from pdf_utils import (
     high_fidelity_flatten, normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
-    convert_image_to_pdf  # <--- [変更] 新しい関数をインポート
+    convert_image_to_pdf,
+    convert_pil_image_to_pdf
 )
-
 
 A4_WIDTH = 595.276
 A4_HEIGHT = 841.89
 A5_WIDTH = 419.528
 A5_HEIGHT = 595.276
 
-# <--- [追加] 処理対象の拡張子を定義
 SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
 
 
@@ -43,11 +43,11 @@ class Synapsen_Normalisierer(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Normalisierer")
-        self.geometry("500x250")
+        self.geometry("500x300")
 
         self.font_path = None
-        self.paper_width = A4_WIDTH  # デフォルト
-        self.paper_height = A4_HEIGHT  # デフォルト
+        self.paper_width = A4_WIDTH
+        self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
         self._load_config()
 
@@ -58,22 +58,42 @@ class Synapsen_Normalisierer(ctk.CTk):
         )
         self.label.pack(pady=20, padx=20)
 
-        self.run_button = ctk.CTkButton(
+        # 1. フォルダ処理モード
+        self.folder_run_button = ctk.CTkButton(
             self,
-            text="処理を開始する",
-            command=self.run_process
+            text="入力/出力フォルダを選んで処理実行",
+            command=self.run_folder_process
         )
-        self.run_button.pack(pady=20, padx=20, ipady=10)
+        self.folder_run_button.pack(pady=10, padx=10, fill="x", ipady=10)
+
+        # 2. D&D / ペースト モード
+        self.dnd_window_button = ctk.CTkButton(
+            self,
+            text="D&D / ペースト (個別ファイル) で正規化",
+            command=self.open_dnd_window,
+            fg_color="#585a9c",  # 桔梗色
+            hover_color="#494B83"
+        )
+        self.dnd_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
+
+        # DNDウィンドウのインスタンスを保持
+        self.dnd_window = None
+
+        # 3. 共通ステータス表示ラベル
+        self.status_label = ctk.CTkLabel(self, text="")
+        self.status_label.pack(pady=(5, 10), padx=10)
+        # --- [UI変更ここまで] ---
 
         # フォントパスの検証
         if not self.font_path or not Path(self.font_path).is_file():
-            self.label.configure(
+            self.status_label.configure(
                 text={
                     "エラー: config.iniで有効なフォントパスが指定されていません。" +
                     f"'{self.font_path}'"},
                 text_color="orange"
             )
-            self.run_button.configure(state="disabled")
+            self.folder_run_button.configure(state="disabled")
+            self.dnd_window_button.configure(state="disabled")  # DNDボタンも無効化
 
     def get_icon_path(self):
         """
@@ -100,11 +120,9 @@ class Synapsen_Normalisierer(ctk.CTk):
     def _load_config(self) -> None:
         """
         config.iniファイルからフォントパスと用紙サイズを読み込みます。
-        ( ... docstring ... )
         """
         # 0. config.ini のパスを決定
         if getattr(sys, 'frozen', False):
-            # ( ... config_path 決定ロジック ... )
             base_path = os.path.dirname(sys.executable)
         else:
             base_path = os.path.dirname(os.path.abspath(__file__))
@@ -154,14 +172,30 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.enable_tesseract_ocr}"
                 )
 
-    def run_process(self):
+    # --- DNDウィンドウを開く関数 ---
+    def open_dnd_window(self):
         """
-        「処理を開始する」ボタン押下時のメイン処理。
+        「D&D / ペースト」ボタン押下時に、専用ウィンドウを開く。
+        """
+        # 既に開いている場合は、最前面に持ってくる
+        if self.dnd_window is not None and self.dnd_window.winfo_exists():
+            self.dnd_window.focus()
+            self.dnd_window.grab_set()  # 再度モーダル化
+        else:
+            # self (メインアプリ自身) を親として渡す
+            self.dnd_window = DragAndDropWindow(self)
 
-        入力・出力フォルダをユーザーに選択させ、
-        一時フォルダを作成し、対象のPDF「および画像」ファイル群に対して
-        「画像->PDF変換」「フラット化」「正規化」「OCR」を順次実行します。
+    def run_folder_process(self):
         """
+        メイン機能：「フォルダ指定」で処理を実行する。
+        """
+        if not self.font_path or not Path(self.font_path).is_file():
+            self.status_label.configure(
+                text="エラー: config.iniで有効なフォントパスが指定されていません。",
+                text_color="orange"
+            )
+            return
+
         source_folder = filedialog.askdirectory(title="入力元フォルダを選択してください")
         if not source_folder:
             return
@@ -176,74 +210,91 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         source_path = Path(source_folder)
         dest_path = Path(dest_folder)
-        temp_dir = None  # finallyブロックで参照できるよう、外で定義
+
+        all_file_paths = []
+        for ext in SUPPORTED_EXTENSIONS:
+            all_file_paths.extend(source_path.glob(f"*{ext}"))
+            if ext != ".pdf":
+                all_file_paths.extend(source_path.glob(f"*{ext.upper()}"))
+
+        # (Path, base_name) のタプルリストを作成
+        items_to_process = [
+            (p, p.stem) for p in sorted(list(set(all_file_paths)))]
+
+        if not items_to_process:
+            messagebox.showinfo(
+                "情報",
+                "処理対象のファイルが見つかりませんでした。\n" +
+                f"(対象: {', '.join(SUPPORTED_EXTENSIONS)})"
+                )
+            self.status_label.configure(text="処理が完了しました（対象ファイルなし）。")
+            return
+
+        # 汎用処理関数を呼び出す
+        self.execute_normalization_process(items_to_process, dest_path)
+
+    def execute_normalization_process(
+            self, items_to_process: list, dest_path: Path):
+        """
+        [共通処理関数]
+        (Path, base_name) または (PIL.Image, base_name) のタプルリストを受け取り、
+        {base_name}.pdf として正規化・出力する。
+        """
+
+        temp_dir = None
 
         try:
-            # <--- [変更] サポートする全拡張子のファイルを検索 ---
-            all_files = []
-            for ext in SUPPORTED_EXTENSIONS:
-                all_files.extend(source_path.glob(f"*{ext}"))
-                # .pdf 以外は、大文字の拡張子 (e.g., .PNG) も検索
-                if ext != ".pdf":
-                    all_files.extend(source_path.glob(f"*{ext.upper()}"))
+            all_items = sorted(items_to_process, key=lambda item: item[1])
+            total_files = len(all_items)
 
-            # set() で重複を除去し、sorted() で処理順を一定にする
-            all_files = sorted(list(set(all_files)))
-            total_files = len(all_files)
-            # <--- 変更ここまで ---
-
-            if total_files == 0:
-                messagebox.showinfo(
-                    "情報",
-                    "処理対象のファイルが見つかりませんでした。\n" +
-                    f"(対象: {', '.join(SUPPORTED_EXTENSIONS)})"
-                )
-                self.label.configure(text="処理が完了しました（対象ファイルなし）。")
-                return
-
-            # 出力先フォルダ内に一時フォルダを作成
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
 
-            for i, input_file in enumerate(all_files):
-                self.label.configure(
-                    text=f"処理中 ({i+1}/{total_files}): {input_file.name}"
-                )
-                self.update_idletasks()  # GUIの表示を強制更新
+            for i, (item_data, base_name) in enumerate(all_items):
 
-                # 最終的な出力ファイル名 (常時 .pdf)
-                output_filename = input_file.with_suffix(".pdf").name
+                self.status_label.configure(
+                    text=f"処理中 ({i+1}/{total_files}): {base_name}"
+                )
+                self.update_idletasks()
+
+                # --- [ファイル名生成ロジック (base_name.pdf)] ---
+                output_filename = f"{base_name}.pdf"
                 final_output_pdf = dest_path / output_filename
 
-                # フラット化処理の「出力先」
-                temp_flattened_pdf = temp_dir / f"flat_{output_filename}"
+                temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
 
-                # フラット化処理の「入力元」 (PDFまたは変換後PDF)
                 path_to_flatten: Path
+                is_from_clipboard = False
 
-                if input_file.suffix.lower() != ".pdf":
-                    self.label.configure(
-                        text=f"({i+1}/{total_files} )" +
-                        f"画像->PDF変換: {input_file.name}"
+                if isinstance(item_data, Path):
+                    input_file_path = item_data
+                else:
+                    is_from_clipboard = True
+                    input_file_path = temp_dir / f"{base_name}.pdf"
+                    convert_pil_image_to_pdf(item_data, input_file_path)
+
+                # --- [ステップ1: 画像 -> PDF] ---
+                if (input_file_path.suffix.lower() != ".pdf"
+                        and not is_from_clipboard):
+                    self.status_label.configure(
+                        text=f"({i+1}/{total_files}) 画像->PDF変換: {base_name}"
                     )
                     self.update_idletasks()
 
-                    # 変換したPDFを一時フォルダに保存
-                    temp_converted_pdf = temp_dir / output_filename
+                    temp_converted_pdf = temp_dir / f"{base_name}.pdf"
                     try:
-                        convert_image_to_pdf(input_file, temp_converted_pdf)
-                        # 次のステップ（フラット化）の入力は、この変換したPDF
+                        convert_image_to_pdf(
+                            input_file_path, temp_converted_pdf)
                         path_to_flatten = temp_converted_pdf
                     except Exception as e:
-                        print(f"警告: {input_file.name} のPDF変換に失敗: {e}")
-                        continue  # このファイルはスキップ
+                        print(f"警告: {base_name} のPDF変換に失敗: {e}")
+                        continue
                 else:
-                    # 入力は元々PDF
-                    path_to_flatten = input_file
+                    path_to_flatten = input_file_path
 
-                # 1. フォームをフラット化（一時フォルダに出力）
-                self.label.configure(
-                    text=f"({i+1}/{total_files}) フラット化中: {input_file.name}"
+                # --- [ステップ2: フラット化] ---
+                self.status_label.configure(
+                    text=f"({i+1}/{total_files}) フラット化中: {base_name}"
                 )
                 self.update_idletasks()
                 high_fidelity_flatten(
@@ -252,9 +303,9 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.font_path
                 )
 
-                # 2. 指定サイズに正規化（最終出力先に出力）
-                self.label.configure(
-                    text=f"({i+1}/{total_files}) 正規化中: {input_file.name}"
+                # --- [ステップ3: 正規化] ---
+                self.status_label.configure(
+                    text=f"({i+1}/{total_files}) 正規化中: {base_name}"
                 )
                 self.update_idletasks()
                 normalize_pdf_to_papersize(
@@ -264,35 +315,31 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.paper_height
                 )
 
-                # 3. OCR処理 (最終PDFに直接テキストを埋め込む)
-                self.label.configure(
-                    text={
-                        f"({i+1}/{total_files}) OCR埋込処理中...: " +
-                        f"{input_file.name}"
-                        }
+                # --- [ステップ4: OCR] ---
+                self.status_label.configure(
+                    text=f"({i+1}/{total_files}) OCR埋込処理中...: {base_name}"
                 )
                 self.update_idletasks()
                 try:
                     embed_ocr_text_in_pdf(
                         str(final_output_pdf),
                         self.enable_tesseract_ocr,
-                        self.font_path
+                        self.font_path,
+                        'jpn+jpn_vert'  # lang引数を明示
                     )
                 except Exception as ocr_e:
-                    # Tesseractが見つからない場合など
                     messagebox.showerror("OCR エラー", str(ocr_e))
-                    self.label.configure(text="OCRエラー。処理を中断しました。")
+                    self.status_label.configure(text="OCRエラー。処理を中断しました。")
                     return
 
             messagebox.showinfo("完了", f"{total_files}個のPDF/画像ファイルの処理が完了しました。")
-            self.label.configure(text="処理が完了しました。")
+            self.status_label.configure(text="処理が完了しました。")
 
         except Exception as e:
             messagebox.showerror("エラー", f"処理中にエラーが発生しました:\n{e}")
-            self.label.configure(text="エラーが発生しました。")
+            self.status_label.configure(text="エラーが発生しました。")
 
         finally:
-            # 最後に必ず一時フォルダを削除する
             if temp_dir and temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
@@ -303,30 +350,13 @@ class Synapsen_Normalisierer(ctk.CTk):
 if __name__ == "__main__":
     ctk.set_appearance_mode("System")
     app = Synapsen_Normalisierer()
-# 1. 実行ファイル(.exe)かスクリプト(.py)かによって基準パスを取得
-    if getattr(sys, 'frozen', False):
-        # .exe実行の場合（実行ファイルの場所）
-        base_path = os.path.dirname(sys.executable)
 
-        # .exe の場合: 'assets\synapsen.ico' (base_path と同じ階層)
-        icon_path = os.path.join(base_path, "assets", "synapsen.ico")
-    else:
-        # スクリプト実行の場合（.pyファイルの場所）
-        base_path = os.path.dirname(os.path.abspath(__file__))
-
-        # スクリプトの場合: '..\assets\synapsen.ico' (base_path の1つ上の階層)
-        icon_path = os.path.join(base_path, "..", "assets", "synapsen.ico")
-
-    # 3. アイコンを設定 (存在する場合のみ)
-    # os.path.normpath() は '..' を解決してきれいなパスにします
-    iconfile = os.path.normpath(icon_path)
-
-    if app.icon_path:  # <-- クラス内で取得したパスを利用
+    if app.icon_path:
         try:
-            # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
             app.iconbitmap(default=str(app.icon_path))
         except Exception as e:
             print(f"Icon default setting error: {e}")
     else:
         print("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+
     app.mainloop()

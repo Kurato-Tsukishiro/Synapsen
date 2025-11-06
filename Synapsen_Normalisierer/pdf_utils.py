@@ -221,12 +221,20 @@ def embed_ocr_text_in_pdf(
                 try:
                     df = pd.read_csv(
                         io.StringIO(tsv_data),
-                        sep='\t', quoting=csv.QUOTE_NONE, on_bad_lines='skip')
+                        sep='\t',
+                        quoting=csv.QUOTE_NONE,
+                        on_bad_lines='skip'
+                        )
                     df = df.dropna(subset=['conf', 'text'])
                     df = df[df['conf'] > 30]  # 信頼度が低いものは除外
 
                     if df.empty:
-                        continue
+                        # ログを追加
+                        print(
+                            "  [Info] Tesseract OCR は実行されましたが、" +
+                            "埋め込み可能なテキスト(conf > 30)が見つかりませんでした" +
+                            f" (Page {page_num + 1})。")
+                        continue  # テキストがないので挿入せず次へ
 
                     # 9. ページに日本語フォント (config.ini の font_path) を登録
                     try:
@@ -354,4 +362,54 @@ def convert_image_to_pdf(image_path: Path, output_pdf_path: Path):
         if img_doc:
             img_doc.close()
         if pdf_doc:
+            pdf_doc.close()
+
+
+def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path):
+    """
+    Pillow (PIL) の Image オブジェクトを1ページのPDFに変換します。
+    （クリップボードからの画像貼り付け用）
+    """
+    pdf_doc = None
+    img_bytes_io = None
+    img_doc = None
+
+    try:
+        # 1. PillowイメージをPNG形式でメモリ上のバイトデータに変換
+        img_bytes_io = io.BytesIO()
+        # RGBA (透過情報付き) の場合は 'RGB' に変換してから保存する
+        if pil_image.mode == 'RGBA':
+            pil_image = pil_image.convert('RGB')
+
+        pil_image.save(img_bytes_io, format='PNG')
+        img_bytes = img_bytes_io.getvalue()
+
+        # 2. メモリ上のPNGデータをfitzオブジェクトとして開く
+        img_doc = fitz.open("png", img_bytes)
+
+        # 3. 画像をPDFのバイトデータに変換
+        pdf_bytes = img_doc.convert_to_pdf()
+
+        if not pdf_bytes:
+            raise Exception("画像(PIL)からPDFへの変換に失敗しました。")
+
+        # 4. 新しいPDFドキュメントをバイトデータから作成
+        pdf_doc = fitz.open("pdf", pdf_bytes)
+
+        # 5. PDFとして保存
+        pdf_doc.save(str(output_pdf_path))
+
+        return True
+
+    except Exception as e:
+        print(f"エラー: クリップボード画像のPDF変換に失敗しました。 {e}", file=sys.stderr)
+        raise
+
+    finally:
+        # ドキュメントとIOストリームを確実に閉じる
+        if img_bytes_io:
+            img_bytes_io.close()
+        if img_doc:  # <--- img_doc はここで一度だけ閉じられる
+            img_doc.close()
+        if pdf_doc:  # <--- pdf_doc はここで一度だけ閉じられる
             pdf_doc.close()
