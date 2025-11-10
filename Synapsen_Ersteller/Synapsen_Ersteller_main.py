@@ -380,9 +380,9 @@ class Synapsen_Ersteller(ctk.CTk):
             existing_keys = set()
             try:
                 # テーブルが存在するか確認し、存在すればキーを取得
-                existing_keys = pd.read_sql_query(
+                existing_keys = set(pd.read_sql_query(
                     f"SELECT key FROM {table_name}", conn
-                )['key'].to_set()
+                )['key'])
             except pd.io.sql.DatabaseError:
                 print(f"テーブル '{table_name}' が存在しません。新規に作成します。")
 
