@@ -449,9 +449,9 @@ class WebClipWindow(ctk.CTkToplevel):
             f"{url} , (参照 {sist_view_date})"
         )
         sist_string_readable = (
-            f"著者:\n{sist_author}\n\nページ名:\n“{sist_title}”\n\n"
+            f"著者:{sist_author}\n\nページ名:\n“{sist_title}”\n\n"
             f"サイト名:\n{sist_site}\n\n"
-            f"更新日:\n{sist_date}\n\n入手先:\n{url}\n\n参照:\n{sist_view_date}"
+            f"入手先:\n{url}\n\n更新日:{sist_date} (参照:{sist_view_date})"
         )
 
         # --- 3. 出力先フォルダを選択 ---
@@ -581,7 +581,7 @@ class WebClipWindow(ctk.CTkToplevel):
                 actual_readable_y1 = readable_rect.y1
 
             # コメント
-            comment_y0 = actual_readable_y1 + 20
+            comment_y0 = actual_readable_y1 + 40
             comment_rect = fitz.Rect(
                 readable_rect.x0, comment_y0,
                 page.rect.width - 50, info_rect_y_end
