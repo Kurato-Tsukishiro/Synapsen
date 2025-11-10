@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
 from dnd_window import DragAndDropWindow
+from webclip_window import WebClipWindow
 
 # PDF処理関数を別ファイルからインポート
 from pdf_utils import (
@@ -49,6 +50,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
+        self.config_data = {}  # 設定全体を保持する辞書
         self._load_config()
 
         # --- ウィジェットの配置 ---
@@ -79,7 +81,22 @@ class Synapsen_Normalisierer(ctk.CTk):
         # DNDウィンドウのインスタンスを保持
         self.dnd_window = None
 
-        # 3. 共通ステータス表示ラベル
+        # 3. Webクリップ モード
+        self.webclip_window_button = ctk.CTkButton(
+            self,
+            text="Webクリップ (URLからPDF化) で正規化",
+            command=self.open_webclip_window,
+            fg_color="#00695C",    # 濃い緑
+            hover_color="#004D40"  # さらに濃い緑
+        )
+        self.webclip_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
+
+        # DNDウィンドウのインスタンスを保持
+        self.dnd_window = None
+        # WebClipウィンドウのインスタンスを保持
+        self.webclip_window = None
+
+        # 4. 共通ステータス表示ラベル
         self.status_label = ctk.CTkLabel(self, text="")
         self.status_label.pack(pady=(5, 10), padx=10)
         # --- [UI変更ここまで] ---
@@ -148,29 +165,53 @@ class Synapsen_Normalisierer(ctk.CTk):
         else:
             self.font_path = os.path.join(config_dir, expanded_path)
 
+        # config_data にも格納 (もし他のモジュールが参照する場合)
+        self.config_data['font_path'] = self.font_path
+
         # 用紙サイズの読み込み
         paper_size_str = config.get(
             'LaTeX', 'paper_size', fallback='A4').upper()
         if paper_size_str == 'A5':
             self.paper_width = A5_WIDTH
             self.paper_height = A5_HEIGHT
-            print(f"[DEBUG] Paper size set to A5 ({
-                self.paper_width}x{self.paper_height})")
         else:
-            # デフォルトはA4
             self.paper_width = A4_WIDTH
             self.paper_height = A4_HEIGHT
-            print(f"[DEBUG] Paper size set to A4 ({
-                self.paper_width}x{self.paper_height})")
+
+        self.config_data['paper_size'] = paper_size_str
 
         # 2. Tesseract OCR の有効/無効 設定
         self.enable_tesseract_ocr = config.getboolean(
             'Automation', 'enable_tesseract_ocr', fallback=False
         )
-        print(
-            f"[DEBUG] Tesseract OCR (slow) enabled: {
-                self.enable_tesseract_ocr}"
-                )
+        self.config_data['enable_tesseract_ocr'] = self.enable_tesseract_ocr
+
+        # 3. IndexKey の選択肢 (webclip_window が参照)
+        keys_str = config.get('CommonplaceKeys', 'options', fallback='')
+        self.config_data['commonplace_keys_options'] = [
+            key.strip() for key in keys_str.split(',') if key.strip()
+        ]
+
+        # 4. KeyRect の座標 (webclip_window が参照)
+        rect_str = config.get(
+            'Extraction', 'key_rect', fallback='0,0,0,0').split(',')
+        self.config_data['key_rect'] = tuple(map(float, rect_str))
+
+        # 5. KeyIcons (webclip_window が参照)
+        if config.has_section('KeyIcons'):
+            self.config_data['key_icons'] = {
+                k.lower(): v for k, v in config.items('KeyIcons')
+            }
+        else:
+            self.config_data['key_icons'] = {}
+
+        # 6. KeyColors (念のため読み込み)
+        if config.has_section('KeyColors'):
+            self.config_data['key_colors'] = {
+                k.lower(): v for k, v in config.items('KeyColors')
+            }
+        else:
+            self.config_data['key_colors'] = {}
 
     # --- DNDウィンドウを開く関数 ---
     def open_dnd_window(self):
@@ -184,6 +225,17 @@ class Synapsen_Normalisierer(ctk.CTk):
         else:
             # self (メインアプリ自身) を親として渡す
             self.dnd_window = DragAndDropWindow(self)
+
+    def open_webclip_window(self):
+        """
+        「Webクリップ」ボタン押下時に、専用ウィンドウを開く。
+        """
+        if (self.webclip_window is not None
+                and self.webclip_window.winfo_exists()):
+            self.webclip_window.focus()
+            self.webclip_window.grab_set()
+        else:
+            self.webclip_window = WebClipWindow(self)
 
     def run_folder_process(self):
         """
