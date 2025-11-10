@@ -25,8 +25,16 @@
 
 * PDFフォームの入力内容を、注釈（アノテーション）を維持したままテキストに変換（フラット化）
 * すべてのPDFページを `config.ini` で指定された用紙サイズ（A4またはA5）の縦サイズに（アスペクト比を維持して）リサイズ・中央配置
+* **ドラッグ＆ドロップ / ペーストによる画像クリップ:**
+    * `PDF`, `PNG`, `JPG` ファイルのD&D、またはクリップボードのスクリーンショット（Ctrl+V）に対応。
+    * 実行時に **IndexKey** と **コメント** を一括で指定可能。
+    * 生成されるPDFは、1ページ目に「画像とIndexKey」、2ページ目に「コメント」が挿入された形式となり、`Nexus` でのプレビュー と `Ersteller` でのKey自動抽出 に両対応します。
+* **Webクリップ (URLからPDF化):**
+    * 指定したURLを `Playwright` を使用してPDFとして保存。
+    * 実行時に **IndexKey**, **コメント**, **書誌情報**（著者名、サイト名など）を入力可能。
+    * 生成されるPDFは、1ページ目に「メタデータ（IndexKey, コメント, 書誌情報）」、2ページ目以降に「Webページ本体」が挿入されます。
 * PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。
-* (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
+* (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
 
 ### 2. Synapsen Ersteller (統合・作成ツール)
 
@@ -86,6 +94,8 @@
     * [**pytesseract**](https://github.com/madmaze/pytesseract) (Apache-2.0 License) - Tesseract OCRエンジン連携用
     * [**networkx**](https://github.com/networkx/networkx) (BSD-3-Clause License) - グラフ・ビジュアライゼーションのデータ構築用
     * [**pyvis**](https://github.com/WestHealth/pyvis) (MIT License) - インタラクティブなグラフ描画用
+    * [**tkinterdnd2**](https://github.com/Eliav2/tkinterdnd2) (MIT License) - `Normalisierer` でD&D機能を実現するため
+    * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップ機能を実現するため
 
 ## セットアップ
 
@@ -101,8 +111,8 @@
     * ※ これらのテンプレートは `CC0 (パブリックドメイン)` です。自由にコピー、改変、再配布して構いません。
 
 3.  **ライブラリのインストール:**
-    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリをインストールします。
-    * （または、コマンドプロンプトで `pip install -r requirements.txt` を実行します）
+    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリとWebクリップ用ブラウザをインストールします。
+    * （または、コマンドプロンプトで `pip install -r requirements.txt` と `playwright install chromium` を実行します）
 
 4.  **`config.ini` の設定:**
     * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
@@ -114,17 +124,17 @@
     [Paths] # 絶対パス 又は config.ini からの相対パスを指定
     # 事前定義タグを保存しているテキストファイルのパス
     tags_data_path = 
-
+    
     # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
     # Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" を使用して下さい
     font_path = 
-
+    
     # Nexusでの情報表示に使用するマスターDBのパス
     database_path = 
-
+    
     # マスターDBが存在するフォルダ下に統合PDFが存在しない場合に NexusがPDFを開く為に検索するフォルダのパス
     pdf_root_folder = 
-
+    
     [Automation]
     # Synapse Ersteller で統合PDFを生成した際、
     # [Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
@@ -132,34 +142,34 @@
     
     # 上記有効時、目次情報を個別で「保存」するか (true/false)
     create_individual_csv = 
-
+    
     # Normalisierer で Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
     # false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
     # Tesseract-OCR をPCにインストールしていない場合は false にしてください。
     enable_tesseract_ocr = 
-
+    
     [LaTeX]
     # 正規化及び統合の用紙サイズの指定 (A4/A5)
     paper_size = 
-
+    
     # PDF生成時に使用するフォント名
     # font = Noto Sans JP
     font = 
-
+    
     # PDFのプロパティに表示される著者名
     author = 
-
+    
     # PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
     title_prefix = 
-
+    
     [Extraction]
     # Erstrller で読み取り Index Keyを取得する範囲 (DotLegalPadテンプレートの座標)
     key_rect = 
-
+    
     [CommonplaceKeys]
     # Index Key の設定 (DotLegalPadテンプレートの選択肢はこれと一致させる)
     options = 
-
+    
     [KeyIcons]
     # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
     
@@ -170,31 +180,31 @@
 
     <details>
     <summary><b>▼ クリックして推奨設定例 (`config.ini` のデフォルト値) を表示</b></summary>
-
+    
     ```ini
     [Paths] 
     tags_data_path = PDFTags.txt
     font_path = C:\windows\fonts\msgothic.ttc
     database_path = Synapsen_Master.db
     pdf_root_folder = ./
-
+    
     [Automation]
     auto_append_to_default_db = true
     create_individual_csv = false
     enable_tesseract_ocr = false
-
+    
     [LaTeX]
     paper_size = A4
     font = MS UI Gothic
     author = Synapsen Ersteller
     title_prefix = 月刊 統合ノート
-
+    
     [Extraction]
     key_rect = 0, 13, 391, 73
-
+    
     [CommonplaceKeys]
     options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
-
+    
     [KeyIcons]
     タスク = ♥
     アイデア = ♥
@@ -202,7 +212,7 @@
     コミュニケーション = ♥
     学習・情報収集 = ♥
     日常・その他 = ♥
-
+    
     [KeyColors]
     タスク = #FE0000
     アイデア = #FFFF02
@@ -241,11 +251,22 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 ### ステップ1: 正規化 (Normalisierer)
 
 1.  `Synapsen_Normalisierer_main.py` を実行します。
-2.  「処理を開始する」をクリックします。
-3.  **入力元フォルダ**（スキャン及びクアデルノで作成したPDFがある場所）を選択します。
-4.  **出力先フォルダ**（正規化済みPDFを保存する場所）を選択します。
-    * この処理で、フォームで選択した「Index Key」がテキストとしてPDFに焼き付けられます。
-    * (オプション) `config.ini` で `enable_tesseract_ocr = true` にしている場合、画像のみのPDFにOCRテキストが埋め込まれます。`false` でも、既存のテキストは抽出されます。
+2.  以下のいずれかの方法でファイルを処理します。
+    * **A) フォルダ一括処理:**
+        * 「入力/出力フォルダを選んで処理実行」をクリックします。
+        * **入力元フォルダ**（スキャン及びクアデルノで作成したPDFがある場所）を選択します。
+        * **出力先フォルダ**（正規化済みPDFを保存する場所）を選択します。
+    * **B) D&D / 画像クリップ:**
+        * 「D&D / ペースト」ボタンを押し、別ウィンドウを開きます。
+        * IndexKeyやコメントを入力し、ファイル（PDF/JPG/PNG）をD&Dするか、スクリーンショットをCtrl+Vで貼り付けます。
+        * 「出力先を選んで処理実行」をクリックします。
+    * **C) Webクリップ:**
+        * 「Webクリップ」ボタンを押し、別ウィンドウを開きます。
+        * URLを入力し「ページ情報取得」をクリックします。
+        * IndexKey、コメント、書誌情報を入力・編集します。
+        * 「出力先を選んでクリップ実行」をクリックします。
+    * **（重要）注意:**
+        > 「D&D/ペースト」や「Webクリップ」で生成したPDFは、そのまま `Ersteller` で使用せず、一度 `Normalisierer` の「入力/出力フォルダを選んで処理実行」機能（上記A）で再度処理し、PDFを安定化させてから `Ersteller` に読み込ませてください。
 
 ### ステップ2: 統合 (Ersteller)
 
@@ -264,9 +285,9 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 2.  アプリは `config.ini` で指定された**マスターDB**を自動で読み込みます。
 3.  検索バーやフィルターを使ってノートを検索します。
     * 検索文字列例 :
-      * `fulltext:Python`
-      * `ikey:タスク AND (アイデア OR 思考)`
-      * `(date:>=20240101 AND date:<=20251231) AND (ikey:アイデア OR ikey:学習・情報収集)`
+        * `fulltext:Python`
+        * `ikey:タスク AND (アイデア OR 思考)`
+        * `(date:>=20240101 AND date:<=20251231) AND (ikey:アイデア OR ikey:学習・情報収集)`
 4.  ノートをシングルクリックで詳細（メモ、**被リンク元**、**PDFプレビュー**）を表示、ダブルクリックでPDFの該当ページを開きます。
 5.  「このノートを編集」ボタンから、メモやタグを直接編集できます。
 6.  「グラフ表示」ボタンで、現在の検索結果の関連性を視覚化できます（ノードのダブルクリックでPDFが開きます）。
@@ -336,6 +357,6 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 ## 謝辞 (Acknowledgements)
 
 このソフトウェアは、多くの優れたオープンソースライブラリによって実現しています。
-特に、GUI構築のための **CustomTkinter**、データ操作のための **pandas**、PDF処理の中核を担う **PyMuPDF** と **pypdf**、OCR機能を実現する **Pillow** と **pytesseract**、そして知識グラフの可視化を実現する **NetworkX** と **Pyvis** の開発者コミュニティに心から感謝申し上げます。
+特に、GUI構築のための **CustomTkinter**、データ操作のための **pandas**、PDF処理の中核を担う **PyMuPDF** と **pypdf**、OCR機能を実現する **Pillow** と **pytesseract**、知識グラフの可視化を実現する **NetworkX** と **Pyvis**、D&D機能を実現する **tkinterdnd2**、そしてWebクリップ機能を実現する **Playwright** の開発者コミュニティに心から感謝申し上げます。
 
 また、このコードの作成、リファクタリング、およびドキュメント整備の多くは、GoogleのAIである **Gemini** の支援を受けて行われました。
