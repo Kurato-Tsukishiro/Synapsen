@@ -7,6 +7,8 @@ import shutil
 import fitz  # PyMuPDF (情報埋め込み用)
 from urllib.parse import urlparse  # サイト名取得用
 
+from pdf_utils import embed_metadata_as_cover_page, hex_to_rgb_tuple
+
 # --- Playwright インポート ---
 sync_playwright = None
 PlaywrightError = Exception
@@ -18,29 +20,6 @@ try:
     PlaywrightTimeoutError = TimeoutError
 except ImportError:
     pass
-
-
-def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
-    """
-    #RRGGBB 形式の16進数カラーコードを、
-    fitzが要求する (R, G, B) のタプル (各値 0.0～1.0) に変換します。
-
-    Args:
-        hex_color (str): 16進数カラーコード (例: "#FF0000")。
-
-    Returns:
-        tuple[float, float, float] | None:
-            fitz用のRGBタプル。変換失敗時はNone。
-    """
-    try:
-        hex_color = hex_color.lstrip('#')
-        # 16進数を 0-255 の整数に変換
-        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        # 0-1 の浮動小数点数に変換
-        return (r / 255.0, g / 255.0, b / 255.0)
-    except Exception as e:
-        print(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
-        return None
 
 
 class WebClipWindow(ctk.CTkToplevel):
@@ -411,8 +390,8 @@ class WebClipWindow(ctk.CTkToplevel):
             messagebox.showerror(
                 "入力エラー", "ファイル名を入力してください。", parent=self)
             return
-        if (not self.parent_app.font_path or
-                not Path(self.parent_app.font_path).is_file()):
+        font_path = self.parent_app.font_path
+        if (not font_path or not Path(font_path).is_file()):
             self.parent_app.status_label.configure(
                 text="エラー: config.iniで有効なフォントパスが指定されていません。",
                 text_color="orange"
@@ -514,87 +493,29 @@ class WebClipWindow(ctk.CTkToplevel):
                 self.fetch_button.configure(state="normal")
                 return
 
-        # --- 6. PDFへの情報埋め込み (PyMuPDF) ---
+        # --- 6. PDFへの情報埋め込み (pdf_utils 経由 PyMuPDF) ---
         self.status_label.configure(text="PDFに情報を埋め込み中...")
         self.update_idletasks()
         try:
-            doc = fitz.open(str(temp_pdf_path))
-
-            font_path = self.parent_app.font_path
-            key_rect_tuple = self.parent_app.config_data.get(
-                'key_rect', (0, 0, 0, 0))
-            key_rect = fitz.Rect(key_rect_tuple)
+            # 親アプリから設定を取得
+            config_data = self.parent_app.config_data
+            key_rect_tuple = config_data.get('key_rect', (0, 0, 0, 0))
             paper_width = self.parent_app.paper_width
             paper_height = self.parent_app.paper_height
 
-            # 0ページ目（先頭）に新しいページ（白紙の表紙）を挿入
-            page = doc.new_page(pno=0, width=paper_width, height=paper_height)
-
-            font_alias = "embed_font"
-            try:
-                page.insert_font(fontname=font_alias, fontfile=font_path)
-            except Exception as e:
-                print(f"フォント埋め込み警告 (無視して続行): {e}")
-
-            shape = page.new_shape()
-
-            # IndexKey
-            if index_key_to_embed:
-                shape.insert_textbox(
-                    key_rect, index_key_to_embed, fontname=font_alias,
-                    fontsize=10, color=text_color, align=0
-                )
-
-            # 書誌情報の描画座標
-            info_rect_y_start = key_rect.y1 + 10
-            info_rect_y_end = page.rect.height - 30
-
-            # 書誌情報 (SIST 02 単一行)
-            sist_rect = fitz.Rect(
-                key_rect.x0, info_rect_y_start,
-                page.rect.width - 50, info_rect_y_start + 60
+            # 新しいヘルパー関数を呼び出し (temp_pdf_path を直接変更)
+            embed_metadata_as_cover_page(
+                pdf_path_str=str(temp_pdf_path),
+                font_path=font_path,
+                paper_width=paper_width,
+                paper_height=paper_height,
+                key_rect_tuple=key_rect_tuple,
+                index_key_to_embed=index_key_to_embed,
+                text_color=text_color,
+                comment_to_embed=comment_to_embed,
+                sist_string_formal=sist_string_formal,
+                sist_string_readable=sist_string_readable
             )
-            rc_sist = shape.insert_textbox(
-                sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
-                fontname=font_alias, fontsize=6, align=0
-            )
-            actual_sist_y1 = (
-                sist_rect.y0 + (sist_rect.height - rc_sist)
-                if rc_sist >= 0 else sist_rect.y1
-            )
-
-            # 書誌情報 (改行形式)
-            readable_rect = fitz.Rect(
-                sist_rect.x0, actual_sist_y1 + 10,
-                page.rect.width - 50, info_rect_y_end
-            )
-            rc_readable = shape.insert_textbox(
-                readable_rect, f"書誌情報:\n{sist_string_readable}",
-                fontname=font_alias, fontsize=9, align=0
-            )
-
-            if rc_readable >= 0:  # 描画されたテキストの実際のy1を計算
-                actual_readable_y1 = (
-                    readable_rect.y0 + (readable_rect.height - rc_readable)
-                )
-            else:  # テキストが溢れた場合、矩形の底 (readable_rect.y1) を使う
-                actual_readable_y1 = readable_rect.y1
-
-            # コメント
-            comment_y0 = actual_readable_y1 + 40
-            comment_rect = fitz.Rect(
-                readable_rect.x0, comment_y0,
-                page.rect.width - 50, info_rect_y_end
-            )
-            if comment_to_embed:
-                shape.insert_textbox(
-                    comment_rect, f"コメント:\n{comment_to_embed}",
-                    fontname=font_alias, fontsize=9, align=0
-                )
-
-            shape.commit()
-            doc.saveIncr()
-            doc.close()
 
         except Exception as e:
             messagebox.showerror(

@@ -26,6 +26,256 @@ RIGHT_MARGIN: float = 0
 # ==============================================================================
 
 
+def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
+    """
+    #RRGGBB 形式の16進数カラーコードを、
+    fitzが要求する (R, G, B) のタプル (各値 0.0～1.0) に変換します。
+    (webclip_window.py から移植)
+
+    Args:
+        hex_color (str): 16進数カラーコード (例: "#FF0000")。
+
+    Returns:
+        tuple[float, float, float] | None:
+            fitz用のRGBタプル。変換失敗時はNone。
+    """
+    try:
+        hex_color = hex_color.lstrip('#')
+        # 16進数を 0-255 の整数に変換
+        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        # 0-1 の浮動小数点数に変換
+        return (r / 255.0, g / 255.0, b / 255.0)
+    except Exception as e:
+        print(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
+        return None
+
+
+def embed_metadata_as_cover_page(
+    pdf_path_str: str,
+    font_path: str,
+    paper_width: float,
+    paper_height: float,
+    key_rect_tuple: tuple,
+    index_key_to_embed: str,
+    text_color: tuple | None,
+    comment_to_embed: str,
+    sist_string_formal: str | None = None,
+    sist_string_readable: str | None = None
+) -> None:
+    """
+    [WebClip用]
+    指定されたPDFの先頭(0ページ目)に、メタデータ(IndexKey, コメント, 書誌情報)
+    を書き込んだ新しい「表紙ページ」を挿入します。
+
+    Args:
+        pdf_path_str (str): 処理対象のPDFファイルパス (読み書きされる)。
+        font_path (str): 埋め込むフォントファイルのパス。
+        paper_width (float): 表紙ページの幅 (ポイント)。
+        paper_height (float): 表紙ページの高さ (ポイント)。
+        key_rect_tuple (tuple): IndexKeyを描画する座標 (x0, y0, x1, y1)。
+        index_key_to_embed (str): 描画するIndexKeyの文字列。
+        text_color (tuple | None): IndexKeyの文字色 (fitz形式)。
+        comment_to_embed (str): 描画するコメント文字列。
+        sist_string_formal (str | None): (WebClip用) 書誌情報(SIST)。
+        sist_string_readable (str | None): (WebClip用) 書誌情報(可読形式)。
+
+    Raises:
+        Exception: PDFの読み書きやフォント埋め込みに失敗した場合。
+    """
+
+    # --- 埋め込む情報が何もなければ、処理をスキップ ---
+    if (not index_key_to_embed and
+        not comment_to_embed and
+            not sist_string_formal):
+        print(f"  [Info] 表紙に埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
+        return
+
+    doc = None
+    try:
+        doc = fitz.open(pdf_path_str)
+
+        key_rect = fitz.Rect(key_rect_tuple)
+
+        # 0ページ目（先頭）に新しいページ（白紙の表紙）を挿入
+        page = doc.new_page(pno=0, width=paper_width, height=paper_height)
+
+        font_alias = "embed_font"
+        try:
+            page.insert_font(fontname=font_alias, fontfile=font_path)
+        except Exception as e:
+            print(f"フォント埋め込み警告 (無視して続行): {e}")
+
+        shape = page.new_shape()
+
+        # 1. IndexKey
+        if index_key_to_embed:
+            shape.insert_textbox(
+                key_rect, index_key_to_embed, fontname=font_alias,
+                fontsize=10, color=text_color, align=0
+            )
+
+        # --- 描画座標の計算 ---
+        info_rect_y_start = key_rect.y1 + 10
+        info_rect_y_end = page.rect.height - 30
+        current_y_pos = info_rect_y_start
+        x0 = key_rect.x0
+
+        # 2. 書誌情報 (SIST 02 単一行) - WebClip専用
+        if sist_string_formal:
+            sist_rect = fitz.Rect(
+                x0, current_y_pos,
+                page.rect.width - 50, current_y_pos + 60
+            )
+            rc_sist = shape.insert_textbox(
+                sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
+                fontname=font_alias, fontsize=6, align=0
+            )
+            actual_sist_y1 = (
+                sist_rect.y0 + (sist_rect.height - rc_sist)
+                if rc_sist >= 0 else sist_rect.y1
+            )
+            current_y_pos = actual_sist_y1 + 10  # Y座標を更新
+
+        # 3. 書誌情報 (改行形式) - WebClip専用
+        if sist_string_readable:
+            readable_rect = fitz.Rect(
+                x0, current_y_pos,
+                page.rect.width - 50, info_rect_y_end
+            )
+            rc_readable = shape.insert_textbox(
+                readable_rect, f"書誌情報:\n{sist_string_readable}",
+                fontname=font_alias, fontsize=9, align=0
+            )
+            actual_readable_y1 = (
+                readable_rect.y0 + (readable_rect.height - rc_readable)
+                if rc_readable >= 0 else readable_rect.y1
+            )
+            current_y_pos = actual_readable_y1 + 40  # Y座標を更新
+        else:
+            # 書誌情報がない場合 (D&Dなど) は、
+            # IndexKeyの描画位置から少し離す
+            current_y_pos = info_rect_y_start + 40
+
+        # 4. コメント (D&D / WebClip 共通)
+        comment_rect = fitz.Rect(
+            x0, current_y_pos,
+            page.rect.width - 50, info_rect_y_end
+        )
+        if comment_to_embed:
+            shape.insert_textbox(
+                comment_rect, f"コメント:\n{comment_to_embed}",
+                fontname=font_alias, fontsize=9, align=0
+            )
+
+        # 5. 描画内容をコミット
+        shape.commit()
+        # 変更を上書き保存
+        doc.saveIncr()
+
+    except Exception as e:
+        print(f"  [Error] メタデータ表紙の埋め込み中にエラー ({pdf_path_str}): {e}")
+        raise  # エラーを再送出
+    finally:
+        if doc:
+            doc.close()
+
+
+def add_metadata_to_image_clip(
+    pdf_path_str: str,
+    font_path: str,
+    paper_width: float,
+    paper_height: float,
+    key_rect_tuple: tuple,
+    index_key_to_embed: str,
+    text_color: tuple | None,
+    comment_to_embed: str
+) -> None:
+    """
+    [新設 / D&D・画像クリップ用]
+    正規化済みの画像PDF（1ページ目=画像）に対し、
+    1ページ目に IndexKey を、
+    2ページ目（新規追加）に コメント を書き込みます。
+
+    Args:
+        pdf_path_str (str): 処理対象のPDFファイルパス (読み書きされる)。
+        font_path (str): 埋め込むフォントファイルのパス。
+        paper_width (float): 表紙ページの幅 (ポイント)。
+        paper_height (float): 表紙ページの高さ (ポイント)。
+        key_rect_tuple (tuple): IndexKeyを描画する座標 (x0, y0, x1, y1)。
+        index_key_to_embed (str): 描画するIndexKeyの文字列。
+        text_color (tuple | None): IndexKeyの文字色 (fitz形式)。
+        comment_to_embed (str): 描画するコメント文字列。
+
+    Raises:
+        Exception: PDFの読み書きやフォント埋め込みに失敗した場合。
+    """
+
+    # --- 埋め込む情報が何もなければ、処理をスキップ ---
+    if not index_key_to_embed and not comment_to_embed:
+        print(f"  [Info] 埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
+        return
+
+    doc = None
+    try:
+        doc = fitz.open(pdf_path_str)
+        if len(doc) == 0:
+            print(f"  [Error] メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}")
+            return
+
+        key_rect = fitz.Rect(key_rect_tuple)
+        font_alias = "embed_font"
+
+        # --- 1. 1ページ目に IndexKey を描画 ---
+        if index_key_to_embed:
+            page1 = doc[0]  # 既存の1ページ目（画像）を取得
+            try:
+                page1.insert_font(fontname=font_alias, fontfile=font_path)
+            except Exception as e:
+                print(f"フォント埋め込み警告 (Page 1): {e}")
+
+            # 1ページ目に直接 IndexKey を描画
+            shape1 = page1.new_shape()
+            shape1.insert_textbox(
+                key_rect, index_key_to_embed, fontname=font_alias,
+                fontsize=10, color=text_color, align=0
+            )
+            shape1.commit()
+
+        # --- 2. 2ページ目に コメント を描画 ---
+        if comment_to_embed:
+            # 2ページ目 (pno=1) に新しい白紙ページを挿入
+            page2 = doc.new_page(pno=1, width=paper_width, height=paper_height)
+            try:
+                page2.insert_font(fontname=font_alias, fontfile=font_path)
+            except Exception as e:
+                print(f"フォント埋め込み警告 (Page 2): {e}")
+
+            # 描画座標 (IndexKeyと同じマージン)
+            comment_rect = fitz.Rect(
+                key_rect.x0,
+                key_rect.y1 + 10,  # IndexKey描画位置の下から
+                page2.rect.width - 50,
+                page2.rect.height - 30
+            )
+
+            shape2 = page2.new_shape()
+            shape2.insert_textbox(
+                comment_rect, f"コメント:\n{comment_to_embed}",
+                fontname=font_alias, fontsize=9, align=0
+            )
+            shape2.commit()
+
+        # 変更を上書き保存
+        doc.saveIncr()
+
+    except Exception as e:
+        print(f"  [Error] 画像クリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
+        raise  # エラーを再送出
+    finally:
+        if doc:
+            doc.close()
+
+
 def high_fidelity_flatten(
         input_path: str,
         output_path: str,
@@ -202,34 +452,30 @@ def embed_ocr_text_in_pdf(
 
         # 1. 高速なテキスト抽出を試みる
         meaningful_text_threshold = 10
-        has_meaningful_text = False
-        for page in doc:
-            page_text = page.get_text("text", sort=True).strip()
-            if len(page_text) > meaningful_text_threshold:
-                has_meaningful_text = True
-                break
-
-        if has_meaningful_text:
-            print(
-                "  [Info] 既存のテキストレイヤーが存在するためスキップ: " +
-                f"{Path(pdf_path_str).name}"
-                )
-            return
 
         if not enable_tesseract:
-            print(
-                "  [Info] 画像のみのPDFで、Tesseract OCR は無効です。" +
-                f"スキップ: {Path(pdf_path_str).name}"
-                )
+            print("  [Info] Tesseract OCR は無効です。スキップします。")
             return
 
-        # --- 既存テキストがなく、Tesseract が有効な場合のみ以下を実行 ---
         print(
-            "  [Info] Tesseract OCR を実行し、テキストを埋め込みます: " +
+            "  [Info] Tesseract OCR を実行し、テキストを埋め込みます: "
             f"{Path(pdf_path_str).name}"
-            )
+        )
+
+        pages_processed_count = 0
 
         for page_num, page in enumerate(doc):
+
+            # 1. ページごとに既存テキストをチェック
+            page_text = page.get_text("text", sort=True).strip()
+            if len(page_text) > meaningful_text_threshold:
+                print(f"  [Info] Page {page_num + 1} には既存テキストがあるためスキップ。")
+                continue
+
+            # --- 既存テキストがないページのみ、以下を実行 ---
+            print(f"  [Info] Tesseract OCR を実行中 (Page {page_num + 1})...")
+            pages_processed_count += 1
+
             try:
                 # 6. 高解像度 (DPI=300) でページを画像(Pixmap)にレンダリング
                 pix = page.get_pixmap(dpi=300)
@@ -301,6 +547,10 @@ def embed_ocr_text_in_pdf(
                     "  [Warn] Tesseract OCRエラー (Page {page_num + 1}): "
                     f"{ocr_err}")
                 continue
+
+        if pages_processed_count == 0:
+            print("  [Info] OCRが実行されたページはありませんでした。")
+            return
 
         # 11. 変更を「一時ファイル」に保存
         doc.save(

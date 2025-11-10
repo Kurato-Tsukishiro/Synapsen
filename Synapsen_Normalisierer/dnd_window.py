@@ -5,6 +5,20 @@ import datetime
 import re
 import tkinterdnd2
 from PIL import ImageGrab
+import tempfile
+import shutil
+
+from pdf_utils import (
+    # D&D/画像クリップ用のメタデータ挿入関数
+    add_metadata_to_image_clip,
+    hex_to_rgb_tuple,
+    # D&Dパイプラインで個別に実行するためインポート
+    convert_image_to_pdf,
+    convert_pil_image_to_pdf,
+    high_fidelity_flatten,
+    normalize_pdf_to_papersize,
+    embed_ocr_text_in_pdf
+)
 
 SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
 
@@ -44,7 +58,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.staged_items = []
 
         self.title("D&D/ペーストで正規化")
-        self.geometry("450x550")
+        self.geometry("450x700")
 
         if self.parent_app.icon_path:
             try:
@@ -79,17 +93,45 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         # ペーストイベントのバインド
         self.bind_all("<Control-v>", self.handle_paste)
 
-        # 2. 処理対象リスト (スクロールフレーム)
+        # 2. メタデータ入力フレーム
+        meta_frame = ctk.CTkFrame(self)
+        meta_frame.pack(pady=5, padx=10, fill="x")
+
+        # 2a. IndexKey 選択
+        ctk.CTkLabel(
+            meta_frame, text="IndexKey (PDF 1ページ目に埋込):", anchor="w"
+            ).pack(pady=(5, 0), padx=10, fill="x")
+
+        # 親アプリの config_data からオプションを取得
+        key_options = self.parent_app.config_data.get(
+                'commonplace_keys_options', [])
+
+        self.index_key_combo = ctk.CTkComboBox(
+            meta_frame,
+            values=["（未選択）"] + key_options
+        )
+        self.index_key_combo.set("（未選択）")
+        self.index_key_combo.pack(pady=5, padx=10, fill="x")
+
+        # 2b. コメント入力
+        ctk.CTkLabel(
+            meta_frame, text="コメント (PDF 2ページ目に埋込):", anchor="w"
+            ).pack(pady=(5, 0), padx=10, fill="x")
+        self.comment_textbox = ctk.CTkTextbox(meta_frame, height=80)
+        self.comment_textbox.pack(
+            pady=5, padx=10, fill="both", expand=True)
+
+        # 3. 処理対象リスト (スクロールフレーム)
         self.staged_list_frame = ctk.CTkScrollableFrame(
             self, label_text="処理対象リスト (ファイル名を編集可能)")
         self.staged_list_frame.pack(pady=5, padx=10, fill="both", expand=True)
 
-        # 3. 処理対象ファイル数のラベル
+        # 4. 処理対象ファイル数のラベル
         self.staged_files_label = ctk.CTkLabel(
             self, text="処理対象ファイル: 0 件")
         self.staged_files_label.pack(pady=5, padx=10)
 
-        # 4. 実行ボタン
+        # 5. 実行ボタン
         self.staged_run_button = ctk.CTkButton(
             self,
             text="出力先を選んで処理実行",
@@ -314,21 +356,29 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
     def run_staged_process(self) -> None:
         """
         「処理実行」ボタンの処理。
-        出力先フォルダを選択させ、親アプリの共通処理関数を呼び出します。
+        メインアプリの execute_normalization_process を使わず、
+        画像クリップ専用のパイプライン（正規化 -> メタデータ追記 -> OCR）を実行します。
         """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
             return
 
-        # フォントパスの再検証
-        if (not self.parent_app.font_path or
-                not Path(self.parent_app.font_path).is_file()):
+        # 1. 親アプリから設定情報を取得
+        font_path = self.parent_app.font_path
+        if (not font_path or not Path(font_path).is_file()):
             self.parent_app.status_label.configure(
                 text="エラー: config.iniで有効なフォントパスが指定されていません。",
                 text_color="orange"
             )
             return
 
+        config_data = self.parent_app.config_data
+        key_rect_tuple = config_data.get('key_rect', (0, 0, 0, 0))
+        paper_width = self.parent_app.paper_width
+        paper_height = self.parent_app.paper_height
+        enable_tesseract = config_data.get('enable_tesseract_ocr', False)
+
+        # 2. 出力先フォルダを選択
         dest_folder = filedialog.askdirectory(
             title="出力先フォルダを選択してください", parent=self)
         if not dest_folder:
@@ -347,7 +397,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 "エラー", "出力先は入力元と異なるフォルダを選択してください。", parent=self)
             return
 
-        # UIのStringVarから最新のファイル名を取得してリストを作成
+        # 3. メタデータをUIから取得
+        index_key_raw = self.index_key_combo.get()
+        index_key_to_embed = ""
+        text_color = None  # fitzデフォルト (黒)
+
+        if index_key_raw != "（未選択）":
+            index_key_to_embed = index_key_raw
+            key_colors_dict = config_data.get('key_colors', {})
+            hex_color = key_colors_dict.get(index_key_raw.lower())
+            if hex_color:
+                text_color = hex_to_rgb_tuple(hex_color)
+
+        comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
+
+        # 4. 処理対象リストを作成
         items_to_process = []
         for item in self.staged_items:
             base_name = item["base_name_var"].get().strip()
@@ -358,13 +422,103 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 return
             items_to_process.append((item['data'], base_name))
 
-        # 親アプリの共通処理関数 (execute_normalization_process) を呼び出す
+        # 5. 専用パイプラインの実行
+        temp_dir = None
+        total_files = len(items_to_process)
         try:
-            self.parent_app.execute_normalization_process(
-                items_to_process, dest_path)
+            # 一時フォルダを作成
+            temp_dir = Path(
+                tempfile.mkdtemp(prefix="synapsen_dnd_", dir=dest_path)
+            )
 
+            for i, (item_data, base_name) in enumerate(items_to_process):
+
+                status_prefix = f"処理中 ({i+1}/{total_files}):"
+                self.parent_app.status_label.configure(
+                    text=f"{status_prefix} {base_name}"
+                )
+                self.parent_app.update_idletasks()
+
+                # 最終的な出力パス
+                final_output_pdf = dest_path / f"{base_name}.pdf"
+                # 一時ファイルパス
+                temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
+                temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
+
+                path_to_flatten: Path  # フラット化対象のPDFパス
+
+                # --- パイプライン 1: 画像 -> PDF変換 ---
+                if isinstance(item_data, Path):
+                    input_file_path = item_data
+                    if input_file_path.suffix.lower() != ".pdf":
+                        # 画像
+                        convert_image_to_pdf(
+                            input_file_path, temp_converted_pdf)
+                        path_to_flatten = temp_converted_pdf
+                    else:
+                        # PDF (D&D)
+                        path_to_flatten = input_file_path
+                else:
+                    # PIL (ペースト)
+                    convert_pil_image_to_pdf(item_data, temp_converted_pdf)
+                    path_to_flatten = temp_converted_pdf
+
+                # --- パイプライン 2: フラット化 (フォームのテキスト化) ---
+                # (画像PDFの場合は実質コピーだが、PDFがD&Dされた場合のため実行)
+                high_fidelity_flatten(
+                    str(path_to_flatten),
+                    str(temp_flattened_pdf),
+                    font_path
+                )
+
+                # --- パイプライン 3: 正規化 (サイズ統一) ---
+                # (ここで Page 1 = 正規化された画像 が final_output_pdf に保存される)
+                normalize_pdf_to_papersize(
+                    str(temp_flattened_pdf),
+                    str(final_output_pdf),
+                    paper_width,
+                    paper_height
+                )
+
+                # --- パイプライン 4: メタデータ追記 (画像クリップ用) ---
+                # (Page 1 に Key を描画, Page 2 に Comment を追加)
+                add_metadata_to_image_clip(
+                    str(final_output_pdf),
+                    font_path,
+                    paper_width,
+                    paper_height,
+                    key_rect_tuple,
+                    index_key_to_embed,
+                    text_color,
+                    comment_to_embed
+                )
+
+                # --- パイプライン 5: OCR埋め込み ---
+                # (Page 1 (画像) にOCRを実行, Page 2 (テキスト) はスキップ)
+                embed_ocr_text_in_pdf(
+                    str(final_output_pdf),
+                    enable_tesseract,
+                    font_path,
+                    'jpn+jpn_vert'
+                )
+
+            messagebox.showinfo(
+                "完了",
+                f"{total_files}個のファイルにメタデータを埋め込み、処理が完了しました。",
+                parent=self
+            )
             # 成功したら、このウィンドウを閉じる
             self.on_close()
 
         except Exception as e:
             messagebox.showerror("処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)
+            self.parent_app.status_label.configure(
+                text=f"エラーが発生しました: {e}")
+
+        finally:
+            # 正常終了・異常終了に関わらず、一時フォルダを削除
+            if temp_dir and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"警告: 一時フォルダの削除に失敗しました: {e}")
