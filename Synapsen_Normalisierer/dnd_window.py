@@ -12,13 +12,26 @@ SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
 class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
     """
     ドラッグ＆ドロップとペーストによる正規化（ファイル名編集機能付き）
-    を行うためのToplevelウィンドウ。
+    を行うためのToplevelウィンドウ（モーダル）。
+
+    Attributes:
+        parent_app (ctk.CTk): 親である Synapsen_Normalisierer のインスタンス。
+        staged_items (list[dict]):
+            処理対象としてステージングされたアイテムのリスト。
+            各辞書は "data" (Path or PIL.Image), "base_name_var" (ctk.StringVar),
+            "original_name" (str) をキーとして持つ。
     """
 
     def __init__(self, parent_app):
+        """
+        DragAndDropWindowを初期化します。
+
+        Args:
+            parent_app (ctk.CTk): 親ウィンドウ (Synapsen_Normalisierer)。
+        """
         super().__init__(parent_app)
 
-        # [追加] tkinterdnd2 の初期化
+        # tkinterdnd2 の初期化
         try:
             self.TkdndVersion = tkinterdnd2.TkinterDnD._require(self)
         except Exception as e:
@@ -27,13 +40,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.destroy()
             return
 
-        self.parent_app = parent_app  # メインアプリ(Synapsen_Normalisierer)のインスタンス
+        self.parent_app = parent_app  # メインアプリ(Synapsen_Normalisierer)
         self.staged_items = []
 
         self.title("D&D/ペーストで正規化")
         self.geometry("450x550")
 
-        # メインアプリからアイコンパスを取得して設定
         if self.parent_app.icon_path:
             try:
                 self.iconbitmap(default=str(self.parent_app.icon_path))
@@ -41,8 +53,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 print(f"Icon set error (DND Window): {e}")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.transient(parent_app)  # メインウィンドウの上に表示
-        self.grab_set()  # このウィンドウを閉じるまでメインを操作不可に
+        self.transient(parent_app)
+        self.grab_set()
 
         # --- [UI定義] ---
 
@@ -56,14 +68,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             text=(
                 "ここにファイル (PDF, JPG, PNG) を\nドラッグ＆ドロップしてください\n\n" +
                 "(または Ctrl+V でスクリーンショットを貼付)"
-                ),
+            ),
             text_color="gray70"
         )
         self.drop_target_label.place(relx=0.5, rely=0.5, anchor="center")
 
+        # D&Dイベントのバインド
         self.drop_target_frame.drop_target_register(tkinterdnd2.DND_FILES)
         self.drop_target_frame.dnd_bind('<<Drop>>', self.handle_drop)
-        self.bind_all("<Control-v>", self.handle_paste)  # Toplevelでも bind_all
+        # ペーストイベントのバインド
+        self.bind_all("<Control-v>", self.handle_paste)
 
         # 2. 処理対象リスト (スクロールフレーム)
         self.staged_list_frame = ctk.CTkScrollableFrame(
@@ -72,9 +86,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # 3. 処理対象ファイル数のラベル
         self.staged_files_label = ctk.CTkLabel(
-            self,
-            text="処理対象ファイル: 0 件"
-        )
+            self, text="処理対象ファイル: 0 件")
         self.staged_files_label.pack(pady=5, padx=10)
 
         # 4. 実行ボタン
@@ -86,9 +98,13 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         )
         self.staged_run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
-    def on_close(self):
+        # 実行ボタンの状態を初期更新
+        self.update_staged_files_label()
+
+    def on_close(self) -> None:
         """
-        ウィンドウが閉じられるとき、Ctrl+Vのバインドを解除する
+        ウィンドウが閉じられるとき（[x]ボタン押下時）の処理。
+        Ctrl+Vのバインドを解除し、ウィンドウを破棄します。
         """
         try:
             # メインウィンドウの bind_all を復元
@@ -98,8 +114,23 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         except Exception as e:
             print(f"DND window close error: {e}")
 
-    # --- [D&D, Paste ハンドラ] ---
-    def add_staged_item(self, item_data, base_name, original_name):
+    def add_staged_item(
+            self, item_data, base_name: str, original_name: str) -> bool:
+        """
+        処理対象アイテムを内部リスト (self.staged_items) とUI (リストフレーム) に
+        追加します。
+
+        Args:
+            item_data (Path | Image.Image):
+                処理対象のデータ（ファイルパスまたはPillowイメージ）。
+            base_name (str): 出力ファイル名のベース（編集可能）。
+            original_name (str): 元のファイル名または識別子（表示用）。
+
+        Returns:
+            bool: アイテムが新しく追加された場合はTrue、
+                  (重複などで) スキップされた場合はFalse。
+        """
+        # 重複チェック (Pathオブジェクトの場合のみ)
         if isinstance(item_data, Path):
             existing_paths = {
                 item['data']
@@ -110,6 +141,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 print(f"スキップ (既に追加済み): {original_name}")
                 return False
 
+        # 内部リストにアイテム辞書を追加
         item = {
             "data": item_data,
             "base_name_var": ctk.StringVar(value=base_name),
@@ -117,27 +149,43 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         }
         self.staged_items.append(item)
 
+        # --- UIにアイテム行を追加 ---
         row_frame = ctk.CTkFrame(self.staged_list_frame, fg_color="gray30")
 
+        # 元ファイル名ラベル (上部)
         ctk.CTkLabel(
             row_frame, text=original_name, font=("", 10), text_color="gray70"
         ).pack(side="top", fill="x", padx=10, pady=(3, 0))
 
+        # 編集可能なファイル名エントリー (中央)
         name_entry = ctk.CTkEntry(
             row_frame, textvariable=item["base_name_var"]
         )
         name_entry.pack(
             side="left", fill="x", expand=True, padx=10, pady=(0, 5))
 
+        # 削除ボタン (右側)
         delete_btn = ctk.CTkButton(
             row_frame, text="x", width=28, height=28,
             command=lambda i=item, rf=row_frame: self.remove_staged_item(i, rf)
         )
         delete_btn.pack(side="right", padx=(0, 10), pady=(0, 5))
+
         row_frame.pack(fill="x", pady=5, padx=5)
         return True
 
-    def remove_staged_item(self, item_to_remove, row_frame):
+    def remove_staged_item(
+            self,
+            item_to_remove: dict,
+            row_frame: ctk.CTkFrame
+    ) -> None:
+        """
+        指定されたアイテムを内部リストとUIから削除します。
+
+        Args:
+            item_to_remove (dict): self.staged_items 内の削除対象アイテム辞書。
+            row_frame (ctk.CTkFrame): 削除対象アイテムに対応するUIフレーム。
+        """
         try:
             self.staged_items.remove(item_to_remove)
             row_frame.destroy()
@@ -145,8 +193,15 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         except ValueError:
             print("エラー: 削除対象のアイテムがリストに見つかりません。")
 
-    def handle_drop(self, event):
+    def handle_drop(self, event: tkinterdnd2.TkinterDnD.DnDEvent) -> None:
+        """
+        D&Dイベント（ファイル/フォルダドロップ）を処理します。
+
+        Args:
+            event (tkinterdnd2.TkinterDnD.DnDEvent): D&Dイベントオブジェクト。
+        """
         try:
+            # event.data は { } で囲まれたパス文字列のリスト (Tcl/Tk形式)
             file_paths = self.tk.splitlist(event.data)
             added_files_count = 0
 
@@ -154,9 +209,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 p = Path(f)
                 if (p.is_file() and
                         p.suffix.lower() in SUPPORTED_EXTENSIONS):
+                    # ファイルの場合
                     if self.add_staged_item(p, p.stem, p.name):
                         added_files_count += 1
                 elif p.is_dir():
+                    # フォルダの場合、再帰的に検索
                     print(f"フォルダを検索中: {p}")
                     for ext in SUPPORTED_EXTENSIONS:
                         for child_file in p.glob(f"**/*{ext}"):
@@ -176,13 +233,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             messagebox.showerror(
                 "ドロップエラー", f"ファイルの処理に失敗しました: {e}", parent=self)
 
-    def handle_paste(self, event=None):
+    def handle_paste(self, event=None) -> None:
+        """
+        ペーストイベント (Ctrl+V) を処理します。
+        クリップボード上の画像、またはファイルパス（テキスト）に対応します。
+
+        Args:
+            event (None): イベントオブジェクト (使用しない)。
+        """
         try:
+            # 1. 画像の貼り付けを試みる
             pil_image = ImageGrab.grabclipboard()
 
             if pil_image:
                 now = datetime.datetime.now()
-                base_name = f"{now.strftime('%y%m%d_%H%M%S')}_貼り付け"
+                base_name = f"{now.strftime('%Y%m%d_%H%M%S')}_貼り付け"
                 original_name = (
                     "クリップボードの画像 " +
                     f"({pil_image.width}x{pil_image.height})"
@@ -194,9 +259,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     text=f"クリップボードの画像を追加 ( {base_name} )")
 
             else:
+                # 2. 画像でない場合、テキスト (ファイルパス) として取得を試みる
                 clipboard_content = self.clipboard_get()
+                # 改行またはタブで区切られたパスに対応
                 file_paths = [
-                    line.strip().strip('"')
+                    line.strip().strip('"')  # 引用符も除去
                     for line in re.split(r'[\n\t]', clipboard_content)
                     if line.strip()
                 ]
@@ -224,7 +291,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 messagebox.showerror(
                     "貼付エラー", f"クリップボードの処理に失敗しました: {e}", parent=self)
 
-    def update_staged_files_label(self):
+    def update_staged_files_label(self) -> None:
+        """
+        処理対象リストの件数をラベルに反映し、
+        実行ボタンの有効/無効状態を切り替えます。
+        """
         count = len(self.staged_items)
         self.staged_files_label.configure(text=f"処理対象ファイル: {count} 件")
 
@@ -235,17 +306,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         else:
             self.staged_run_button.configure(state="disabled")
 
-    def clear_staged_list_ui(self):
+    def clear_staged_list_ui(self) -> None:
+        """ (未使用) UI上のリスト表示をすべてクリアします。 """
         for widget in self.staged_list_frame.winfo_children():
             widget.destroy()
 
-    # --- [実行ロジック (親アプリを呼び出す)] ---
-    def run_staged_process(self):
+    def run_staged_process(self) -> None:
+        """
+        「処理実行」ボタンの処理。
+        出力先フォルダを選択させ、親アプリの共通処理関数を呼び出します。
+        """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
             return
 
-        # フォントパスのチェックを親アプリ経由で行う
+        # フォントパスの再検証
         if (not self.parent_app.font_path or
                 not Path(self.parent_app.font_path).is_file()):
             self.parent_app.status_label.configure(
@@ -261,6 +336,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         dest_path = Path(dest_folder)
 
+        # 入力元と出力先が同一フォルダでないかチェック
         source_folders = {
             item['data'].parent
             for item in self.staged_items
@@ -282,7 +358,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 return
             items_to_process.append((item['data'], base_name))
 
-        # 親アプリの共通処理関数を呼び出す
+        # 親アプリの共通処理関数 (execute_normalization_process) を呼び出す
         try:
             self.parent_app.execute_normalization_process(
                 items_to_process, dest_path)
@@ -291,5 +367,4 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.on_close()
 
         except Exception as e:
-            # 共通処理関数内でエラーが発生した場合
             messagebox.showerror("処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)

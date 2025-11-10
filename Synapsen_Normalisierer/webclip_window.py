@@ -20,10 +20,17 @@ except ImportError:
     pass
 
 
-def hex_to_rgb_tuple(hex_color):
+def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
     """
     #RRGGBB 形式の16進数カラーコードを、
-    fitzが要求する (R, G, B) のタプル (各値 0.0～1.0) に変換する。
+    fitzが要求する (R, G, B) のタプル (各値 0.0～1.0) に変換します。
+
+    Args:
+        hex_color (str): 16進数カラーコード (例: "#FF0000")。
+
+    Returns:
+        tuple[float, float, float] | None:
+            fitz用のRGBタプル。変換失敗時はNone。
     """
     try:
         hex_color = hex_color.lstrip('#')
@@ -33,23 +40,39 @@ def hex_to_rgb_tuple(hex_color):
         return (r / 255.0, g / 255.0, b / 255.0)
     except Exception as e:
         print(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
-        return None  # 失敗した場合はNoneを返す
+        return None
 
 
 class WebClipWindow(ctk.CTkToplevel):
     """
     URLを指定してWebページをPDFとしてクリップし、
-    IndexKey, コメント, 書誌情報を埋め込むためのウィンドウ。
+    IndexKey, コメント, 書誌情報を埋め込むためのToplevelウィンドウ（モーダル）。
+
+    Playwrightライブラリを使用してWebページの取得とPDF化を行います。
+
+    Attributes:
+        parent_app (ctk.CTk): 親である Synapsen_Normalisierer のインスタンス。
+        temp_dir (Path | None): 一時PDFの保存先ディレクトリ。
+        playwright_context: Playwright の sync_playwright コンテキスト。
+        browser: Playwright のブラウザインスタンス。
+        page: Playwright のページインスタンス。
     """
 
     def __init__(self, parent_app):
+        """
+        WebClipWindowを初期化します。
+
+        Args:
+            parent_app (ctk.CTk): 親ウィンドウ (Synapsen_Normalisierer)。
+        """
         super().__init__(parent_app)
 
-        self.parent_app = parent_app  # メインアプリ(Synapsen_Normalisierer)
-        self.temp_dir = None          # 一時PDFの保存先
-        self.page_title_cache = ""    # ページ情報取得後のタイトル保持用
-        self.site_name_cache = ""     # ページ情報取得後のサイト名保持用
+        self.parent_app = parent_app
+        self.temp_dir = None
+        self.page_title_cache = ""
+        self.site_name_cache = ""
 
+        # --- Playwright (実行コンテキスト) ---
         self.playwright_context = None
         self.browser = None
         self.page = None
@@ -64,11 +87,12 @@ class WebClipWindow(ctk.CTkToplevel):
                 "2. playwright install",
                 parent=parent_app
             )
-            self.after(100, self.destroy)  # すぐにウィンドウを閉じる
+            # ウィンドウの表示シーケンスから抜け、即座に閉じる
+            self.after(100, self.destroy)
             return
 
         self.title("Webクリップで正規化")
-        self.geometry("450x650")
+        self.geometry("450x670")
 
         if self.parent_app.icon_path:
             try:
@@ -165,13 +189,8 @@ class WebClipWindow(ctk.CTkToplevel):
         key_frame = ctk.CTkFrame(self)
         key_frame.pack(pady=(0, 10), padx=10, fill="x")
 
-        key_options = []
-        if (hasattr(self.parent_app, 'config_data') and
-                self.parent_app.config_data):
-            key_options = self.parent_app.config_data.get(
+        key_options = self.parent_app.config_data.get(
                 'commonplace_keys_options', [])
-        else:
-            print("警告: config_data が親アプリに見つかりません。")
 
         self.index_key_combo = ctk.CTkComboBox(
             key_frame,
@@ -194,6 +213,7 @@ class WebClipWindow(ctk.CTkToplevel):
             self,
             text="2. 出力先を選んでクリップ実行",
             command=self.run_webclip_process,
+            state="disabled"  # 初期状態は無効
         )
         self.run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -201,7 +221,12 @@ class WebClipWindow(ctk.CTkToplevel):
         self.status_label = ctk.CTkLabel(self, text="")
         self.status_label.pack(pady=10, padx=10)
 
-    def on_close(self):
+    def on_close(self) -> None:
+        """
+        ウィンドウが閉じられるとき（[x]ボタン押下時）の処理。
+        Playwrightのセッションを安全に終了し、一時フォルダをクリーンアップします。
+        """
+        # Playwrightセッションの終了
         if self.page:
             try:
                 self.page.close()
@@ -214,12 +239,11 @@ class WebClipWindow(ctk.CTkToplevel):
                 print(f"Playwright browser close error: {e}")
         if self.playwright_context:
             try:
-                # sync_playwright().start() の場合は stop()
                 self.playwright_context.stop()
             except Exception as e:
                 print(f"Playwright context stop error: {e}")
 
-        """ ウィンドウが閉じられるとき、一時フォルダをクリーンアップ """
+        # 一時フォルダのクリーンアップ
         if self.temp_dir and self.temp_dir.exists():
             try:
                 shutil.rmtree(self.temp_dir)
@@ -229,9 +253,12 @@ class WebClipWindow(ctk.CTkToplevel):
         self.grab_release()
         self.destroy()
 
-    def fetch_page_info(self):
+    def fetch_page_info(self) -> None:
         """
         「1. ページ情報取得」ボタンの処理。
+        Playwrightを使用してURLにアクセスし、書誌情報（タイトル、著者、サイト名、
+        更新日）を抽出しようと試みます。
+        タイムアウトやエラーが発生した場合は、限定的な情報を取得します。
         """
         url = self.url_entry.get().strip()
         if not url.startswith("http://") and not url.startswith("https://"):
@@ -246,24 +273,28 @@ class WebClipWindow(ctk.CTkToplevel):
         self.update_idletasks()
 
         try:
-            # 1. セッションがなければ開始する
+            # 1. Playwrightセッションがなければ開始する
             if self.playwright_context is None:
+                self.status_label.configure(text="Playwrightを起動中...")
+                self.update_idletasks()
                 self.playwright_context = sync_playwright().start()
                 self.browser = self.playwright_context.chromium.launch()
                 self.page = self.browser.new_page()
 
             # 2. ページに移動 (タイムアウト1分)
+            self.status_label.configure(text=f"ページに移動中:\n{url[:60]}...")
+            self.update_idletasks()
             self.page.goto(
                 url, wait_until='domcontentloaded', timeout=60000)
 
-            # --- 成功時のロジック (詳細取得) ---
+            # --- 3. 成功時のロジック (詳細取得) ---
             self.status_label.configure(
                 text="ページ情報(詳細)を取得中...", text_color="gray")
             self.update_idletasks()
 
             self.page_title_cache = self.page.title()
 
-            # メタデータ抽出
+            # メタデータ抽出 (複数のセレクタ候補を試行)
             author = self.page.locator(
                 'meta[name="author"], '
                 'meta[property="og:author"], '
@@ -281,17 +312,18 @@ class WebClipWindow(ctk.CTkToplevel):
 
             date_str = self.page.locator(
                 'meta[property="article:published_time"], '
-                'meta[property="og:updated_time"], time[datetime]'
+                'meta[property="og:updated_time"], '
+                'time[datetime]'
             ).first.get_attribute("datetime")
 
             iso_date = ""
             if date_str:
                 try:
-                    iso_date = date_str.split('T')[0]
+                    iso_date = date_str.split('T')[0]  # 'YYYY-MM-DD' の部分のみ取得
                 except Exception:
                     iso_date = ""
 
-            # UIのEntryに取得した情報をセット
+            # 4. UIのEntryに取得した情報をセット
             self.sist_title_entry.delete(0, "end")
             self.sist_title_entry.insert(0, self.page_title_cache)
             self.sist_site_entry.delete(0, "end")
@@ -307,27 +339,23 @@ class WebClipWindow(ctk.CTkToplevel):
             self.status_label.configure(text="ページ情報を取得しました。内容を確認・編集してください。")
 
         except (PlaywrightTimeoutError, PlaywrightError) as e:
-            # タイムアウト時のロジック (page.title と urlparse のみ取得)
+            # 5. タイムアウト時のロジック (page.title と urlparse のみ取得)
             print(f"ページ読み込みがタイムアウトしました: {e}")
             self.status_label.configure(
                 text="タイムアウト。簡易情報(タイトル/ドメイン)を取得します...",
                 text_color="orange"
-                )
+            )
             self.update_idletasks()
 
             try:
-                # 簡易情報取得 (page.title と urlparse)
                 self.page_title_cache = self.page.title()
                 parsed_url = urlparse(url)
                 self.site_name_cache = parsed_url.netloc
 
-                # UIをセット (タイトルとサイト名のみ)
                 self.sist_title_entry.delete(0, "end")
                 self.sist_title_entry.insert(0, self.page_title_cache)
                 self.sist_site_entry.delete(0, "end")
                 self.sist_site_entry.insert(0, self.site_name_cache)
-
-                # 他のフィールドはクリア
                 self.sist_author_entry.delete(0, "end")
                 self.sist_date_entry.delete(0, "end")
 
@@ -337,19 +365,18 @@ class WebClipWindow(ctk.CTkToplevel):
                     "タイトルとサイト名のみ取得を試みました。\n"
                     "著者名や更新日は手動で入力してください。",
                     parent=self
-                    )
+                )
             except Exception as simple_e:
-                # タイムアウト後、page.title()すら失敗した場合
                 messagebox.showerror(
                     "情報取得エラー",
                     "タイムアウト後の簡易情報取得にも失敗しました:\n"
                     f"{simple_e}",
                     parent=self
-                    )
+                )
                 self.status_label.configure(
                     text="情報取得失敗（タイムアウト）。手動で入力してください。",
                     text_color="orange"
-                    )
+                )
                 self.page_title_cache = ""
                 self.site_name_cache = ""
 
@@ -360,17 +387,18 @@ class WebClipWindow(ctk.CTkToplevel):
                 text="情報取得エラー。", text_color="orange")
 
         finally:
-            # 処理が完了（成功または失敗）したらボタンを戻し、通知音を鳴らす
             self.fetch_button.configure(state="normal")
-            self.run_button.configure(state="normal")
+            self.run_button.configure(state="normal")  # 実行ボタンを有効化
             self.bell()
 
-    def run_webclip_process(self):
+    def run_webclip_process(self) -> None:
         """
-        「2. クリップ実行」ボタンが押されたときの処理。
-        PDF化、情報埋め込み、正規化処理の呼び出しを行う。
-        """
+        「2. クリップ実行」ボタンの処理。
 
+        PlaywrightでPDF化し、PyMuPDFで情報（IndexKey, 書誌情報, コメント）を
+        埋め込み、親アプリの `execute_normalization_process` を呼び出して
+        最終的な正規化を行います。
+        """
         url = self.url_entry.get().strip()
         base_name = self.filename_var.get().strip()
 
@@ -390,31 +418,21 @@ class WebClipWindow(ctk.CTkToplevel):
                 text_color="orange"
             )
             return
-
-        # セッション（ページ）が準備できているか確認
         if self.page is None:
             messagebox.showerror(
                 "エラー", "先に「1. ページ情報取得」ボタンを押して、ページを読み込んでください。", parent=self)
             return
 
-        # UIからIndexKey, コメント, 書誌情報を取得
+        # --- 2. 埋め込み情報の取得 ---
         index_key_raw = self.index_key_combo.get()
-
         index_key_to_embed = ""
-        text_color = None  # デフォルトは fitz の標準色 (黒)
+        text_color = None  # fitzデフォルト (黒)
 
         if index_key_raw != "（未選択）":
-            # 親アプリから KeyColors 辞書を取得
-            key_colors_dict = self.parent_app.config_data.get('key_colors', {})
-            key_raw_lower = index_key_raw.lower()
-
-            # Key名のみを埋め込む文字列として設定
             index_key_to_embed = index_key_raw
-
-            # 色 (16進数) の取得 (Prefixは参照しない)
-            hex_color = key_colors_dict.get(key_raw_lower)
+            key_colors_dict = self.parent_app.config_data.get('key_colors', {})
+            hex_color = key_colors_dict.get(index_key_raw.lower())
             if hex_color:
-                # 16進数を fitz 用のRGBタプル (0.0～1.0) に変換
                 text_color = hex_to_rgb_tuple(hex_color)
 
         comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
@@ -424,37 +442,26 @@ class WebClipWindow(ctk.CTkToplevel):
         sist_title = self.sist_title_entry.get().strip() or "（タイトル不明）"
         sist_site = self.sist_site_entry.get().strip() or "（サイト名不明）"
         sist_date = self.sist_date_entry.get().strip() or "（更新日不明）"
-        sist_url = url
         sist_view_date = datetime.datetime.now().strftime('%Y-%m-%d')
 
-        # 1. SIST 02 準拠の単一行形式
         sist_string_formal = (
-            f"{sist_author} . "
-            f"“{sist_title}” . "
-            f"{sist_site} . "
-            f"{sist_date} . "
-            f"{sist_url} , "
-            f"(参照 {sist_view_date})"
-            )
-
-        # 2. 読みやすい改行形式 (本文用)
+            f"{sist_author} . “{sist_title}” . {sist_site} . {sist_date} . "
+            f"{url} , (参照 {sist_view_date})"
+        )
         sist_string_readable = (
-            f"著者:\n{sist_author}\n"
-            f"ページ名:\n“{sist_title}”\n"
-            f"サイト名:\n{sist_site}\n"
-            f"更新日:\n{sist_date}\n"
-            f"入手先:\n{sist_url}\n"
-            f"参照:\n{sist_view_date}"
+            f"著者:\n{sist_author}\n\nページ名:\n“{sist_title}”\n\n"
+            f"サイト名:\n{sist_site}\n\n"
+            f"更新日:\n{sist_date}\n\n入手先:\n{url}\n\n参照:\n{sist_view_date}"
         )
 
-        # --- 2. 出力先フォルダを選択 ---
+        # --- 3. 出力先フォルダを選択 ---
         dest_folder = filedialog.askdirectory(
             title="出力先フォルダを選択してください", parent=self)
         if not dest_folder:
-            return  # キャンセル
+            return
         dest_path = Path(dest_folder)
 
-        # 一時フォルダの準備
+        # --- 4. 一時フォルダの準備 ---
         if self.temp_dir and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
         self.temp_dir = Path(tempfile.mkdtemp(prefix="synapsen_clip_"))
@@ -466,214 +473,139 @@ class WebClipWindow(ctk.CTkToplevel):
         self.fetch_button.configure(state="disabled")
         self.update_idletasks()
 
-        # --- 3. PlaywrightによるPDF化 (ページ全体をPDF化) ---
-        pdf_generated_successfully = False
+        # --- 5. PlaywrightによるPDF化 ---
         try:
+            self.page.pdf(
+                path=str(temp_pdf_path), format='A4',
+                print_background=True,
+                margin={
+                    'top': '1cm', 'bottom': '1cm',
+                    'left': '1cm', 'right': '1cm'
+                }
+            )
+        except Exception as pdf_e:
+            # 印刷失敗時のフォールバック (簡易PDF生成)
+            print(f"PDFの印刷に失敗: {pdf_e}")
+            self.status_label.configure(text="印刷失敗。最小限の簡易PDFを生成します...")
+            self.update_idletasks()
             try:
-                # 試行1: 既存の 'self.page' を使ってPDF化
-                self.status_label.configure(text="読み込み済みページをPDF化中...")
-                self.update_idletasks()
-                self.page.pdf(
-                    path=str(temp_pdf_path), format='A4',
-                    print_background=True,
-                    margin={
-                        'top': '1cm',
-                        'bottom': '1cm',
-                        'left': '1cm',
-                        'right': '1cm'
-                        }
-                )
-
-                pdf_generated_successfully = True
-
-            except Exception as pdf_e:
-                # 試行2: 最小限の簡易PDF (最終フォールバック)
-                print(f"PDFの印刷に失敗: {pdf_e}")
-                self.status_label.configure(text="印刷失敗。最小限の簡易PDFを生成します...")
-                self.update_idletasks()
-
                 doc = fitz.open()
                 a4_rect = fitz.paper_size("A4")
                 pdf_page = doc.new_page(width=a4_rect[0], height=a4_rect[1])
                 text_to_insert = (
                     f"簡易Webクリップ (タイムアウト・印刷失敗)\n\n"
                     f"書誌情報(SIST 02):\n{sist_string_formal}\n\n"
-                    f"書誌情報:\n{sist_string_readable}\n\n"
                     f"コメント:\n{comment_to_embed}\n\n"
                 )
                 rect = fitz.Rect(
                     50, 100,
                     pdf_page.rect.width - 50, pdf_page.rect.height - 50
-                    )
-                pdf_page.insert_textbox(
-                    rect, text_to_insert, fontsize=10,
-                    fontname="helv", align=0
                 )
+                pdf_page.insert_textbox(rect, text_to_insert,
+                                        fontsize=10, fontname="helv", align=0)
                 doc.save(str(temp_pdf_path))
                 doc.close()
-                pdf_generated_successfully = True  # 簡易PDFが生成された
+            except Exception as e:
+                messagebox.showerror(
+                    "Webクリップエラー", f"簡易PDFの生成にも失敗しました:\n{e}", parent=self)
+                self.status_label.configure(
+                    text="エラーが発生しました。", text_color="orange")
+                self.run_button.configure(state="normal")
+                self.fetch_button.configure(state="normal")
+                return
 
-        except Exception as e:
-            messagebox.showerror(
-                "Webクリップエラー", f"予期せぬエラー:\n{e}", parent=self)
-            self.status_label.configure(
-                text="エラーが発生しました。", text_color="orange")
-            self.run_button.configure(state="normal")
-            self.fetch_button.configure(state="normal")
-            return
-
-        if not pdf_generated_successfully:
-            messagebox.showerror(
-                "Webクリップエラー", "PDFの生成に失敗しました。", parent=self)
-            self.status_label.configure(
-                text="エラーが発生しました。", text_color="orange")
-            self.run_button.configure(state="normal")
-            self.fetch_button.configure(state="normal")
-            return
-
-        # --- 4. PDFへの情報埋め込み (PyMuPDF) ---
+        # --- 6. PDFへの情報埋め込み (PyMuPDF) ---
         self.status_label.configure(text="PDFに情報を埋め込み中...")
         self.update_idletasks()
         try:
             doc = fitz.open(str(temp_pdf_path))
 
-            # config.ini からフォントパスと埋め込み座標を取得
             font_path = self.parent_app.font_path
-            # 親アプリの config_data から key_rect を取得
             key_rect_tuple = self.parent_app.config_data.get(
                 'key_rect', (0, 0, 0, 0))
             key_rect = fitz.Rect(key_rect_tuple)
-
-            # A4/A5 の用紙サイズを親アプリから取得
             paper_width = self.parent_app.paper_width
             paper_height = self.parent_app.paper_height
 
             # 0ページ目（先頭）に新しいページ（白紙の表紙）を挿入
-            page = doc.new_page(
-                pno=0,
-                width=paper_width,
-                height=paper_height
-            )
+            page = doc.new_page(pno=0, width=paper_width, height=paper_height)
 
-            # フォントを登録
             font_alias = "embed_font"
             try:
                 page.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
                 print(f"フォント埋め込み警告 (無視して続行): {e}")
 
-            # 1. 描画用の Shape オブジェクトを作成
             shape = page.new_shape()
 
-            # 2. IndexKey を Shape に描画 (key_rect を使用)
+            # IndexKey
             if index_key_to_embed:
                 shape.insert_textbox(
-                    key_rect,
-                    index_key_to_embed,
-                    fontname=font_alias,
-                    fontsize=10,
-                    color=text_color,
-                    align=0
+                    key_rect, index_key_to_embed, fontname=font_alias,
+                    fontsize=10, color=text_color, align=0
                 )
 
-            # 3. コメントと書誌情報の描画座標を計算
+            # 書誌情報の描画座標
             info_rect_y_start = key_rect.y1 + 10
             info_rect_y_end = page.rect.height - 30
 
-            # 4. 書誌情報 (SIST 02 単一行)
+            # 書誌情報 (SIST 02 単一行)
             sist_rect = fitz.Rect(
                 key_rect.x0, info_rect_y_start,
                 page.rect.width - 50, info_rect_y_start + 60
             )
             rc_sist = shape.insert_textbox(
-                sist_rect,
-                f"書誌情報 (SIST 02):\n{sist_string_formal}",
-                fontname=font_alias,
-                fontsize=6,
-                align=0
+                sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
+                fontname=font_alias, fontsize=6, align=0
+            )
+            actual_sist_y1 = (
+                sist_rect.y0 + (sist_rect.height - rc_sist)
+                if rc_sist >= 0 else sist_rect.y1
             )
 
-            # SIST (formal) が実際に使用した高さを計算
-            actual_sist_y1 = 0.0
-            if rc_sist < 0:
-                actual_sist_y1 = sist_rect.y1
-            else:
-                used_height_sist = sist_rect.height - rc_sist
-                actual_sist_y1 = sist_rect.y0 + used_height_sist
-
-            # 5. 書誌情報 (改行形式)
+            # 書誌情報 (改行形式)
             readable_rect = fitz.Rect(
-                sist_rect.x0, actual_sist_y1 + 10,     # y0 (sist_rect の下)
-                page.rect.width - 50, info_rect_y_end  # y1 (ページ下部マージンまで)
+                sist_rect.x0, actual_sist_y1 + 10,
+                page.rect.width - 50, info_rect_y_end
             )
-            readable_text = f"書誌情報:\n{sist_string_readable}"
-
-            # insert_textbox を呼び出し、戻り値 (rc = 未使用の高さ) を受け取る
             rc_readable = shape.insert_textbox(
-                readable_rect,
-                readable_text,
-                fontname=font_alias,
-                fontsize=9,
-                align=0
+                readable_rect, f"書誌情報:\n{sist_string_readable}",
+                fontname=font_alias, fontsize=9, align=0
             )
 
-            # 6. コメント
-
-            # 描画されたテキストの実際のy1を計算
-            actual_readable_y1 = 0.0
-            if rc_readable < 0:
-                # テキストが溢れた場合、矩形の底 (readable_rect.y1) を使う
+            if rc_readable >= 0:  # 描画されたテキストの実際のy1を計算
+                actual_readable_y1 = (
+                    readable_rect.y0 + (readable_rect.height - rc_readable)
+                )
+            else:  # テキストが溢れた場合、矩形の底 (readable_rect.y1) を使う
                 actual_readable_y1 = readable_rect.y1
-                print(f"警告: 書誌情報(改行)が {abs(rc_readable)} pt 溢れました。")
-            else:
-                # 矩形の高さ - 未使用の高さ = 使用した高さ
-                used_height_readable = readable_rect.height - rc_readable
-                actual_readable_y1 = readable_rect.y0 + used_height_readable
 
-            # 座標の基準を「計算された actual_readable_y1」にする
-            # 10pt (パディング) + 10pt (1行分の空白) = 20pt のマージンを設ける
+            # コメント
             comment_y0 = actual_readable_y1 + 20
-
             comment_rect = fitz.Rect(
-                readable_rect.x0, comment_y0,          # y0 (書誌情報の下 + 空白行)
-                page.rect.width - 50, info_rect_y_end  # y1 (ページ下部マージンまで)
+                readable_rect.x0, comment_y0,
+                page.rect.width - 50, info_rect_y_end
             )
-
             if comment_to_embed:
                 shape.insert_textbox(
-                    comment_rect,
-                    f"コメント:\n{comment_to_embed}",
-                    fontname=font_alias,
-                    fontsize=9,
-                    align=0
+                    comment_rect, f"コメント:\n{comment_to_embed}",
+                    fontname=font_alias, fontsize=9, align=0
                 )
 
-            # 7. すべての描画内容をコミット
             shape.commit()
-
-            # 変更を上書き保存
             doc.saveIncr()
             doc.close()
 
         except Exception as e:
-            # 埋め込みが成功したかどうかのデバッグ情報を追加
-            print("--- 埋め込み処理中の詳細 ---")
-            print(f"IndexKey: {index_key_to_embed}")
-            print(f"SIST02: {sist_string_formal}")
-            print(f"Readable: {sist_string_readable}")
-            print(f"Comment: {comment_to_embed}")
-            print("--------------------------")
             messagebox.showerror(
-                "情報埋め込みエラー",
-                f"PDFへの情報埋め込みに失敗しました:\n{e}",
-                parent=self
-                )
-            # エラーが起きても、PDF化自体は成功している可能性があるので処理は続行
+                "情報埋め込みエラー", f"PDFへの情報埋め込みに失敗しました:\n{e}", parent=self)
+            # エラーが起きても、PDF化自体は成功しているので処理は続行
 
-        # --- 5. 親アプリの正規化処理を呼び出す ---
+        # --- 7. 親アプリの正規化処理を呼び出す ---
         self.status_label.configure(text="PDF正規化処理を実行中...")
         self.update_idletasks()
 
+        # execute_normalization_process は (Path, base_name) のタプルリストを期待する
         items_to_process = [(temp_pdf_path, base_name)]
 
         try:
@@ -684,13 +616,8 @@ class WebClipWindow(ctk.CTkToplevel):
 
         except Exception as e:
             messagebox.showerror(
-                "正規化処理エラー",
-                f"処理中にエラーが発生しました:\n{e}",
-                parent=self
-                )
+                "正規化処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)
             self.status_label.configure(
-                text="エラーが発生しました。",
-                text_color="orange"
-                )
+                text="エラーが発生しました。", text_color="orange")
             self.run_button.configure(state="normal")
             self.fetch_button.configure(state="normal")

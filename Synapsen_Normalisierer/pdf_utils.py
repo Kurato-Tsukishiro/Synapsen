@@ -7,11 +7,11 @@ import io
 import pandas as pd
 from pytesseract import Output
 import csv
-import shutil  # <--- ファイル操作（上書きリネーム）のために必要
+import shutil
 import sys
 
 # ==============================================================================
-# 定数定義
+# 定数定義 (ポイント単位)
 # ==============================================================================
 
 CM_TO_PT: float = 72 / 2.54
@@ -26,7 +26,11 @@ RIGHT_MARGIN: float = 0
 # ==============================================================================
 
 
-def high_fidelity_flatten(input_path: str, output_path: str, font_path: str):
+def high_fidelity_flatten(
+        input_path: str,
+        output_path: str,
+        font_path: str
+) -> None:
     """
     PyMuPDFを使い、指定フォントでフォームをテキストに変換（高精度フラット化）します。
 
@@ -41,43 +45,54 @@ def high_fidelity_flatten(input_path: str, output_path: str, font_path: str):
 
     Raises:
         FileNotFoundError: 指定されたフォントファイルが見つからない場合。
+        Exception: PDFのオープンや保存に失敗した場合。
     """
     if not Path(font_path).is_file():
         raise FileNotFoundError(f"指定されたフォントファイルが見つかりません: {font_path}")
 
-    doc = fitz.open(input_path)
-    font_name_in_pdf = "notosans-jp"  # PDF内部で使うフォントのエイリアス名
+    doc = None
+    try:
+        doc = fitz.open(input_path)
+        if doc.is_encrypted:
+            print(f"  [Warn]暗号化されたPDFはスキップします: {Path(input_path).name}")
+            return  # 暗号化ファイルは処理せず終了
 
-    for page in doc:
-        # ページにカスタムフォントを登録・埋め込む
-        try:
-            page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
-        except Exception as e:
-            # 既に登録されている場合などがあるので、エラーが出ても処理を続行
-            print(f"Info: Font insertion issue ({e}). Continuing.")
+        font_name_in_pdf = "synapsen-embed-font"  # PDF内部で使うフォントのエイリアス名
 
-        # フォームウィジェットを処理
-        for widget in page.widgets():
-            # テキストフィールドまたはコンボボックスで、値が存在する場合
-            if widget.field_type in (
-                fitz.PDF_WIDGET_TYPE_TEXT,
-                fitz.PDF_WIDGET_TYPE_COMBOBOX
-            ) and widget.field_value:
-                # フィールドの値（テキスト）をページに直接描画
-                page.insert_textbox(
-                    widget.rect,  # フィールドと同じ位置・サイズ
-                    widget.field_value,
-                    fontname=font_name_in_pdf,
-                    fontsize=widget.text_fontsize or 10,
-                    color=widget.text_color or (0, 0, 0),
-                )
+        for page in doc:
+            try:
+                page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
+            except Exception as e:
+                print(f"Info: Font insertion issue ({e}). Continuing.")
 
-            # 元のインタラクティブなウィジェットを削除
-            page.delete_widget(widget)
+            # フォームウィジェットを処理
+            for widget in page.widgets():
+                if widget.field_type in (
+                    fitz.PDF_WIDGET_TYPE_TEXT,
+                    fitz.PDF_WIDGET_TYPE_COMBOBOX
+                ) and widget.field_value:
+                    # フィールドの値をページに直接描画
+                    page.insert_textbox(
+                        widget.rect,
+                        widget.field_value,
+                        fontname=font_name_in_pdf,
+                        fontsize=widget.text_fontsize or 10,
+                        color=widget.text_color or (0, 0, 0),
+                    )
+                # 元のインタラクティブなウィジェットを削除
+                page.delete_widget(widget)
 
-    # PDFを保存 (ガベージコレクション、圧縮を有効化)
-    doc.save(output_path, garbage=4, deflate=True)
-    doc.close()
+        # PDFを保存 (ガベージコレクション、圧縮を有効化)
+        doc.save(output_path, garbage=4, deflate=True)
+
+    except Exception as e:
+        print(f"  [Error] フラット化処理中にエラー ({input_path}): {e}")
+        # エラーが発生した場合も、finally で doc.close() が呼ばれる
+        raise  # エラーを再送出
+
+    finally:
+        if doc:
+            doc.close()
 
 
 def normalize_pdf_to_papersize(
@@ -85,97 +100,115 @@ def normalize_pdf_to_papersize(
         output_path: str,
         paper_width: float,
         paper_height: float
-        ):
+        ) -> None:
     """
-    PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
+    pypdfを使い、PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
 
-    マージン領域を考慮し、コンテンツがその領域内に収まるように
-    アスペクト比を維持してスケーリングおよび中央配置を行います。
+    マージン領域 (TOP_MARGIN, BOTTOM_MARGIN など) を考慮し、
+    コンテンツがその領域内に収まるようにアスペクト比を維持して
+    スケーリングおよび中央配置を行います。
 
     Args:
         input_path (str): 入力PDFファイル（通常はフラット化済み）のパス。
         output_path (str): 正規化された出力PDFファイルのパス。
         paper_width (float): ターゲットの用紙幅 (ポイント単位)。
         paper_height (float): ターゲットの用紙高 (ポイント単位)。
+
+    Raises:
+        Exception: PDFの読み込み、書き込みに失敗した場合。
     """
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
+    reader = None
+    try:
+        reader = PdfReader(input_path)
+        writer = PdfWriter()
 
-    # 渡された用紙サイズから描画可能領域を計算
-    drawable_width: float = paper_width - LEFT_MARGIN - RIGHT_MARGIN
-    drawable_height: float = paper_height - TOP_MARGIN - BOTTOM_MARGIN
+        # 渡された用紙サイズから描画可能領域を計算
+        drawable_width: float = paper_width - LEFT_MARGIN - RIGHT_MARGIN
+        drawable_height: float = paper_height - TOP_MARGIN - BOTTOM_MARGIN
 
-    for content_page in reader.pages:
-        # 指定された用紙サイズの白紙ページを作成
-        template_page = writer.add_blank_page(
-            width=paper_width, height=paper_height)
+        for content_page in reader.pages:
+            # 指定された用紙サイズの白紙ページを作成
+            template_page = writer.add_blank_page(
+                width=paper_width, height=paper_height)
 
-        original_width = float(content_page.mediabox.width)
-        original_height = float(content_page.mediabox.height)
+            original_width = float(content_page.mediabox.width)
+            original_height = float(content_page.mediabox.height)
 
-        if original_width == 0 or original_height == 0:
-            print(f"Skipping empty or invalid page in {input_path}")
-            continue
+            if original_width == 0 or original_height == 0:
+                print(f"Skipping empty or invalid page in {input_path}")
+                continue
 
-        # 描画可能領域 (drawable_width, drawable_height) を使用
-        scale = min(
-            drawable_width / original_width,
-            drawable_height / original_height
-        )
+            # 描画可能領域 (drawable_width, drawable_height) に収まるようスケーリング
+            scale = min(
+                drawable_width / original_width,
+                drawable_height / original_height
+            )
 
-        # 描画可能領域内で中央に配置
-        tx = LEFT_MARGIN + (drawable_width - original_width * scale) / 2
-        ty = BOTTOM_MARGIN + (drawable_height - original_height * scale) / 2
+            # 描画可能領域内で中央に配置
+            tx = LEFT_MARGIN + (drawable_width - original_width * scale) / 2
+            ty = (
+                BOTTOM_MARGIN + (drawable_height - original_height * scale) / 2
+            )
 
-        transform =\
-            Transformation().scale(sx=scale, sy=scale).translate(tx=tx, ty=ty)
+            transform = (
+                Transformation()
+                .scale(sx=scale, sy=scale)
+                .translate(tx=tx, ty=ty)
+            )
 
-        template_page.merge_transformed_page(content_page, transform)
+            template_page.merge_transformed_page(content_page, transform)
 
-    with open(output_path, "wb") as f:
-        writer.write(f)
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+    except Exception as e:
+        print(f"  [Error] 正規化処理中にエラー ({input_path}): {e}")
+        raise
+
+    # pypdf (PdfReader) は明示的な close() を必要としない
 
 
 def embed_ocr_text_in_pdf(
     pdf_path_str: str,
     enable_tesseract: bool,
     font_path: str,
-    lang='jpn+jpn_vert'
-):
+    lang: str = 'jpn+jpn_vert'
+) -> None:
     """
-    PDFを解析し、必要に応じてTesseract OCRを実行し、
-    結果を「透明なテキストレイヤー」としてPDF自体に埋め込む。
+    PDFを解析し、既存のテキストレイヤーが存在しない場合、
+    かつ `enable_tesseract` が True の場合にのみ Tesseract OCRを実行し、
+    結果を「透明なテキストレイヤー」としてPDF自体（指定されたパス）に上書き保存します。
 
     Args:
         pdf_path_str (str): 処理対象のPDFファイルパス（読み書きされる）。
         enable_tesseract (bool): Tesseract OCR (低速) を実行するかどうか。
         font_path (str): 埋め込む日本語フォントファイルのパス。
         lang (str): Tesseractが使用する言語。
+
+    Raises:
+        Exception: Tesseract-OCRが見つからない場合。
+                   その他、ファイルの上書き保存に失敗した場合。
     """
     doc = None
     # 一時ファイルへの保存パスを定義
     temp_output_path = pdf_path_str + "._temp_ocr.pdf"
-
-    # 埋め込みに使うフォント名を定義
-    OCR_FONT_NAME = "synapsen_ocr_font"
+    OCR_FONT_NAME = "synapsen_ocr_font"  # 埋め込みフォントのエイリアス
 
     try:
         doc = fitz.open(pdf_path_str)
         if doc.is_encrypted:
-            print(f"  [Warn]暗号化されたPDFはスキップします: {Path(pdf_path_str).name}")
+            print(f"  [Info] 暗号化されたPDFはスキップします: {Path(pdf_path_str).name}")
             return
 
+        # 1. 高速なテキスト抽出を試みる
         meaningful_text_threshold = 10
         has_meaningful_text = False
-
-        # 2. 高速なテキスト抽出を試みる
         for page in doc:
             page_text = page.get_text("text", sort=True).strip()
             if len(page_text) > meaningful_text_threshold:
                 has_meaningful_text = True
                 break
 
-        # 3. テキストが取得できたか確認
         if has_meaningful_text:
             print(
                 "  [Info] 既存のテキストレイヤーが存在するためスキップ: " +
@@ -183,7 +216,6 @@ def embed_ocr_text_in_pdf(
                 )
             return
 
-        # 4. Tesseract OCR が無効化されているかチェック
         if not enable_tesseract:
             print(
                 "  [Info] 画像のみのPDFで、Tesseract OCR は無効です。" +
@@ -191,7 +223,7 @@ def embed_ocr_text_in_pdf(
                 )
             return
 
-        # 5. 既存テキストが取れず、Tesseract が有効な場合のみ実行
+        # --- 既存テキストがなく、Tesseract が有効な場合のみ以下を実行 ---
         print(
             "  [Info] Tesseract OCR を実行し、テキストを埋め込みます: " +
             f"{Path(pdf_path_str).name}"
@@ -205,81 +237,72 @@ def embed_ocr_text_in_pdf(
                 img = Image.open(io.BytesIO(img_data))
 
                 # 7. Tesseract OCR の実行 (TSVデータとして取得)
-                #    lang='jpn+jpn_vert' が正しく渡される
                 tsv_data = pytesseract.image_to_data(
                     img, lang=lang, output_type=Output.STRING
                 )
 
                 if tsv_data is None or len(tsv_data.strip()) == 0:
                     print(
-                        "  [Warn] TesseractがTSVデータを返しませんでした " +
+                        "  [Warn] TesseractがTSVデータを返しませんでした "
                         f"(Page {page_num + 1})"
-                        )
+                    )
                     continue
 
                 # 8. TesseractのTSVデータを解析
+                df = pd.read_csv(
+                    io.StringIO(tsv_data),
+                    sep='\t',
+                    quoting=csv.QUOTE_NONE,
+                    on_bad_lines='skip'
+                )
+                df = df.dropna(subset=['conf', 'text'])
+                df = df[df['conf'] > 30]  # 信頼度が低いものは除外
+
+                if df.empty:
+                    print(
+                        "  [Info] Tesseract OCR は実行されましたが、"
+                        "埋め込み可能なテキスト(conf > 30)が見つかりませんでした "
+                        f"(Page {page_num + 1})。")
+                    continue
+
+                # 9. ページに日本語フォントを登録
                 try:
-                    df = pd.read_csv(
-                        io.StringIO(tsv_data),
-                        sep='\t',
-                        quoting=csv.QUOTE_NONE,
-                        on_bad_lines='skip'
-                        )
-                    df = df.dropna(subset=['conf', 'text'])
-                    df = df[df['conf'] > 30]  # 信頼度が低いものは除外
+                    page.insert_font(
+                        fontname=OCR_FONT_NAME, fontfile=font_path)
+                except Exception:
+                    pass  # 既に登録済みなどのエラーは無視
 
-                    if df.empty:
-                        # ログを追加
-                        print(
-                            "  [Info] Tesseract OCR は実行されましたが、" +
-                            "埋め込み可能なテキスト(conf > 30)が見つかりませんでした" +
-                            f" (Page {page_num + 1})。")
-                        continue  # テキストがないので挿入せず次へ
+                # 10. 透明テキストを挿入
+                dpi_scale = 72 / 300  # DPI=300 -> 72 DPI (ポイント) に座標を戻す
+                for _, row in df.iterrows():
+                    x0, y0, w, h = (
+                        row['left'], row['top'], row['width'], row['height']
+                    )
+                    rect = fitz.Rect(
+                        x0 * dpi_scale, y0 * dpi_scale,
+                        (x0 + w) * dpi_scale, (y0 + h) * dpi_scale
+                    )
+                    fs = max(h * dpi_scale * 0.8, 6.0)  # フォントサイズ
 
-                    # 9. ページに日本語フォント (config.ini の font_path) を登録
-                    try:
-                        # font_path (例: Noto Sans) を 'OCR_FONT_NAME' として登録
-                        page.insert_font(
-                            fontname=OCR_FONT_NAME, fontfile=font_path)
-                    except Exception:
-                        pass  # 既に登録済みなどのエラーは無視
-
-                    # 10. 登録したフォント名を使って、透明テキストを挿入
-                    for _, row in df.iterrows():
-                        x0 = row['left']
-                        y0 = row['top']
-                        w = row['width']
-                        h = row['height']
-                        scale = 72 / 300  # DPI=300 -> 72 DPI (ポイント) に座標を戻す
-                        rect = fitz.Rect(
-                            x0 * scale, y0 * scale,
-                            (x0 + w) * scale, (y0 + h) * scale
-                            )
-                        fs = max(h * scale * 0.8, 6.0)  # フォントサイズ
-
-                        page.insert_text(
-                            rect.bottom_left,
-                            str(row['text']),
-                            fontname=OCR_FONT_NAME,
-                            fontsize=fs,
-                            render_mode=3,  # 3 = 透明
-                            rotate=0
-                        )
-
-                except Exception as e_embed:
-                    print("  [Warn] テキストの埋め込みに失敗。")
-                    print(f"  [Debug] エラー詳細: {e_embed}")
+                    page.insert_text(
+                        rect.bottom_left,
+                        str(row['text']),
+                        fontname=OCR_FONT_NAME,
+                        fontsize=fs,
+                        render_mode=3,  # 3 = 透明 (描画せず、テキスト選択・検索のみ可能)
+                        rotate=0
+                    )
 
             except pytesseract.TesseractNotFoundError:
-                raise Exception("Tesseract-OCRが見つかりません。")
+                # このエラーは回復不能なので、ループを抜けて上位に投げる
+                raise Exception("Tesseract-OCRが見つかりません。PATHを確認してください。")
             except Exception as ocr_err:
                 print(
-                    "  [Warn] Tesseract OCRエラー " +
-                    f"(Page {page_num + 1}): {ocr_err}"
-                    )
+                    "  [Warn] Tesseract OCRエラー (Page {page_num + 1}): "
+                    f"{ocr_err}")
                 continue
 
-        # 11. 変更を「一時ファイル」に保存 (エラーの出ない引数のみ)
+        # 11. 変更を「一時ファイル」に保存
         doc.save(
             temp_output_path,
             garbage=4,
@@ -292,41 +315,44 @@ def embed_ocr_text_in_pdf(
         print(f"  [Error] PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}")
         if Path(temp_output_path).is_file():
             try:
-                Path(temp_output_path).unlink()
+                Path(temp_output_path).unlink()  # エラー時は一時ファイルを削除
             except Exception as e_del:
                 print(f"  [Warn] エラー発生後の一時ファイル削除に失敗: {e_del}")
+        if doc:
+            doc.close()
+        raise  # TesseractNotFoundError などを上位に伝える
+
     finally:
         if doc:
             doc.close()
 
-        # 12. ファイルのリネーム（上書き）
-        if Path(temp_output_path).is_file():
-            try:
-                shutil.move(temp_output_path, pdf_path_str)
-                print(f"  [Info] 元ファイルに上書き完了: {Path(pdf_path_str).name}")
-            except Exception as e_move:
-                print(f"  [Error] PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}")
-                if Path(temp_output_path).is_file():
-                    try:
-                        Path(temp_output_path).unlink()
-                    except Exception:
-                        pass
+    # 12. 正常終了した場合のみ、ファイルのリネーム（上書き）
+    if Path(temp_output_path).is_file():
+        try:
+            shutil.move(temp_output_path, pdf_path_str)
+            print(f"  [Info] 元ファイルに上書き完了: {Path(pdf_path_str).name}")
+        except Exception as e_move:
+            print(f"  [Error] PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}")
+            if Path(temp_output_path).is_file():
+                try:
+                    Path(temp_output_path).unlink()
+                except Exception:
+                    pass
+            raise Exception(f"OCR後のPDFファイル上書きに失敗: {e_move}")
 
 
 # ==============================================================================
 # 画像 -> PDF 変換関数
 # ==============================================================================
-def convert_image_to_pdf(image_path: Path, output_pdf_path: Path):
+
+def convert_image_to_pdf(image_path: Path, output_pdf_path: Path) -> None:
     """
     単一の画像ファイル（png, jpgなど）を1ページのPDFに変換します。
-    PyMuPDFは多くの画像形式の読み込みに標準で対応しています。
+    PyMuPDF (fitz) を使用します。
 
     Args:
         image_path (Path): 入力画像ファイルのパス。
         output_pdf_path (Path): 出力先PDFファイルのパス。
-
-    Returns:
-        bool: 変換が成功したかどうか。
 
     Raises:
         Exception: 変換プロセス中にエラーが発生した場合。
@@ -334,41 +360,40 @@ def convert_image_to_pdf(image_path: Path, output_pdf_path: Path):
     img_doc = None
     pdf_doc = None
     try:
-        # 1. 画像ファイルをfitzオブジェクトとして開く
         img_doc = fitz.open(image_path)
-
-        # 2. 画像をPDFのバイトデータに変換する
-        #    [修正] rect 引数を削除 (エラーログ対応)
+        # 画像をPDFのバイトデータに変換
         pdf_bytes = img_doc.convert_to_pdf()
-
         if not pdf_bytes:
             raise Exception("画像からPDFへの変換に失敗しました。")
 
-        # 3. 新しいPDFドキュメントをバイトデータから作成
+        # 新しいPDFドキュメントをバイトデータから作成
         pdf_doc = fitz.open("pdf", pdf_bytes)
-
-        # 4. PDFとして保存
         pdf_doc.save(str(output_pdf_path))
 
-        return True
-
     except Exception as e:
-        # エラーを捕捉し、呼び出し元に伝える
         print(f"エラー: {image_path.name} のPDF変換に失敗しました。 {e}", file=sys.stderr)
-        raise  # エラーを再送出し、main.py側で処理できるようにする
-
+        raise
     finally:
-        # ドキュメントを確実に閉じる
         if img_doc:
             img_doc.close()
         if pdf_doc:
             pdf_doc.close()
 
 
-def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path):
+def convert_pil_image_to_pdf(
+        pil_image: Image.Image,
+        output_pdf_path: Path
+) -> None:
     """
     Pillow (PIL) の Image オブジェクトを1ページのPDFに変換します。
     （クリップボードからの画像貼り付け用）
+
+    Args:
+        pil_image (Image.Image): Pillow イメージオブジェクト。
+        output_pdf_path (Path): 出力先PDFファイルのパス。
+
+    Raises:
+        Exception: 変換プロセス中にエラーが発生した場合。
     """
     pdf_doc = None
     img_bytes_io = None
@@ -377,9 +402,8 @@ def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path):
     try:
         # 1. PillowイメージをPNG形式でメモリ上のバイトデータに変換
         img_bytes_io = io.BytesIO()
-        # RGBA (透過情報付き) の場合は 'RGB' に変換してから保存する
         if pil_image.mode == 'RGBA':
-            pil_image = pil_image.convert('RGB')
+            pil_image = pil_image.convert('RGB')  # 透過情報を除去
 
         pil_image.save(img_bytes_io, format='PNG')
         img_bytes = img_bytes_io.getvalue()
@@ -389,27 +413,20 @@ def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path):
 
         # 3. 画像をPDFのバイトデータに変換
         pdf_bytes = img_doc.convert_to_pdf()
-
         if not pdf_bytes:
             raise Exception("画像(PIL)からPDFへの変換に失敗しました。")
 
-        # 4. 新しいPDFドキュメントをバイトデータから作成
+        # 4. 新しいPDFドキュメントをバイトデータから作成・保存
         pdf_doc = fitz.open("pdf", pdf_bytes)
-
-        # 5. PDFとして保存
         pdf_doc.save(str(output_pdf_path))
-
-        return True
 
     except Exception as e:
         print(f"エラー: クリップボード画像のPDF変換に失敗しました。 {e}", file=sys.stderr)
         raise
-
     finally:
-        # ドキュメントとIOストリームを確実に閉じる
         if img_bytes_io:
             img_bytes_io.close()
-        if img_doc:  # <--- img_doc はここで一度だけ閉じられる
+        if img_doc:
             img_doc.close()
-        if pdf_doc:  # <--- pdf_doc はここで一度だけ閉じられる
+        if pdf_doc:
             pdf_doc.close()
