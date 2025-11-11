@@ -366,7 +366,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         """
         「処理実行」ボタンの処理。
         メインアプリの execute_normalization_process を使わず、
-        画像クリップ専用のパイプライン（正規化 -> メタデータ追記 -> OCR）を実行します。
+        画像クリップ専用のパイプライン (正規化 -> OCR -> メタデータ追記) を実行します。
         """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
@@ -387,7 +387,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_height = self.parent_app.paper_height
         enable_tesseract = config_data.get('enable_tesseract_ocr', False)
 
-        # Pandocが必要とする設定値を取得
+        # Pandocが必要とする設定値を取得 (Markdown連携用)
         latex_font_name = config_data.get(
             'latex_font', 'MS UI Gothic'
         )
@@ -500,7 +500,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                             input_file_path, temp_converted_pdf)
                         path_to_flatten = temp_converted_pdf
                     else:
-                        # PDF (D&D)
+                        # PDF (D&DされたPDF、またはMDから変換されたPDF)
                         path_to_flatten = input_file_path
                 else:
                     # PIL (ペースト)
@@ -524,7 +524,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     paper_height
                 )
 
-                # --- パイプライン 4: メタデータ追記 (画像クリップ用) ---
+                # --- パイプライン 4: OCR埋め込み ---
+                # (Page 1 (画像) にOCRを実行)
+                embed_ocr_text_in_pdf(
+                    str(final_output_pdf),
+                    enable_tesseract,
+                    font_path,
+                    'jpn+jpn_vert'
+                )
+
+                # --- パイプライン 5: メタデータ追記 (画像クリップ用) ---
                 # (Page 1 に Key を描画, Page 2 に Comment を追加)
                 add_metadata_to_image_clip(
                     str(final_output_pdf),
@@ -535,15 +544,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     index_key_to_embed,
                     text_color,
                     comment_to_embed
-                )
-
-                # --- パイプライン 5: OCR埋め込み ---
-                # (Page 1 (画像) にOCRを実行, Page 2 (テキスト) はスキップ)
-                embed_ocr_text_in_pdf(
-                    str(final_output_pdf),
-                    enable_tesseract,
-                    font_path,
-                    'jpn+jpn_vert'
                 )
 
             messagebox.showinfo(
