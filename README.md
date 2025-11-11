@@ -21,20 +21,22 @@
 
 ### 1. Synapsen Normalisierer (正規化ツール)
 
-スキャンしたPDFやフォーム入力が可能なPDFを、`Ersteller` で処理できる形式に変換します。
+スキャンしたPDF、Markdownファイル、Webページ、画像などを、`Ersteller` で処理できる形式に変換します。
 
 * PDFフォームの入力内容を、注釈（アノテーション）を維持したままテキストに変換（フラット化）
 * すべてのPDFページを `config.ini` で指定された用紙サイズ（A4またはA5）の縦サイズに（アスペクト比を維持して）リサイズ・中央配置
-* **ドラッグ＆ドロップ / ペーストによる画像クリップ:**
-    * `PDF`, `PNG`, `JPG` ファイルのD&D、またはクリップボードのスクリーンショット（Ctrl+V）に対応。
+* **D&D / ペーストによるクリップ:**
+    * `PDF`, `PNG`, `JPG`, `MD` (Markdown) ファイルのD&D、またはクリップボードのスクリーンショット（Ctrl+V）に対応。
     * 実行時に **IndexKey** と **コメント** を一括で指定可能。
-    * 生成されるPDFは、1ページ目に「画像とIndexKey」、2ページ目に「コメント」が挿入された形式となり、`Nexus` でのプレビュー と `Ersteller` でのKey自動抽出 に両対応します。
+    * **Markdown (.md) ファイル**は、`Pandoc`と`Playwright`を経由してPDFに自動変換されます。`<details>`タグは自動的に展開（`<details open>`）され、内容がPDFに含まれます。
+    * **画像・MD・PDFクリップ**で生成されるPDFは、1ページ目に「クリップ本体（または画像）とIndexKey」、2ページ目に「コメント」が挿入された形式となり、`Nexus`でのプレビュー と `Ersteller`でのKey自動抽出 に両対応します。
 * **Webクリップ (URLからPDF化):**
     * 指定したURLを `Playwright` を使用してPDFとして保存。
     * 実行時に **IndexKey**, **コメント**, **書誌情報**（著者名、サイト名など）を入力可能。
     * 生成されるPDFは、1ページ目に「メタデータ（IndexKey, コメント, 書誌情報）」、2ページ目以降に「Webページ本体」が挿入されます。
-* PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。
+* PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。<br><br>
 * (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
+* (D&D/ペースト時) OCR処理は、IndexKey/コメントのメタデータ付与より**前**に実行されます。
 
 ### 2. Synapsen Ersteller (統合・作成ツール)
 
@@ -85,6 +87,11 @@
     * インストール後、`pytesseract` が認識できるようPATHを通してください。
     * 導入方法は、こちらの解説記事などを参考にしてください。<br>
         → **[画像から文字を瞬時に読み取る！Tesseractとpytesseractの驚異の力【Python】](https://qiita.com/ryome/items/16fc42854fe93de78a2f)**
+* **(オプション) Pandoc**
+    * `Normalisierer` でMarkdown (.md) ファイルのPDF変換機能を使う場合に必要です。
+    * `Install.bat` により、`winget` を使用して自動インストールを試みます。
+    * 導入方法は、こちらの公式ページなどを参考にしてください。<br>
+        → **[Pandoc - Installing](https://pandoc.org/installing.html)**
 * **Pythonライブラリ**: ( `requirements.txt` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
@@ -95,7 +102,7 @@
     * [**networkx**](https://github.com/networkx/networkx) (BSD-3-Clause License) - グラフ・ビジュアライゼーションのデータ構築用
     * [**pyvis**](https://github.com/WestHealth/pyvis) (MIT License) - インタラクティブなグラフ描画用
     * [**tkinterdnd2**](https://github.com/Eliav2/tkinterdnd2) (MIT License) - `Normalisierer` でD&D機能を実現するため
-    * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップ機能を実現するため
+    * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップとMarkdown変換を実現するため
 
 ## セットアップ
 
@@ -111,8 +118,8 @@
     * ※ これらのテンプレートは `CC0 (パブリックドメイン)` です。自由にコピー、改変、再配布して構いません。
 
 3.  **ライブラリのインストール:**
-    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリとWebクリップ用ブラウザをインストールします。
-    * （または、コマンドプロンプトで `pip install -r requirements.txt` と `playwright install chromium` を実行します）
+    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリ、Webクリップ用ブラウザ、およびMarkdown変換用のPandocをインストールします。
+    * （または、コマンドプロンプトで `pip install -r requirements.txt` と `playwright install chromium` を実行し、`Pandoc`を手動でインストールします）
 
 4.  **`config.ini` の設定:**
     * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
@@ -254,11 +261,11 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 2.  以下のいずれかの方法でファイルを処理します。
     * **A) フォルダ一括処理:**
         * 「入力/出力フォルダを選んで処理実行」をクリックします。
-        * **入力元フォルダ**（スキャン及びクアデルノで作成したPDFがある場所）を選択します。
+        * **入力元フォルダ**（スキャン及びクアデルノで作成したPDF、または .md ファイルがある場所）を選択します。
         * **出力先フォルダ**（正規化済みPDFを保存する場所）を選択します。
-    * **B) D&D / 画像クリップ:**
+    * **B) D&D / ペースト:**
         * 「D&D / ペースト」ボタンを押し、別ウィンドウを開きます。
-        * IndexKeyやコメントを入力し、ファイル（PDF/JPG/PNG）をD&Dするか、スクリーンショットをCtrl+Vで貼り付けます。
+        * IndexKeyやコメントを入力し、ファイル（PDF/JPG/PNG/MD）をD&Dするか、スクリーンショットをCtrl+Vで貼り付けます。
         * 「出力先を選んで処理実行」をクリックします。
     * **C) Webクリップ:**
         * 「Webクリップ」ボタンを押し、別ウィンドウを開きます。
@@ -357,6 +364,6 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 ## 謝辞 (Acknowledgements)
 
 このソフトウェアは、多くの優れたオープンソースライブラリによって実現しています。
-特に、GUI構築のための **CustomTkinter**、データ操作のための **pandas**、PDF処理の中核を担う **PyMuPDF** と **pypdf**、OCR機能を実現する **Pillow** と **pytesseract**、知識グラフの可視化を実現する **NetworkX** と **Pyvis**、D&D機能を実現する **tkinterdnd2**、そしてWebクリップ機能を実現する **Playwright** の開発者コミュニティに心から感謝申し上げます。
+特に、GUI構築のための **CustomTkinter**、<br>データ操作のための **pandas**、<br>PDF処理の中核を担う **PyMuPDF** と **pypdf**、<br>OCR機能を実現する **Pillow** と **pytesseract**、<br>知識グラフの可視化を実現する **NetworkX** と **Pyvis**、<br>D&D機能を実現する **tkinterdnd2**、<br>そしてWebクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc** の開発者コミュニティに心から感謝申し上げます。
 
 また、このコードの作成、リファクタリング、およびドキュメント整備の多くは、GoogleのAIである **Gemini** の支援を受けて行われました。
