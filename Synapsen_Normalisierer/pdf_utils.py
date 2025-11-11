@@ -54,7 +54,7 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
         return None
 
 
-def embed_metadata_as_cover_page(
+def add_metadata_to_web_clip(
     pdf_path_str: str,
     font_path: str,
     paper_width: float,
@@ -67,21 +67,21 @@ def embed_metadata_as_cover_page(
     sist_string_readable: str | None = None
 ) -> None:
     """
-    [WebClip用]
-    指定されたPDFの先頭(0ページ目)に、メタデータ(IndexKey, コメント, 書誌情報)
-    を書き込んだ新しい「表紙ページ」を挿入します。
+    [Webクリップ専用]
+    Playwrightで生成されたPDFに対し、
+    1ページ目に IndexKey を、最終ページ（新規追加）に コメントと書誌情報 を書き込みます。
 
     Args:
         pdf_path_str (str): 処理対象のPDFファイルパス (読み書きされる)。
         font_path (str): 埋め込むフォントファイルのパス。
-        paper_width (float): 表紙ページの幅 (ポイント)。
-        paper_height (float): 表紙ページの高さ (ポイント)。
+        paper_width (float): 最終ページの幅 (ポイント)。
+        paper_height (float): 最終ページの高さ (ポイント)。
         key_rect_tuple (tuple): IndexKeyを描画する座標 (x0, y0, x1, y1)。
         index_key_to_embed (str): 描画するIndexKeyの文字列。
         text_color (tuple | None): IndexKeyの文字色 (fitz形式)。
         comment_to_embed (str): 描画するコメント文字列。
-        sist_string_formal (str | None): (WebClip用) 書誌情報(SIST)。
-        sist_string_readable (str | None): (WebClip用) 書誌情報(可読形式)。
+        sist_string_formal (str | None): 書誌情報(SIST)。
+        sist_string_readable (str | None): 書誌情報(可読形式)。
 
     Raises:
         Exception: PDFの読み書きやフォント埋め込みに失敗した場合。
@@ -91,93 +91,107 @@ def embed_metadata_as_cover_page(
     if (not index_key_to_embed and
         not comment_to_embed and
             not sist_string_formal):
-        print(f"  [Info] 表紙に埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
+        print(f"  [Info] 埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
         return
 
     doc = None
     try:
         doc = fitz.open(pdf_path_str)
+        if len(doc) == 0:
+            print(f"  [Error] メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}")
+            return
 
         key_rect = fitz.Rect(key_rect_tuple)
-
-        # 0ページ目（先頭）に新しいページ（白紙の表紙）を挿入
-        page = doc.new_page(pno=0, width=paper_width, height=paper_height)
-
         font_alias = "embed_font"
-        try:
-            page.insert_font(fontname=font_alias, fontfile=font_path)
-        except Exception as e:
-            print(f"フォント埋め込み警告 (無視して続行): {e}")
 
-        shape = page.new_shape()
-
-        # 1. IndexKey
+        # --- 1. 1ページ目に IndexKey を描画 ---
         if index_key_to_embed:
-            shape.insert_textbox(
+            page1 = doc[0]  # 既存の1ページ目（Webページ本体）を取得
+            try:
+                page1.insert_font(fontname=font_alias, fontfile=font_path)
+            except Exception as e:
+                print(f"フォント埋め込み警告 (Page 1): {e}")
+
+            shape1 = page1.new_shape()
+            shape1.insert_textbox(
                 key_rect, index_key_to_embed, fontname=font_alias,
                 fontsize=10, color=text_color, align=0
             )
+            shape1.commit()
 
-        # --- 描画座標の計算 ---
-        info_rect_y_start = key_rect.y1 + 10
-        info_rect_y_end = page.rect.height - 30
-        current_y_pos = info_rect_y_start
-        x0 = key_rect.x0
+        # --- 2. 最終ページに コメントと書誌情報 を描画 ---
+        if comment_to_embed or sist_string_formal or sist_string_readable:
 
-        # 2. 書誌情報 (SIST 02 単一行) - WebClip専用
-        if sist_string_formal:
-            sist_rect = fitz.Rect(
+            # 既存のページ数 (len(doc)) をpnoに指定し、末尾に新しい白紙ページを挿入
+            page_last = doc.new_page(
+                pno=len(doc), width=paper_width, height=paper_height
+            )
+            try:
+                page_last.insert_font(fontname=font_alias, fontfile=font_path)
+            except Exception as e:
+                print(f"フォント埋め込み警告 (Last Page): {e}")
+
+            shape_last = page_last.new_shape()
+
+            # --- 描画座標の計算 (embed_metadata_as_cover_page と同様) ---
+            info_rect_y_start = key_rect.y1 + 10
+            info_rect_y_end = page_last.rect.height - 30
+            current_y_pos = info_rect_y_start
+            x0 = key_rect.x0
+
+            # 2a. 書誌情報 (SIST 02 単一行)
+            if sist_string_formal:
+                sist_rect = fitz.Rect(
+                    x0, current_y_pos,
+                    page_last.rect.width - 50, current_y_pos + 60
+                )
+                rc_sist = shape_last.insert_textbox(
+                    sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
+                    fontname=font_alias, fontsize=6, align=0
+                )
+                actual_sist_y1 = (
+                    sist_rect.y0 + (sist_rect.height - rc_sist)
+                    if rc_sist >= 0 else sist_rect.y1
+                )
+                current_y_pos = actual_sist_y1 + 10  # Y座標を更新
+
+            # 2b. 書誌情報 (改行形式)
+            if sist_string_readable:
+                readable_rect = fitz.Rect(
+                    x0, current_y_pos,
+                    page_last.rect.width - 50, info_rect_y_end
+                )
+                rc_readable = shape_last.insert_textbox(
+                    readable_rect, f"書誌情報:\n{sist_string_readable}",
+                    fontname=font_alias, fontsize=9, align=0
+                )
+                actual_readable_y1 = (
+                    readable_rect.y0 + (readable_rect.height - rc_readable)
+                    if rc_readable >= 0 else readable_rect.y1
+                )
+                current_y_pos = actual_readable_y1 + 40  # Y座標を更新
+            else:
+                current_y_pos = info_rect_y_start + 40
+
+            # 2c. コメント (D&D / WebClip 共通)
+            comment_rect = fitz.Rect(
                 x0, current_y_pos,
-                page.rect.width - 50, current_y_pos + 60
+                page_last.rect.width - 50, info_rect_y_end
             )
-            rc_sist = shape.insert_textbox(
-                sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
-                fontname=font_alias, fontsize=6, align=0
-            )
-            actual_sist_y1 = (
-                sist_rect.y0 + (sist_rect.height - rc_sist)
-                if rc_sist >= 0 else sist_rect.y1
-            )
-            current_y_pos = actual_sist_y1 + 10  # Y座標を更新
+            if comment_to_embed:
+                shape_last.insert_textbox(
+                    comment_rect, f"コメント:\n{comment_to_embed}",
+                    fontname=font_alias, fontsize=9, align=0
+                )
 
-        # 3. 書誌情報 (改行形式) - WebClip専用
-        if sist_string_readable:
-            readable_rect = fitz.Rect(
-                x0, current_y_pos,
-                page.rect.width - 50, info_rect_y_end
-            )
-            rc_readable = shape.insert_textbox(
-                readable_rect, f"書誌情報:\n{sist_string_readable}",
-                fontname=font_alias, fontsize=9, align=0
-            )
-            actual_readable_y1 = (
-                readable_rect.y0 + (readable_rect.height - rc_readable)
-                if rc_readable >= 0 else readable_rect.y1
-            )
-            current_y_pos = actual_readable_y1 + 40  # Y座標を更新
-        else:
-            # 書誌情報がない場合 (D&Dなど) は、
-            # IndexKeyの描画位置から少し離す
-            current_y_pos = info_rect_y_start + 40
+            # 描画内容をコミット
+            shape_last.commit()
 
-        # 4. コメント (D&D / WebClip 共通)
-        comment_rect = fitz.Rect(
-            x0, current_y_pos,
-            page.rect.width - 50, info_rect_y_end
-        )
-        if comment_to_embed:
-            shape.insert_textbox(
-                comment_rect, f"コメント:\n{comment_to_embed}",
-                fontname=font_alias, fontsize=9, align=0
-            )
-
-        # 5. 描画内容をコミット
-        shape.commit()
         # 変更を上書き保存
         doc.saveIncr()
 
     except Exception as e:
-        print(f"  [Error] メタデータ表紙の埋め込み中にエラー ({pdf_path_str}): {e}")
+        print(f"  [Error] Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
         raise  # エラーを再送出
     finally:
         if doc:

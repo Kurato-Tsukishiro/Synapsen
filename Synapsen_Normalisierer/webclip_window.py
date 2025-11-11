@@ -7,7 +7,7 @@ import shutil
 import fitz  # PyMuPDF (情報埋め込み用)
 from urllib.parse import urlparse  # サイト名取得用
 
-from pdf_utils import embed_metadata_as_cover_page, hex_to_rgb_tuple
+from pdf_utils import add_metadata_to_web_clip, hex_to_rgb_tuple
 
 # --- Playwright インポート ---
 sync_playwright = None
@@ -375,7 +375,8 @@ class WebClipWindow(ctk.CTkToplevel):
         「2. クリップ実行」ボタンの処理。
 
         PlaywrightでPDF化し、PyMuPDFで情報（IndexKey, 書誌情報, コメント）を
-        埋め込み、親アプリの `execute_normalization_process` を呼び出して
+        1ページ目と最終ページに埋め込み、
+        親アプリの `execute_normalization_process` を呼び出して
         最終的な正規化を行います。
         """
         url = self.url_entry.get().strip()
@@ -454,8 +455,12 @@ class WebClipWindow(ctk.CTkToplevel):
 
         # --- 5. PlaywrightによるPDF化 ---
         try:
+            # Playwrightの用紙サイズは親アプリ(A4/A5)に合わせる
+            paper_size_format = self.parent_app.config_data.get(
+                'paper_size', 'A4')
+
             self.page.pdf(
-                path=str(temp_pdf_path), format='A4',
+                path=str(temp_pdf_path), format=paper_size_format,  # [変更]
                 print_background=True,
                 margin={
                     'top': '1cm', 'bottom': '1cm',
@@ -469,8 +474,11 @@ class WebClipWindow(ctk.CTkToplevel):
             self.update_idletasks()
             try:
                 doc = fitz.open()
-                a4_rect = fitz.paper_size("A4")
-                pdf_page = doc.new_page(width=a4_rect[0], height=a4_rect[1])
+                # 親アプリの用紙サイズを使用
+                paper_width = self.parent_app.paper_width
+                paper_height = self.parent_app.paper_height
+                pdf_page = doc.new_page(width=paper_width, height=paper_height)
+
                 text_to_insert = (
                     f"簡易Webクリップ (タイムアウト・印刷失敗)\n\n"
                     f"書誌情報(SIST 02):\n{sist_string_formal}\n\n"
@@ -503,8 +511,8 @@ class WebClipWindow(ctk.CTkToplevel):
             paper_width = self.parent_app.paper_width
             paper_height = self.parent_app.paper_height
 
-            # 新しいヘルパー関数を呼び出し (temp_pdf_path を直接変更)
-            embed_metadata_as_cover_page(
+            # ヘルパー関数 (add_metadata_to_web_clip) を呼び出し
+            add_metadata_to_web_clip(
                 pdf_path_str=str(temp_pdf_path),
                 font_path=font_path,
                 paper_width=paper_width,

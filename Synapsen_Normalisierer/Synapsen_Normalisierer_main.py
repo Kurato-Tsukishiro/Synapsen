@@ -404,8 +404,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                         convert_markdown_to_pdf(
                             item_data,
                             temp_converted_md_pdf,
-                            paper_size_str,
-                            latex_font_name
+                            paper_size_str
                         )
                         # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
                         item_data = temp_converted_md_pdf

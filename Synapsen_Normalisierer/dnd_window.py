@@ -11,6 +11,7 @@ import shutil
 from pdf_utils import (
     # D&D/画像クリップ用のメタデータ挿入関数
     add_metadata_to_image_clip,
+    add_metadata_to_web_clip,
     hex_to_rgb_tuple,
     # D&Dパイプラインで個別に実行するためインポート
     convert_image_to_pdf,
@@ -365,8 +366,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
     def run_staged_process(self) -> None:
         """
         「処理実行」ボタンの処理。
-        メインアプリの execute_normalization_process を使わず、
-        画像クリップ専用のパイプライン (正規化 -> OCR -> メタデータ追記) を実行します。
+        (D&Dウィンドウ専用のパイプライン)
+
+        メタデータ付与ステップ(5)で、入力タイプに応じて分岐するよう変更。
+        - 画像/PIL: 1ページ目にKey, 2ページ目にComment (add_metadata_to_image_clip)
+        - MD/PDF: 1ページ目にKey, 最終ページにComment (add_metadata_to_web_clip)
         """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
@@ -388,9 +392,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         enable_tesseract = config_data.get('enable_tesseract_ocr', False)
 
         # Pandocが必要とする設定値を取得 (Markdown連携用)
-        latex_font_name = config_data.get(
-            'latex_font', 'MS UI Gothic'
-        )
         paper_size_str = self.parent_app.config_data.get('paper_size', 'A4')
 
         # 2. 出力先フォルダを選択
@@ -435,7 +436,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     "ファイル名エラー", f"ファイル名が空です (元の名前: {item['original_name']})",
                     parent=self)
                 return
-            items_to_process.append((item['data'], base_name))
+            # (item['data'], base_name) だけでなく、
+            # 元のデータ型 (Path or PIL) も渡すようにタプルを変更
+            items_to_process.append(
+                (item['data'], base_name, type(item['data']))
+            )
 
         # 5. 専用パイプラインの実行
         temp_dir = None
@@ -446,7 +451,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 tempfile.mkdtemp(prefix="synapsen_dnd_", dir=dest_path)
             )
 
-            for i, (item_data, base_name) in enumerate(items_to_process):
+            for i, item_tuple in enumerate(items_to_process):
+                item_data, base_name, original_type = item_tuple  # タプルの展開
 
                 status_prefix = f"処理中 ({i+1}/{total_files}):"
                 self.parent_app.status_label.configure(
@@ -462,25 +468,27 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
                 path_to_flatten: Path  # フラット化対象のPDFパス
 
+                # MDファイルが処理対象だったかどうかのフラグ
+                is_markdown_source = False
+
                 # --- パイプライン 1-A: MD -> PDF変換 ---
-                if (isinstance(item_data, Path) and
-                        item_data.suffix.lower()) == ".md":
+                if (
+                        isinstance(item_data, Path) and
+                        item_data.suffix.lower() == ".md"
+                ):
+                    is_markdown_source = True  # フラグを立てる
                     self.parent_app.status_label.configure(
                         text=f"{status_prefix} MD->PDF変換: {base_name}"
                     )
                     self.parent_app.update_idletasks()
                     try:
-                        # conv_...pdf は画像変換とパスが競合するため、
-                        # md_...pdf という別の一時ファイルパスを使用する
                         temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
 
                         convert_markdown_to_pdf(
                             item_data,
                             temp_md_pdf,
-                            paper_size_str,
-                            latex_font_name
+                            paper_size_str
                         )
-                        # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
                         item_data = temp_md_pdf
                     except Exception as e:
                         print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
@@ -508,7 +516,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     path_to_flatten = temp_converted_pdf
 
                 # --- パイプライン 2: フラット化 (フォームのテキスト化) ---
-                # (画像PDFの場合は実質コピーだが、PDFがD&Dされた場合のため実行)
                 high_fidelity_flatten(
                     str(path_to_flatten),
                     str(temp_flattened_pdf),
@@ -516,7 +523,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 )
 
                 # --- パイプライン 3: 正規化 (サイズ統一) ---
-                # (ここで Page 1 = 正規化された画像 が final_output_pdf に保存される)
                 normalize_pdf_to_papersize(
                     str(temp_flattened_pdf),
                     str(final_output_pdf),
@@ -525,7 +531,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 )
 
                 # --- パイプライン 4: OCR埋め込み ---
-                # (Page 1 (画像) にOCRを実行)
                 embed_ocr_text_in_pdf(
                     str(final_output_pdf),
                     enable_tesseract,
@@ -533,18 +538,47 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     'jpn+jpn_vert'
                 )
 
-                # --- パイプライン 5: メタデータ追記 (画像クリップ用) ---
-                # (Page 1 に Key を描画, Page 2 に Comment を追加)
-                add_metadata_to_image_clip(
-                    str(final_output_pdf),
-                    font_path,
-                    paper_width,
-                    paper_height,
-                    key_rect_tuple,
-                    index_key_to_embed,
-                    text_color,
-                    comment_to_embed
-                )
+                # --- パイプライン 5: メタデータ追記 (分岐) ---
+
+                # original_type が Path かつ is_markdown_source が True -> MDクリップ
+                # original_type が Path で、is_markdown_source が False -> PDFのD&D
+                # original_type が PIL (Image) -> 画像/ペーストクリップ
+
+                if (
+                        is_markdown_source or
+                        (
+                            original_type == Path and
+                            item_data.suffix.lower() == ".pdf"
+                        )
+                ):
+                    # [分岐1] MD または PDF の D&D の場合
+                    # 1ページ目にKey、最終ページにComment (Webクリップ方式)
+                    # (書誌情報は None を渡す)
+                    add_metadata_to_web_clip(
+                        str(final_output_pdf),
+                        font_path,
+                        paper_width,
+                        paper_height,
+                        key_rect_tuple,
+                        index_key_to_embed,
+                        text_color,
+                        comment_to_embed,
+                        None,  # sist_string_formal
+                        None   # sist_string_readable
+                    )
+                else:
+                    # [分岐2] 画像 または PIL (ペースト) の場合
+                    # 1ページ目にKey、2ページ目にComment (画像クリップ方式)
+                    add_metadata_to_image_clip(
+                        str(final_output_pdf),
+                        font_path,
+                        paper_width,
+                        paper_height,
+                        key_rect_tuple,
+                        index_key_to_embed,
+                        text_color,
+                        comment_to_embed
+                    )
 
             messagebox.showinfo(
                 "完了",
