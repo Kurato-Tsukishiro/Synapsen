@@ -15,12 +15,21 @@ from pdf_utils import (
     # D&Dパイプラインで個別に実行するためインポート
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
+    convert_markdown_to_pdf,
     high_fidelity_flatten,
     normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf
 )
 
-SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
+SUPPORTED_EXTENSIONS = [
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".tiff",
+    ".md"
+]
 
 
 class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
@@ -80,7 +89,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.drop_target_label = ctk.CTkLabel(
             self.drop_target_frame,
             text=(
-                "ここにファイル (PDF, JPG, PNG) を\nドラッグ＆ドロップしてください\n\n" +
+                "ここにファイル (PDF, JPG, PNG, MD) を\nドラッグ＆ドロップしてください\n\n" +
                 "(または Ctrl+V でスクリーンショットを貼付)"
             ),
             text_color="gray70"
@@ -378,6 +387,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_height = self.parent_app.paper_height
         enable_tesseract = config_data.get('enable_tesseract_ocr', False)
 
+        # Pandocが必要とする設定値を取得
+        latex_font_name = config_data.get(
+            'latex_font', 'MS UI Gothic'
+        )
+        paper_size_str = self.parent_app.config_data.get('paper_size', 'A4')
+
         # 2. 出力先フォルダを選択
         dest_folder = filedialog.askdirectory(
             title="出力先フォルダを選択してください", parent=self)
@@ -447,7 +462,36 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
                 path_to_flatten: Path  # フラット化対象のPDFパス
 
-                # --- パイプライン 1: 画像 -> PDF変換 ---
+                # --- パイプライン 1-A: MD -> PDF変換 ---
+                if (isinstance(item_data, Path) and
+                        item_data.suffix.lower()) == ".md":
+                    self.parent_app.status_label.configure(
+                        text=f"{status_prefix} MD->PDF変換: {base_name}"
+                    )
+                    self.parent_app.update_idletasks()
+                    try:
+                        # conv_...pdf は画像変換とパスが競合するため、
+                        # md_...pdf という別の一時ファイルパスを使用する
+                        temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
+
+                        convert_markdown_to_pdf(
+                            item_data,
+                            temp_md_pdf,
+                            paper_size_str,
+                            latex_font_name
+                        )
+                        # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
+                        item_data = temp_md_pdf
+                    except Exception as e:
+                        print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                        messagebox.showerror(
+                            "Markdown変換エラー",
+                            f"{base_name} の変換に失敗しました:\n{e}",
+                            parent=self
+                        )
+                        continue  # このファイルはスキップ
+
+                # --- パイプライン 1-B: 画像 -> PDF変換 ---
                 if isinstance(item_data, Path):
                     input_file_path = item_data
                     if input_file_path.suffix.lower() != ".pdf":

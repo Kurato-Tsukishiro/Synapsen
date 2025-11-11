@@ -9,6 +9,10 @@ from pytesseract import Output
 import csv
 import shutil
 import sys
+import re
+import subprocess
+
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
 # ==============================================================================
 # 定数定義 (ポイント単位)
@@ -680,3 +684,149 @@ def convert_pil_image_to_pdf(
             img_doc.close()
         if pdf_doc:
             pdf_doc.close()
+
+
+# ==============================================================================
+# Markdown -> PDF 変換関数
+# ==============================================================================
+def convert_markdown_to_pdf(
+    markdown_path: Path,
+    output_pdf_path: Path,
+    paper_size_str: str = "A4",
+) -> None:
+    """
+    Pandoc (MD->HTML) と Playwright (HTML->PDF) を使用して .md を PDF に変換します。
+    Pandoc と Playwright (chromium) がインストールされている必要があります。
+    変換前に <details> を <details open> に置換します。
+
+    Args:
+        markdown_path (Path): 入力Markdownファイルのパス。
+        output_pdf_path (Path): 出力先PDFファイルのパス。
+        paper_size_str (str): "A4" または "A5" (config.iniの値)。
+        latex_font_name (str): (この関数では未使用)
+    """
+
+    # 一時ファイル用のパスを定義
+    temp_modified_md_path = output_pdf_path.with_suffix(".temp.md")
+    temp_html_path = output_pdf_path.with_suffix(".temp.html")
+
+    # --- ステップ 1: <details> を <details open> に置換 ---
+    try:
+        # 元のMarkdownファイルを読み込む
+        with open(markdown_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
+
+        # <details> タグを <details open> に置換 (大文字小文字を区別しない)
+        # 既に 'open' があっても 'open open' にならないよう、単純な置換を避ける
+        # '<details' (末尾スペースなし) または '<details ' (末尾スペースあり) を検索
+        modified_md_content = re.sub(
+            r"<details(?![^>]*\bopen\b)",  # 'open'属性をまだ持たない<details>タグ
+            "<details open",              # '<details open' に置換
+            md_content,
+            flags=re.IGNORECASE          # 大文字小文字を無視
+        )
+
+        # 置換後の内容を一時的な .md ファイルに書き出す
+        with open(temp_modified_md_path, 'w', encoding='utf-8') as f:
+            f.write(modified_md_content)
+
+    except Exception as e:
+        raise Exception(f"Markdownの前処理(<details>置換)に失敗しました: {e}")
+
+    # --- ステップ 2: Pandoc で Markdown を HTML (一時ファイル) に変換 ---
+    input_format = "gfm"
+
+    pandoc_cmd = [
+        "pandoc",
+        "--from", input_format,
+        str(temp_modified_md_path),  # [変更] 置換後の一時MDファイルを使用
+        "-s",                        # スタンドアロン (HTMLヘッダ等を含む)
+        "--embed-resources",         # 画像などをHTMLに埋め込む
+        "--mathml",                  # 数式をMathML (HTML互換) に変換
+        "--to", "html5",
+        "-o", str(temp_html_path)
+    ]
+    print(f"  [Info] Pandoc (MD->HTML) 実行: {' '.join(pandoc_cmd)}")
+
+    try:
+        subprocess.run(
+            pandoc_cmd,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='ignore',
+            check=True
+        )
+    except FileNotFoundError:
+        # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
+        raise Exception(
+            "Pandoc が見つかりません。\n" +
+            "Markdown連携には Pandoc のインストールとPATH設定が必要です。"
+        )
+    except subprocess.CalledProcessError as e:
+        error_details = f"STDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}"
+        # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
+        raise Exception(
+            f"PandocでのHTML変換に失敗しました (ReturnCode {e.returncode}):\n"
+            f"{error_details}"
+        )
+
+    # --- ステップ 2: Playwright で HTML を PDF に変換 ---
+    playwright_paper_format = paper_size_str.upper()
+
+    pw_instance = None
+    browser = None
+    page = None
+    try:
+        print(f"  [Info] Playwright (HTML->PDF) 実行: {temp_html_path.name}")
+        pw_instance = sync_playwright().start()
+        browser = pw_instance.chromium.launch()
+        page = browser.new_page()
+
+        page.goto(temp_html_path.as_uri(), wait_until='networkidle')
+
+        page.pdf(
+            path=str(output_pdf_path),
+            format=playwright_paper_format,
+            print_background=True,
+            margin={
+                'top': '1cm', 'bottom': '1cm',
+                'left': '1cm', 'right': '1cm'
+            }
+        )
+        print(f"  [Info] Playwright PDF変換完了: {output_pdf_path.name}")
+
+    except PlaywrightError as e:
+        # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
+        raise Exception(
+            "Playwright (Chromium) でのHTML->PDF変換に失敗しました。\n" +
+            "Install.bat を実行して Playwright が正しくインストールされているか確認してください。\n" +
+            f"エラー: {e}"
+        )
+    except Exception as e:
+        # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
+        raise Exception(f"Playwright PDF変換中の予期せぬエラー: {e}")
+    finally:
+        # Playwrightセッションを必ず閉じる
+        if page:
+            page.close()
+        if browser:
+            browser.close()
+        if pw_instance:
+            pw_instance.stop()
+
+        # [変更] 一時HTMLファイル と 一時MDファイル の両方を削除
+        if temp_html_path.is_file():
+            try:
+                temp_html_path.unlink()
+            except Exception as e_del:
+                print(f"  [Warn] 一時HTMLファイルの削除に失敗: {e_del}")
+
+        if temp_modified_md_path.is_file():
+            try:
+                temp_modified_md_path.unlink()
+            except Exception as e_del:
+                print(
+                    f"  [Warn] 一時MDファイル({temp_modified_md_path.name})の削除に失敗: "
+                    f"{e_del}"
+                )

@@ -16,7 +16,8 @@ from pdf_utils import (
     high_fidelity_flatten, normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
     convert_image_to_pdf,
-    convert_pil_image_to_pdf
+    convert_pil_image_to_pdf,
+    convert_markdown_to_pdf
 )
 
 # --- 定数 ---
@@ -205,6 +206,11 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.config_data[
                 'enable_tesseract_ocr'] = self.enable_tesseract_ocr
 
+            # 3.5. LaTeXフォント名の読み込み (Pandoc用)
+            self.config_data['latex_font'] = config.get(
+                'LaTeX', 'font', fallback='MS UI Gothic'
+            )
+
             # 4. WebClipウィンドウが参照するその他の設定
             keys_str = config.get('CommonplaceKeys', 'options', fallback='')
             self.config_data['commonplace_keys_options'] = [
@@ -339,7 +345,8 @@ class Synapsen_Normalisierer(ctk.CTk):
         正規化されたPDF (`{base_name}.pdf`) を出力します。
 
         処理ステップ:
-        1. (画像/PILの場合) PDFに変換
+        1-A.(Markdownの場合) PandocでPDFに変換
+        1-B. (画像/PILの場合) PDFに変換
         2. high_fidelity_flatten (フォームのテキスト化)
         3. normalize_pdf_to_papersize (指定サイズに中央配置)
         4. embed_ocr_text_in_pdf (OCRテキストレイヤーの埋め込み)
@@ -361,6 +368,12 @@ class Synapsen_Normalisierer(ctk.CTk):
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
 
+            # [追加] Pandocが必要とする設定値を取得
+            latex_font_name = self.config_data.get(
+                'latex_font', 'MS UI Gothic'
+            )
+            paper_size_str = self.config_data.get('paper_size', 'A4')
+
             for i, (item_data, base_name) in enumerate(all_items):
 
                 status_prefix = f"処理中 ({i+1}/{total_files}):"
@@ -377,7 +390,36 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 path_to_flatten: Path  # フラット化対象のPDFパス
 
-                # --- [ステップ1: 画像 -> PDF変換] ---
+                # --- [ステップ 1-A: MD -> PDF 変換] ---
+                if (isinstance(item_data, Path) and
+                        item_data.suffix.lower()) == ".md":
+                    self.status_label.configure(
+                        text=f"{status_prefix} MD->PDF変換: {base_name}"
+                    )
+                    self.update_idletasks()
+
+                    # 一時フォルダに {base_name}.pdf として変換
+                    temp_converted_md_pdf = temp_dir / f"md_{base_name}.pdf"
+                    try:
+                        convert_markdown_to_pdf(
+                            item_data,
+                            temp_converted_md_pdf,
+                            paper_size_str,
+                            latex_font_name
+                        )
+                        # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
+                        item_data = temp_converted_md_pdf
+                    except Exception as e:
+                        print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                        # pandoc がない場合など
+                        messagebox.showerror(
+                            "Markdown変換エラー",
+                            f"{base_name} の変換に失敗しました:\n{e}",
+                            parent=self
+                        )
+                        continue  # このファイルはスキップ
+
+                # --- [ステップ1-B: 画像 -> PDF変換] ---
                 if isinstance(item_data, Path):
                     input_file_path = item_data
 
@@ -398,7 +440,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                             print(f"警告: {base_name} のPDF変換に失敗: {e}")
                             continue  # このファイルはスキップ
                     else:
-                        # 入力アイテムがPDFの場合
+                        # 入力アイテムがPDF (またはMDから変換されたPDF) の場合
                         path_to_flatten = input_file_path
 
                 else:
@@ -448,11 +490,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                     'jpn+jpn_vert'
                 )
 
-            messagebox.showinfo("完了", f"{total_files}個のPDF/画像ファイルの処理が完了しました。")
+            messagebox.showinfo(
+                "完了", f"{total_files}個のPDF/画像/MDファイルの処理が完了しました。")
             self.status_label.configure(text="処理が完了しました。")
 
         except Exception as e:
-            # TesseractNotFoundError など、pdf_utils側で発生した例外もここで捕捉
+            # TesseractNotFoundError や Pandoc がない場合のエラーもここで捕捉
             messagebox.showerror("エラー", f"処理中にエラーが発生しました:\n{e}")
             self.status_label.configure(text=f"エラーが発生しました: {e}")
 
