@@ -5,7 +5,8 @@ import datetime
 import tempfile
 import shutil
 import fitz  # PyMuPDF (情報埋め込み用)
-from urllib.parse import urlparse  # サイト名取得用
+from urllib.parse import urlparse, unquote  # サイト名取得 / URLデコード用
+import urllib.request  # Content-Type取得 / ダウンロード用
 
 from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
 
@@ -50,6 +51,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.temp_dir = None
         self.page_title_cache = ""
         self.site_name_cache = ""
+        self.fetched_content_type = None
 
         # --- Playwright (実行コンテキスト) ---
         self.playwright_context = None
@@ -180,7 +182,7 @@ class WebClipWindow(ctk.CTkToplevel):
 
         # --- 5. コメント入力 ---
         ctk.CTkLabel(
-            self, text="コメント (PDF 1ページ目に埋込)", anchor="w"
+            self, text="コメント (PDF 最終ページに埋込)", anchor="w"
             ).pack(pady=(10, 0), padx=10, fill="x")
         comment_frame = ctk.CTkFrame(self)
         comment_frame.pack(pady=(0, 10), padx=10, fill="both", expand=True)
@@ -235,9 +237,8 @@ class WebClipWindow(ctk.CTkToplevel):
     def fetch_page_info(self) -> None:
         """
         「1. ページ情報取得」ボタンの処理。
-        Playwrightを使用してURLにアクセスし、書誌情報（タイトル、著者、サイト名、
-        更新日）を抽出しようと試みます。
-        タイムアウトやエラーが発生した場合は、限定的な情報を取得します。
+        URLのContent-Typeを判別し、HTMLの場合はPlaywrightで書誌情報を、
+        それ以外の場合やタイムアウトやエラーが発生した場合は、限定的な情報を取得します。
         """
         url = self.url_entry.get().strip()
         if not url.startswith("http://") and not url.startswith("https://"):
@@ -246,12 +247,55 @@ class WebClipWindow(ctk.CTkToplevel):
             return
 
         self.status_label.configure(
-            text="ページ情報を取得中 (最大1分)...", text_color="gray")
+            text="ページ情報を取得中...", text_color="gray")
         self.fetch_button.configure(state="disabled")
         self.run_button.configure(state="disabled")
         self.update_idletasks()
 
+        self.fetched_content_type = None
         try:
+            # ユーザーエージェントを偽装して403エラーを回避
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                self.fetched_content_type = response.getheader(
+                    'Content-Type', 'text/html'
+                ).lower()
+        except Exception as http_err:
+            print(f"Content-Typeの取得リクエストに失敗: {http_err}")
+            # 失敗したらHTMLとして続行を試みる
+            self.fetched_content_type = 'text/html'
+
+        try:
+            # --- HTMLでない (PDFや画像) 場合の分岐 ---
+            if 'text/html' not in self.fetched_content_type:
+                self.status_label.configure(
+                    text=f"HTML以外のリンクを検出: {self.fetched_content_type}",
+                    text_color="gray"
+                )
+                parsed_url = urlparse(url)
+                # URLデコード (例: %E3%81... -> 日本語)
+                filename_from_url = unquote(Path(parsed_url.path).name)
+
+                self.sist_title_entry.delete(0, "end")
+                self.sist_title_entry.insert(
+                    0, filename_from_url or "ダウンロードファイル")
+                self.sist_site_entry.delete(0, "end")
+                self.sist_site_entry.insert(0, parsed_url.netloc)
+                self.sist_author_entry.delete(0, "end")
+                self.sist_date_entry.delete(0, "end")
+
+                self.status_label.configure(
+                    text="PDF/画像リンクを検出。ファイル名を確認してください。",
+                    text_color="gray"
+                )
+                return  # Playwrightの処理をスキップ-
+
+            # --- HTML の場合の Playwright 処理 ---
+            self.status_label.configure(
+                text="ページ情報を取得中 (最大1分)...", text_color="gray")
+            self.update_idletasks()
+
             # 1. Playwrightセッションがなければ開始する
             if self.playwright_context is None:
                 self.status_label.configure(text="Playwrightを起動中...")
@@ -374,10 +418,9 @@ class WebClipWindow(ctk.CTkToplevel):
         """
         「2. クリップ実行」ボタンの処理。
 
-        PlaywrightでPDF化し、PyMuPDFで情報（IndexKey, 書誌情報, コメント）を
-        1ページ目と最終ページに埋め込み、
-        親アプリの `execute_normalization_process` を呼び出して
-        最終的な正規化を行います。
+        Content-Typeに応じてHTMLはPlaywrightでPDF化、
+        その他(PDF/画像)は直接ダウンロードし、
+        その後、共通の正規化処理とメタデータ埋め込みを行います。
         """
         url = self.url_entry.get().strip()
         base_name = self.filename_var.get().strip()
@@ -398,7 +441,13 @@ class WebClipWindow(ctk.CTkToplevel):
                 text_color="orange"
             )
             return
-        if self.page is None:
+
+        # HTMLでない場合は self.page が None でも許可する
+        if (
+            self.fetched_content_type and
+            'text/html' in self.fetched_content_type and
+            self.page is None
+        ):
             messagebox.showerror(
                 "エラー", "先に「1. ページ情報取得」ボタンを押して、ページを読み込んでください。", parent=self)
             return
@@ -451,10 +500,7 @@ class WebClipWindow(ctk.CTkToplevel):
 
         # --- 3. 出力先フォルダを選択 ---
         dest_folder = filedialog.askdirectory(
-                comment_to_embed=comment_to_embed,
-                sist_string_formal=sist_string_formal,
-                sist_string_readable=sist_string_readable
-            )
+            title="出力先フォルダを選択してください", parent=self)
         if not dest_folder:
             return
         dest_path = Path(dest_folder)
@@ -463,7 +509,9 @@ class WebClipWindow(ctk.CTkToplevel):
         if self.temp_dir and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
         self.temp_dir = Path(tempfile.mkdtemp(prefix="synapsen_clip_"))
-        temp_pdf_path = self.temp_dir / f"{base_name}_raw.pdf"
+
+        # 一時ファイルの「ベース」パスのみ定義
+        temp_raw_item_path = self.temp_dir / f"{base_name}_raw_download"
 
         self.status_label.configure(
             text="WebページをPDFに変換中...", text_color="gray")
@@ -471,28 +519,75 @@ class WebClipWindow(ctk.CTkToplevel):
         self.fetch_button.configure(state="disabled")
         self.update_idletasks()
 
-        # --- 5. PlaywrightによるPDF化 ---
+        # --- 5. Playwright PDF化 / ファイルダウンロード の分岐 ---
         try:
-            # Playwrightの用紙サイズは親アプリ(A4/A5)に合わせる
-            paper_size_format = self.parent_app.config_data.get(
-                'paper_size', 'A4')
+            if (
+                self.fetched_content_type and
+                'text/html' not in self.fetched_content_type
+            ):
+                # --- [分岐 A] PDF/画像 ダウンロード処理 ---
+                self.status_label.configure(
+                    text=f"ファイルをダウンロード中: {self.fetched_content_type}")
+                self.update_idletasks()
 
-            self.page.pdf(
-                path=str(temp_pdf_path), format=paper_size_format,  # [変更]
-                print_background=True,
-                margin={
-                    'top': '1cm', 'bottom': '1cm',
-                    'left': '1cm', 'right': '1cm'
-                }
-            )
-        except Exception as pdf_e:
-            # 印刷失敗時のフォールバック (簡易PDF生成)
-            print(f"PDFの印刷に失敗: {pdf_e}")
+                # URLからファイル名を類推し、一時パスを決定
+                parsed_url = urlparse(url)
+                original_filename = unquote(Path(parsed_url.path).name)
+
+                # 拡張子がない場合は、Content-Typeから類推
+                if not Path(original_filename).suffix:
+                    if 'pdf' in self.fetched_content_type:
+                        ext = ".pdf"
+                    elif 'jpeg' in self.fetched_content_type:
+                        ext = ".jpg"
+                    elif 'png' in self.fetched_content_type:
+                        ext = ".png"
+                    else:
+                        ext = ".dat"  # 不明
+
+                    original_filename += ext
+
+                if original_filename:
+                    # _raw_download を 実際のファイル名で置き換える
+                    temp_raw_item_path = temp_raw_item_path.with_name(
+                        original_filename)
+
+                # ユーザーエージェントを偽装してダウンロード
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    with open(temp_raw_item_path, 'wb') as out_file:
+                        shutil.copyfileobj(response, out_file)
+
+            else:
+                # --- [分岐 B] 既存のPlaywright (HTML) 処理 ---
+                temp_raw_item_path = self.temp_dir / f"{base_name}_raw.pdf"
+
+                # Playwrightの用紙サイズは親アプリ(A4/A5)に合わせる
+                paper_size_format = self.parent_app.config_data.get(
+                    'paper_size', 'A4')
+
+                self.page.pdf(
+                    path=str(temp_raw_item_path), format=paper_size_format,
+                    print_background=True,
+                    margin={
+                        'top': '1cm', 'bottom': '1cm',
+                        'left': '1cm', 'right': '1cm'
+                    }
+                )
+        except (
+            PlaywrightError,
+            PlaywrightTimeoutError,
+            urllib.error.URLError
+        ) as e:
+            # [修正] ダウンロードエラーとPlaywrightエラーを両方捕捉
+            print(f"PDFの印刷またはダウンロードに失敗: {e}")
             self.status_label.configure(text="印刷失敗。最小限の簡易PDFを生成します...")
             self.update_idletasks()
             try:
+                temp_raw_item_path = temp_raw_item_path.with_suffix(".pdf")
+
                 doc = fitz.open()
-                # 親アプリの用紙サイズを使用
                 paper_width = self.parent_app.paper_width
                 paper_height = self.parent_app.paper_height
                 pdf_page = doc.new_page(width=paper_width, height=paper_height)
@@ -508,18 +603,50 @@ class WebClipWindow(ctk.CTkToplevel):
                 )
                 pdf_page.insert_textbox(rect, text_to_insert,
                                         fontsize=10, fontname="helv", align=0)
-                doc.save(str(temp_pdf_path))
+                doc.save(str(temp_raw_item_path))
                 doc.close()
-            except Exception as e:
+            except Exception as e_fallback:
                 messagebox.showerror(
-                    "Webクリップエラー", f"簡易PDFの生成にも失敗しました:\n{e}", parent=self)
+                    "Webクリップエラー",
+                    f"簡易PDFの生成にも失敗しました:\n{e_fallback}", parent=self
+                )
                 self.status_label.configure(
                     text="エラーが発生しました。", text_color="orange")
                 self.run_button.configure(state="normal")
                 self.fetch_button.configure(state="normal")
                 return
+        except Exception as e:
+            messagebox.showerror(
+                "Webクリップエラー", f"予期せぬエラーが発生しました:\n{e}", parent=self)
+            self.status_label.configure(
+                text="エラーが発生しました。", text_color="orange")
+            self.run_button.configure(state="normal")
+            self.fetch_button.configure(state="normal")
+            return
 
-        # --- 6. PDFへの情報埋め込み (pdf_utils 経由 PyMuPDF) ---
+        # --- 6. 親アプリの正規化処理を先に呼び出す ---
+        self.status_label.configure(text="PDF正規化処理を実行中...")
+        self.update_idletasks()
+
+        # execute_normalization_process は (Path/Image, base_name) のタプルリストを期待
+        items_to_process = [(temp_raw_item_path, base_name)]
+        final_output_pdf = dest_path / f"{base_name}.pdf"
+
+        try:
+            # (画像はPDF化され、PDFはフラット化・サイズ正規化・OCR処理される)
+            self.parent_app.execute_normalization_process(
+                items_to_process, dest_path
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "正規化処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)
+            self.status_label.configure(
+                text="エラーが発生しました。", text_color="orange")
+            self.run_button.configure(state="normal")
+            self.fetch_button.configure(state="normal")
+            return  # メタデータ付与に進まず終了
+
+        # --- 7. PDFへの情報埋め込み (正規化 *後* に実行) ---
         self.status_label.configure(text="PDFに情報を埋め込み中...")
         self.update_idletasks()
         try:
@@ -529,9 +656,8 @@ class WebClipWindow(ctk.CTkToplevel):
             paper_width = self.parent_app.paper_width
             paper_height = self.parent_app.paper_height
 
-            # ヘルパー関数 (add_metadata_to_web_clip) を呼び出し
             add_metadata_to_clip(
-                pdf_path_str=str(temp_pdf_path),
+                pdf_path_str=str(final_output_pdf),
                 font_path=font_path,
                 paper_width=paper_width,
                 paper_height=paper_height,
@@ -545,26 +671,10 @@ class WebClipWindow(ctk.CTkToplevel):
 
         except Exception as e:
             messagebox.showerror(
-                "情報埋め込みエラー", f"PDFへの情報埋め込みに失敗しました:\n{e}", parent=self)
+                "情報埋め込みエラー",
+                f"PDFへの情報埋め込みに失敗しました(正規化は完了しています):\n{e}",
+                parent=self
+            )
             # エラーが起きても、PDF化自体は成功しているので処理は続行
 
-        # --- 7. 親アプリの正規化処理を呼び出す ---
-        self.status_label.configure(text="PDF正規化処理を実行中...")
-        self.update_idletasks()
-
-        # execute_normalization_process は (Path, base_name) のタプルリストを期待する
-        items_to_process = [(temp_pdf_path, base_name)]
-
-        try:
-            self.parent_app.execute_normalization_process(
-                items_to_process, dest_path
-            )
-            self.on_close()  # 成功したらウィンドウを閉じる
-
-        except Exception as e:
-            messagebox.showerror(
-                "正規化処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)
-            self.status_label.configure(
-                text="エラーが発生しました。", text_color="orange")
-            self.run_button.configure(state="normal")
-            self.fetch_button.configure(state="normal")
+        self.on_close()  # 成功したらウィンドウを閉じる
