@@ -63,8 +63,9 @@ class Synapsen_Nexus(ctk.CTk):
         # --- オートコンプリート関連 ---
         self.selected_suggestion_index = -1
         self.current_suggestions = []
-        self.search_timer = None      # デバウンス（検索遅延）用タイマー
-        self.suggestion_timer = None  # オートコンプリート用タイマー
+        self.search_timer = None           # デバウンス（検索遅延）用タイマー
+        self.suggestion_timer = None       # オートコンプリート用タイマー
+        self._last_suggestion_args = None  # 予測変換の引数(query, cursor_pos, match)
 
         self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
 
@@ -438,41 +439,46 @@ class Synapsen_Nexus(ctk.CTk):
         """検索バーでのキー入力（リリース）イベントを処理する。"""
         if event.keysym in ("Up", "Down", "Return", "Escape"):
             return
-        self.update_suggestions()
         self.schedule_suggestions()
+        self.schedule_search()
 
-    def update_suggestions(self, event=None):
-        """検索バーの入力に基づき、オートコンプリートの候補を更新する。"""
+    def update_suggestions(self, query, cursor_pos, match_value):
+        """
+        [変更] 'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
+        """
         self.selected_suggestion_index = -1
-        query = self.search_entry.get()
-        # " AND " や " OR " で区切られた最後の単語を取得
-        last_word = re.split(
-            r'\s+(?:AND|OR)\s+', query, flags=re.IGNORECASE)[-1].strip()
+        
+        last_tag_word = ""
+        
+        if match_value:
+            # 'tag:abc' の 'abc' の部分 (group 2) を取得
+            last_tag_word = match_value.group(2).strip()
+        
+        # (match_value が None の場合 = 'tag:' と入力した直後)
+        # last_tag_word は "" (空文字) となる
 
         suggestions = []
-        if (
-                query == "" or
-                query.upper().endswith(" AND ") or
-                query.upper().endswith(" OR ")
-        ):
-            # オペレータの後は全タグリストを表示
+        if last_tag_word == "":
+            # 'tag:' と入力した直後の場合は、全タグリストを表示
             suggestions = self.predefined_tags
-        elif last_word:
-            # 比較を高速化するため、先に小文字化しておく
-            last_word_lower = last_word.lower()
-
-            # リスト内包表記を複数行に分割
+        else:
+            # 'tag:Py' のように入力中の場合は、前方一致検索
+            last_word_lower = last_tag_word.lower()
             suggestions = [
                 tag for tag in self.predefined_tags
                 if tag.lower().startswith(last_word_lower)
             ]
 
+        # 上下キーでの移動 (navigate_suggestions) のために引数を保存
+        self._last_suggestion_args = (query, cursor_pos, match_value)
+
         if suggestions:
-            self.show_autocomplete(suggestions)
+            # show_autocomplete にも引数を渡す
+            self.show_autocomplete(suggestions, query, cursor_pos, match_value)
         else:
             self.hide_autocomplete()
 
-    def show_autocomplete(self, suggestions):
+    def show_autocomplete(self, suggestions, query, cursor_pos, match_value):
         """オートコンプリートの候補リストウィンドウを表示する。"""
         self.current_suggestions = suggestions
         for widget in self.autocomplete_frame.winfo_children():
@@ -483,13 +489,21 @@ class Synapsen_Nexus(ctk.CTk):
             btn = ctk.CTkButton(
                 self.autocomplete_frame, text=suggestion, fg_color=fg_color,
                 text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
-                anchor="w", command=lambda s=suggestion: self.select_suggestion(s)
+                anchor="w",
+                # select_suggestion に必要な情報をラムダで渡す
+                command=lambda s=suggestion: self.select_suggestion(
+                    s, query, cursor_pos, match_value
+                )
             )
             btn.pack(fill="x", padx=5, pady=2)
 
-        # 検索バーの真下に配置
+        # 検索バーの真下に配置 (元のコード)
         x = self.search_entry.winfo_rootx() - self.winfo_rootx()
-        y = self.search_entry.winfo_rooty() - self.winfo_rooty() + self.search_entry.winfo_height()
+        y = (
+            self.search_entry.winfo_rooty() -
+            self.winfo_rooty() +
+            self.search_entry.winfo_height()
+        )
         width = self.search_entry.winfo_width()
         height = min(200, len(suggestions) * 35)
 
@@ -497,28 +511,40 @@ class Synapsen_Nexus(ctk.CTk):
         self.autocomplete_frame.place(x=x, y=y)
         self.autocomplete_frame.lift()
 
-    def select_suggestion(self, suggestion):
+    def select_suggestion(self, suggestion, query, cursor_pos, match_value):
         """オートコンプリート候補をクリックまたはEnterで選択したときの処理。"""
-        query = self.search_entry.get()
-
-        # 現在入力中の単語を、選択した候補で置き換える
-        match = re.search(
-            r'(\s+(?:AND|OR)\s+)?([^\s,]*)$', query, re.IGNORECASE
-            )
-        if match:
-            preceding_operator = match.group(1) if match.group(1) else ''
-            base_query = query[:match.start()]
-            new_query = f"{base_query}{preceding_operator}{suggestion} "
+        
+        prefix_part = ""
+        suffix_part = query[cursor_pos:] # カーソルより後ろのテキスト
+        
+        if match_value:
+            # 'tag:Py' のように入力中の場合
+            # (group 2 が 'Py' の部分)
+            # 'tag:' の直前までを取得
+            prefix_part = query[:match_value.start(2)]
         else:
-            new_query = f"{suggestion} "
+            # 'tag:' と入力した直後の場合 (match_value は None)
+            # カーソル位置までをそのまま使用
+            prefix_part = query[:cursor_pos]
+            
+            # 'tag:' の直後にスペースがない場合、自動でスペースを追加
+            if not prefix_part.endswith(" "):
+                suggestion = " " + suggestion
 
+        # クエリを再構築
+        new_query = f"{prefix_part}{suggestion} {suffix_part}"
+        
+        # 新しいカーソル位置 = 'tag:' + 'Python' + ' ' の直後
+        new_cursor_pos = len(prefix_part) + len(suggestion) + 1
+
+        # UIに反映
         self.search_entry.delete(0, "end")
         self.search_entry.insert(0, new_query)
         self.search_entry.focus_force()
-        self.search_entry.icursor("end")
+        self.search_entry.icursor(new_cursor_pos) # カーソル位置を更新
 
         self.hide_autocomplete()
-        self._trigger_search_now()
+        self._trigger_search_now() # 検索を即時実行
 
     def hide_autocomplete(self, event=None):
         """オートコンプリートウィンドウを非表示にする。"""
@@ -527,34 +553,58 @@ class Synapsen_Nexus(ctk.CTk):
 
     def navigate_suggestions(self, event):
         """キーボードの上下矢印キーで候補リストを移動する。"""
-        if not self.autocomplete_frame.winfo_ismapped() or not self.current_suggestions:
+        # ▼▼▼【 6a. この行の条件を変更 】▼▼▼
+        if (not self.autocomplete_frame.winfo_ismapped() or 
+                not self.current_suggestions or
+                self._last_suggestion_args is None):
+            # ▲▲▲【 6a. 修正ここまで 】▲▲▲
             return
 
         num_suggestions = len(self.current_suggestions)
         if event.keysym == "Down":
-            self.selected_suggestion_index = (self.selected_suggestion_index + 1) % num_suggestions
+            self.selected_suggestion_index = (
+                self.selected_suggestion_index + 1) % num_suggestions
         elif event.keysym == "Up":
-            self.selected_suggestion_index = (self.selected_suggestion_index - 1 + num_suggestions) % num_suggestions
+            self.selected_suggestion_index = (
+                self.selected_suggestion_index - 1 + num_suggestions
+                ) % num_suggestions
 
         # 選択項目がリストに表示されるようにスクロール
         self.autocomplete_frame._parent_canvas.yview_moveto(
             self.selected_suggestion_index / num_suggestions
         )
-        # 選択ハイライトを更新
-        self.show_autocomplete(self.current_suggestions)
+        
+        # ▼▼▼【 6b. このブロックを修正 】▼▼▼
+        # 選択ハイライトを更新 (保存しておいた引数を使う)
+        query, cursor_pos, match_value = self._last_suggestion_args
+        self.show_autocomplete(
+            self.current_suggestions, query, cursor_pos, match_value
+        )
+        # ▲▲▲【 6b. 修正ここまで 】▲▲▲
         return "break"  # 他のキーバインドを抑制
 
     def confirm_suggestion(self, event):
         """Enterキーで選択中の候補を確定する。"""
-        if self.autocomplete_frame.winfo_ismapped() and self.selected_suggestion_index != -1:
+        # ▼▼▼【 7a. この行の条件を変更 】▼▼▼
+        if (self.autocomplete_frame.winfo_ismapped() and 
+                self.selected_suggestion_index != -1 and
+                self._last_suggestion_args is not None):
+        # ▲▲▲【 7a. 修正ここまで 】▲▲▲
+            
+            # ▼▼▼【 7b. このブロックを修正 】▼▼▼
+            # 保存しておいた引数を取得
+            query, cursor_pos, match_value = self._last_suggestion_args
+            # select_suggestion を呼び出す
             self.select_suggestion(
-                self.current_suggestions[self.selected_suggestion_index]
+                self.current_suggestions[self.selected_suggestion_index],
+                query, cursor_pos, match_value
             )
+            # ▲▲▲【 7b. 修正ここまで 】▲▲▲
             return "break"  # 検索が二重に実行されるのを防ぐ
 
         # 候補が選択されていない場合は、通常の検索を実行
+        self._trigger_search_now() # (ここは変更なし)
         self.hide_autocomplete()
-        self._trigger_search_now()
 
     # --- フィルターパネル関連メソッド ---
     def sync_filter_panel_view(self):
@@ -747,13 +797,39 @@ class Synapsen_Nexus(ctk.CTk):
     def schedule_suggestions(self, event=None):
         """
         オートコンプリートの更新を遅延させる（デバウンス）。
-        IME入力のラグを解消するため、ごく短い待機時間を設定する。
+        [変更] 'tag:' プレフィックス入力中のみ予測変換を実行する。
         """
         if self.suggestion_timer:
             self.after_cancel(self.suggestion_timer)
+            self.suggestion_timer = None
 
-        # 200ミリ秒 (0.2秒) 後に update_suggestions を実行
-        self.suggestion_timer = self.after(200, self.update_suggestions)
+        query = self.search_entry.get()
+
+        # 現在のカーソル位置までのクエリを取得
+        cursor_pos = self.search_entry.index(ctk.INSERT)
+        query_to_cursor = query[:cursor_pos]
+
+        # 正規表現: 'tag:' (または 'tags:') の後に文字を入力中か
+        # (大文字小文字を無視, ^|\s|\( は行頭/空白/括弧の意)
+        tag_value_pattern = r'(?i)(^|\s|\()tags?:([^\s\)]*)$'
+        match_value = re.search(tag_value_pattern, query_to_cursor)
+
+        # 正規表現: 'tag:' (または 'tags:') を入力した直後か
+        tag_prefix_pattern = r'(?i)(^|\s|\()tags?:\s*$'
+        match_prefix = re.search(tag_prefix_pattern, query_to_cursor)
+
+        if match_prefix or match_value:
+            # 'tag:' が入力されている場合のみ、予測変換を実行 (200ms後)
+            # update_suggestions に必要な情報を渡す
+            self.suggestion_timer = self.after(
+                200,
+                lambda q=query, c=cursor_pos, m=match_value:
+                    self.update_suggestions(q, c, m)
+            )
+        else:
+            # 'tag:' 以外が入力されている場合は、予測変換を即座に隠す
+            self.hide_autocomplete()
+            self._last_suggestion_args = None  # 引数キャッシュをクリア
 
     def show_random_note(self):
         """
