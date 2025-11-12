@@ -595,13 +595,16 @@ class Synapsen_Nexus(ctk.CTk):
             return
         self.load_db_from_path(Path(filepath))
 
-    def load_db_from_path(self, filepath: Path):
+    def load_db_from_path(self, filepath: Path, key_to_redisplay: str = None):
         """
         指定されたパスからDBを読み込み、DataFrameを更新する。
         utils.load_sql_data_file を使用する。
 
         Args:
             filepath (Path): 読み込むDBファイルのパス。
+            key_to_redisplay (str, optional):
+                読み込み後に詳細ペインに再表示するノートのキー。
+                Noneの場合は詳細ペインをクリアする。
         """
         try:
             # utilsの関数でDataFrameを読み込む
@@ -610,7 +613,22 @@ class Synapsen_Nexus(ctk.CTk):
 
             # UIをリセット・更新
             self.perform_search()
-            self.clear_details()
+
+            # 変更したノートを再表示するロジック
+            if key_to_redisplay and self.df is not None:
+                # key_to_redisplay を使って、更新後のdfから行を検索
+                target_note_row = self.df[self.df['key'] == key_to_redisplay]
+
+                if not target_note_row.empty:
+                    # 編集したノートが見つかったら、詳細を再表示
+                    self.show_details(target_note_row.iloc[0])
+                else:
+                    # ノートが見つからない場合 (削除されたなど) はクリア
+                    self.clear_details()
+            else:
+                # 再表示するキーが指定されていない場合はクリア
+                self.clear_details()
+
             self.filter_panel_expanded = False
             self.sync_filter_panel_view()
 
@@ -781,11 +799,21 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- PDFプレビューのクリア ▼ ---
         self.preview_image_object = None
-        self.pdf_preview_label.configure(
-            image=None,
+
+        # 既存のラベルを破棄
+        if hasattr(self, 'pdf_preview_label'):
+            self.pdf_preview_label.destroy()
+
+        # ラベルを「クリア状態」で再作成
+        self.pdf_preview_label = ctk.CTkLabel(
+            self.details_frame,
             text="ノートを選択するとプレビューが表示されます",
-            fg_color="gray20",
-            text_color="gray70"
+            fg_color="gray20",   # プレースホルダーの背景色
+            anchor="center",
+            text_color="gray70"  # プレースホルダーの文字色
+        )
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
         # -----------------------------------
 
@@ -858,6 +886,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- ▼ PDFプレビューの表示 ▼ ---
 
+        # 既存のプレビューラベルを破棄
+        if hasattr(self, 'pdf_preview_label'):
+            self.pdf_preview_label.destroy()
+
         max_preview_width = 225  # プレビュー表示の最大幅
 
         pil_image = get_pdf_page_image(
@@ -874,21 +906,29 @@ class Synapsen_Nexus(ctk.CTk):
                 dark_image=pil_image,
                 size=(pil_image.width, pil_image.height)
             )
-            # プレビュー用ラベルに画像を設定
-            self.pdf_preview_label.configure(
+            # プレビュー用ラベルを「画像付き」で再作成
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.details_frame,
                 image=self.preview_image_object,
-                text="",  # テキストを削除
+                text="",                # テキストを削除
                 fg_color="transparent"  # 背景を透明に
             )
         else:
             # 画像取得失敗
             self.preview_image_object = None
-            self.pdf_preview_label.configure(
+            # プレビュー用ラベルを「失敗状態」で再作成
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.details_frame,
                 image=None,
                 text="プレビューの読み込みに失敗しました",
                 fg_color="gray20",
                 text_color="#D9534F"  # 赤色
             )
+
+        # 新しく作成したラベルをグリッドに配置
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+        )
 
         # メモ表示（リンク構築）
         # (row=6, column=1 の memo_display_frame を使用)
@@ -1320,7 +1360,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 2. 変更をUIに反映するため、DBを再読み込み
         print(f"ノート {key_to_update} を更新しました。DBを再読み込みします。")
-        self.load_db_from_path(self.loaded_db_path)
+
+        # 再表示したいキーを引数に渡す
+        self.load_db_from_path(
+            self.loaded_db_path, key_to_redisplay=key_to_update)
 
     def confirm_delete_note(self):
         """
