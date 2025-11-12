@@ -368,10 +368,6 @@ class Synapsen_Normalisierer(ctk.CTk):
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
 
-            # [追加] Pandocが必要とする設定値を取得
-            latex_font_name = self.config_data.get(
-                'latex_font', 'MS UI Gothic'
-            )
             paper_size_str = self.config_data.get('paper_size', 'A4')
 
             for i, (item_data, base_name) in enumerate(all_items):
