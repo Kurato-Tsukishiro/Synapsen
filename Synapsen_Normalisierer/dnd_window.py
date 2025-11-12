@@ -7,6 +7,7 @@ import tkinterdnd2
 from PIL import ImageGrab
 import tempfile
 import shutil
+from pypdf import PdfReader, PdfWriter
 
 from pdf_utils import (
     # D&D/画像クリップ用のメタデータ挿入関数
@@ -124,11 +125,17 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # 2b. コメント入力
         ctk.CTkLabel(
-            meta_frame, text="コメント (PDF 2ページ目に埋込):", anchor="w"
+            meta_frame, text="コメント (PDF 最終に埋込):", anchor="w"
             ).pack(pady=(5, 0), padx=10, fill="x")
         self.comment_textbox = ctk.CTkTextbox(meta_frame, height=80)
         self.comment_textbox.pack(
             pady=5, padx=10, fill="both", expand=True)
+        self.merge_files_checkbox = ctk.CTkCheckBox(
+            meta_frame,
+            text="処理対象ファイルを1つのノート（PDF）に統合する",
+            command=self.on_merge_toggle
+        )
+        self.merge_files_checkbox.pack(pady=10, padx=10, anchor="w")
 
         # 3. 処理対象リスト (スクロールフレーム)
         self.staged_list_frame = ctk.CTkScrollableFrame(
@@ -164,6 +171,45 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.destroy()
         except Exception as e:
             print(f"DND window close error: {e}")
+
+    def on_merge_toggle(self):
+        """「統合」チェックボックス切り替え時のUI制御"""
+        if self.merge_files_checkbox.get():
+            # 統合がONの場合
+            self.staged_list_frame.configure(label_text="処理対象リスト (統合順)")
+            if len(self.staged_items) > 0:
+                # 最初のアイテムのファイル名を「統合後のファイル名」として提案
+                now = datetime.datetime.now()
+                default_base_name = f"{now.strftime('%Y%m%d_%H%M%S')}_統合クリップ"
+
+                # 全アイテムのファイル名編集欄を「統合後のファイル名」で統一＆無効化
+                for item in self.staged_items:
+                    item["base_name_var"].set(default_base_name)
+                    # UI上のEntryを無効化 (見つかれば)
+                    for child in self.staged_list_frame.winfo_children():
+                        entry = child.winfo_children()[1]
+                        if isinstance(entry, ctk.CTkEntry):
+                            entry.configure(state="disabled")
+
+        else:
+            # 統合がOFFの場合
+            self.staged_list_frame.configure(label_text="処理対象リスト (ファイル名を編集可能)")
+            # 全アイテムのファイル名編集欄を「元の名前」に戻し＆有効化
+            for item in self.staged_items:
+                if isinstance(item['data'], Path):
+                    original_stem = item['data'].stem
+                elif "貼り付け" in item['original_name']:
+                    # タイムスタンプ部分を再利用 (base_name_var の初期値)
+                    original_stem = item["base_name_var"].get()
+                else:
+                    original_stem = "temp_file"  # フォールバック
+
+                item["base_name_var"].set(original_stem)
+                # UI上のEntryを有効化 (見つかれば)
+                for child in self.staged_list_frame.winfo_children():
+                    entry = child.winfo_children()[1]
+                    if isinstance(entry, ctk.CTkEntry):
+                        entry.configure(state="normal")
 
     def add_staged_item(
             self, item_data, base_name: str, original_name: str) -> bool:
@@ -212,6 +258,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         name_entry = ctk.CTkEntry(
             row_frame, textvariable=item["base_name_var"]
         )
+
+        # もし「統合」がONなら、追加されるEntryを即座に無効化し、名前を統一
+        if self.merge_files_checkbox.get():
+            if len(self.staged_items) == 1:  # 最初のアイテムが追加された時
+                # 最初のアイテムのベース名を統合後のベース名として採用
+                now = datetime.datetime.now()
+                default_base_name = f"{now.strftime('%Y%m%d_%H%M%S')}_統合クリップ"
+                item["base_name_var"].set(default_base_name)
+            else:
+                # 2個目以降のアイテム
+                first_item_name = self.staged_items[0]["base_name_var"].get()
+                item["base_name_var"].set(first_item_name)
+
+            name_entry.configure(state="disabled")
+
         name_entry.pack(
             side="left", fill="x", expand=True, padx=10, pady=(0, 5))
 
@@ -366,6 +427,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         """
         「処理実行」ボタンの処理。
         (D&Dウィンドウ専用のパイプライン)
+
+        「統合」チェックボックスの状態に応じて、処理を分岐する。
+        - OFF: ファイルごとに正規化・メタデータ付与を行う。
+        - ON:  全ファイルを正規化・OCRした後、1つのPDFに連結し、最後にメタデータ付与を行う。
         """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
@@ -385,8 +450,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
         enable_tesseract = config_data.get('enable_tesseract_ocr', False)
-
-        # Pandocが必要とする設定値を取得 (Markdown連携用)
         paper_size_str = self.parent_app.config_data.get('paper_size', 'A4')
 
         # 2. 出力先フォルダを選択
@@ -394,10 +457,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             title="出力先フォルダを選択してください", parent=self)
         if not dest_folder:
             return
-
         dest_path = Path(dest_folder)
-
-        # 入力元と出力先が同一フォルダでないかチェック
         source_folders = {
             item['data'].parent
             for item in self.staged_items
@@ -411,15 +471,13 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         # 3. メタデータをUIから取得
         index_key_raw = self.index_key_combo.get()
         index_key_to_embed = ""
-        text_color = None  # fitzデフォルト (黒)
-
+        text_color = None
         if index_key_raw != "（未選択）":
             index_key_to_embed = index_key_raw
             key_colors_dict = config_data.get('key_colors', {})
             hex_color = key_colors_dict.get(index_key_raw.lower())
             if hex_color:
                 text_color = hex_to_rgb_tuple(hex_color)
-
         comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
 
         # 4. 処理対象リストを作成
@@ -431,127 +489,39 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     "ファイル名エラー", f"ファイル名が空です (元の名前: {item['original_name']})",
                     parent=self)
                 return
-            # (item['data'], base_name) だけでなく、
-            # 元のデータ型 (Path or PIL) も渡すようにタプルを変更
             items_to_process.append(
                 (item['data'], base_name, type(item['data']))
             )
 
-        # 5. 専用パイプラインの実行
+        # 5. 「統合」チェックボックスの状態で処理を分岐
+        is_merge_mode = self.merge_files_checkbox.get()
         temp_dir = None
-        total_files = len(items_to_process)
         try:
-            # 一時フォルダを作成
             temp_dir = Path(
                 tempfile.mkdtemp(prefix="synapsen_dnd_", dir=dest_path)
             )
 
-            for i, item_tuple in enumerate(items_to_process):
-                item_data, base_name, original_type = item_tuple  # タプルの展開
-
-                status_prefix = f"処理中 ({i+1}/{total_files}):"
-                self.parent_app.status_label.configure(
-                    text=f"{status_prefix} {base_name}"
-                )
-                self.parent_app.update_idletasks()
-
-                # 最終的な出力パス
-                final_output_pdf = dest_path / f"{base_name}.pdf"
-                # 一時ファイルパス
-                temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
-                temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
-
-                path_to_flatten: Path  # フラット化対象のPDFパス
-
-                # MDファイルが処理対象だったかどうかのフラグ
-                is_markdown_source = False
-
-                # --- パイプライン 1-A: MD -> PDF変換 ---
-                if (
-                        isinstance(item_data, Path) and
-                        item_data.suffix.lower() == ".md"
-                ):
-                    is_markdown_source = True  # フラグを立てる
-                    self.parent_app.status_label.configure(
-                        text=f"{status_prefix} MD->PDF変換: {base_name}"
-                    )
-                    self.parent_app.update_idletasks()
-                    try:
-                        temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
-
-                        convert_markdown_to_pdf(
-                            item_data,
-                            temp_md_pdf,
-                            paper_size_str
-                        )
-                        item_data = temp_md_pdf
-                    except Exception as e:
-                        print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
-                        messagebox.showerror(
-                            "Markdown変換エラー",
-                            f"{base_name} の変換に失敗しました:\n{e}",
-                            parent=self
-                        )
-                        continue  # このファイルはスキップ
-
-                # --- パイプライン 1-B: 画像 -> PDF変換 ---
-                if isinstance(item_data, Path):
-                    input_file_path = item_data
-                    if input_file_path.suffix.lower() != ".pdf":
-                        # 画像
-                        convert_image_to_pdf(
-                            input_file_path, temp_converted_pdf)
-                        path_to_flatten = temp_converted_pdf
-                    else:
-                        # PDF (D&DされたPDF、またはMDから変換されたPDF)
-                        path_to_flatten = input_file_path
-                else:
-                    # PIL (ペースト)
-                    convert_pil_image_to_pdf(item_data, temp_converted_pdf)
-                    path_to_flatten = temp_converted_pdf
-
-                # --- パイプライン 2: フラット化 (フォームのテキスト化) ---
-                high_fidelity_flatten(
-                    str(path_to_flatten),
-                    str(temp_flattened_pdf),
-                    font_path
-                )
-
-                # --- パイプライン 3: 正規化 (サイズ統一) ---
-                normalize_pdf_to_papersize(
-                    str(temp_flattened_pdf),
-                    str(final_output_pdf),
-                    paper_width,
-                    paper_height
-                )
-
-                # --- パイプライン 4: OCR埋め込み ---
-                embed_ocr_text_in_pdf(
-                    str(final_output_pdf),
-                    enable_tesseract,
+            if not is_merge_mode:
+                # --- [分岐 A: 個別処理] ---
+                self.run_pipeline_individual(
+                    items_to_process, dest_path, temp_dir,
                     font_path,
-                    'jpn+jpn_vert'
+                    paper_width, paper_height,
+                    enable_tesseract, paper_size_str,
+                    key_rect_tuple, index_key_to_embed, text_color,
+                    comment_to_embed
                 )
-
-                # --- パイプライン 5: メタデータ追記---
-                add_metadata_to_clip(
-                    str(final_output_pdf),
+            else:
+                # --- [分岐 B: 統合処理] ---
+                self.run_pipeline_merge(
+                    items_to_process, dest_path, temp_dir,
                     font_path,
-                    paper_width,
-                    paper_height,
-                    key_rect_tuple,
-                    index_key_to_embed,
-                    text_color,
-                    comment_to_embed,
-                    None,  # sist_string_formal (D&Dでは入力しない)
-                    None   # sist_string_readable (D&Dでは入力しない)
+                    paper_width, paper_height,
+                    enable_tesseract, paper_size_str,
+                    key_rect_tuple, index_key_to_embed, text_color,
+                    comment_to_embed
                 )
 
-            messagebox.showinfo(
-                "完了",
-                f"{total_files}個のファイルにメタデータを埋め込み、処理が完了しました。",
-                parent=self
-            )
             # 成功したら、このウィンドウを閉じる
             self.on_close()
 
@@ -561,9 +531,241 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"エラーが発生しました: {e}")
 
         finally:
-            # 正常終了・異常終了に関わらず、一時フォルダを削除
             if temp_dir and temp_dir.exists():
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
                     print(f"警告: 一時フォルダの削除に失敗しました: {e}")
+
+    def run_pipeline_individual(
+            self, items_to_process, dest_path, temp_dir,
+            font_path, paper_width, paper_height,
+            enable_tesseract, paper_size_str,
+            key_rect_tuple, index_key_to_embed, text_color, comment_to_embed):
+        """
+        従来通りの個別ファイル処理パイプライン
+        """
+        total_files = len(items_to_process)
+        for i, item_tuple in enumerate(items_to_process):
+            item_data, base_name, original_type = item_tuple
+
+            status_prefix = f"処理中 ({i+1}/{total_files}):"
+            self.parent_app.status_label.configure(
+                text=f"{status_prefix} {base_name}"
+            )
+            self.parent_app.update_idletasks()
+
+            final_output_pdf = dest_path / f"{base_name}.pdf"
+            temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
+            temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
+
+            path_to_flatten: Path
+
+            # --- 1-A: MD -> PDF ---
+            if (
+                    isinstance(item_data, Path) and
+                    item_data.suffix.lower() == ".md"
+            ):
+                self.parent_app.status_label.configure(
+                    text=f"{status_prefix} MD->PDF変換: {base_name}"
+                )
+                self.parent_app.update_idletasks()
+                try:
+                    temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
+                    convert_markdown_to_pdf(
+                        item_data, temp_md_pdf, paper_size_str
+                    )
+                    item_data = temp_md_pdf  # 次の入力として上書き
+                except Exception as e:
+                    print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                    messagebox.showerror(
+                        "Markdown変換エラー", f"{base_name} の変換に失敗しました:\n{e}",
+                        parent=self
+                    )
+                    continue
+
+            # --- 1-B: 画像/PIL -> PDF ---
+            if isinstance(item_data, Path):
+                if item_data.suffix.lower() != ".pdf":
+                    convert_image_to_pdf(item_data, temp_converted_pdf)
+                    path_to_flatten = temp_converted_pdf
+                else:
+                    path_to_flatten = item_data
+            else:
+                convert_pil_image_to_pdf(item_data, temp_converted_pdf)
+                path_to_flatten = temp_converted_pdf
+
+            # --- 2: フラット化 ---
+            high_fidelity_flatten(
+                str(path_to_flatten), str(temp_flattened_pdf), font_path
+            )
+
+            # --- 3: 正規化 ---
+            normalize_pdf_to_papersize(
+                str(temp_flattened_pdf), str(final_output_pdf),
+                paper_width, paper_height
+            )
+
+            # --- 4: OCR ---
+            embed_ocr_text_in_pdf(
+                str(final_output_pdf), enable_tesseract,
+                font_path, 'jpn+jpn_vert'
+            )
+
+            # --- 5: メタデータ追記---
+            add_metadata_to_clip(
+                str(final_output_pdf),
+                font_path,
+                paper_width,
+                paper_height,
+                key_rect_tuple,
+                index_key_to_embed,
+                text_color,
+                comment_to_embed,
+                None,  # sist_string_formal
+                None   # sist_string_readable
+            )
+
+        messagebox.showinfo(
+            "完了", f"{total_files}個のファイルにメタデータを埋め込み、処理が完了しました。", parent=self
+        )
+
+    def run_pipeline_merge(
+            self, items_to_process, dest_path, temp_dir,
+            font_path,
+            paper_width, paper_height,
+            enable_tesseract, paper_size_str,
+            key_rect_tuple, index_key_to_embed, text_color, comment_to_embed):
+        """
+        [新設] ファイル統合処理パイプライン
+        """
+
+        # 統合後のファイル名は、リストの最初のアイテムから取得
+        if not items_to_process:
+            return
+
+        merged_base_name = items_to_process[0][1]  # (data, base_name, type)
+        final_output_pdf = dest_path / f"{merged_base_name}.pdf"
+
+        # 正規化済みPDFを格納する一時サブフォルダ
+        normalized_parts_dir = temp_dir / "normalized_parts"
+        normalized_parts_dir.mkdir()
+
+        total_files = len(items_to_process)
+        normalized_pdf_paths = []  # 連結するPDFのパスリスト
+
+        for i, item_tuple in enumerate(items_to_process):
+            item_data, base_name, original_type = item_tuple
+
+            status_prefix = f"統合準備中 ({i+1}/{total_files}):"
+            self.parent_app.status_label.configure(
+                text=f"{status_prefix} {base_name}"
+            )
+            self.parent_app.update_idletasks()
+
+            # 各ステップの一時ファイル
+            temp_converted_pdf = temp_dir / f"conv_{i}_{base_name}.pdf"
+            temp_flattened_pdf = temp_dir / f"flat_{i}_{base_name}.pdf"
+
+            # 連結対象となる、正規化・OCR済みのPDFパス
+            file_name = f"part_{i:03d}_{base_name}.pdf"
+            normalized_part_pdf = normalized_parts_dir / file_name
+
+            path_to_flatten: Path
+
+            # --- 1-A: MD -> PDF ---
+            if (
+                    isinstance(item_data, Path) and
+                    item_data.suffix.lower() == ".md"
+            ):
+                self.parent_app.status_label.configure(
+                    text=f"{status_prefix} MD->PDF変換: {base_name}"
+                )
+                self.parent_app.update_idletasks()
+                try:
+                    temp_md_pdf = temp_dir / f"md_{i}_{base_name}.pdf"
+                    convert_markdown_to_pdf(
+                        item_data, temp_md_pdf, paper_size_str
+                    )
+                    item_data = temp_md_pdf
+                except Exception as e:
+                    print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                    continue  # このファイルはスキップ
+
+            # --- 1-B: 画像/PIL -> PDF ---
+            if isinstance(item_data, Path):
+                if item_data.suffix.lower() != ".pdf":
+                    convert_image_to_pdf(item_data, temp_converted_pdf)
+                    path_to_flatten = temp_converted_pdf
+                else:
+                    path_to_flatten = item_data
+            else:
+                convert_pil_image_to_pdf(item_data, temp_converted_pdf)
+                path_to_flatten = temp_converted_pdf
+
+            # --- 2: フラット化 ---
+            high_fidelity_flatten(
+                str(path_to_flatten), str(temp_flattened_pdf), font_path
+            )
+
+            # --- 3: 正規化 (出力先を normalized_part_pdf に) ---
+            normalize_pdf_to_papersize(
+                str(temp_flattened_pdf), str(normalized_part_pdf),
+                paper_width, paper_height
+            )
+
+            # --- 4: OCR (normalized_part_pdf に対して実行) ---
+            embed_ocr_text_in_pdf(
+                str(normalized_part_pdf), enable_tesseract,
+                font_path, 'jpn+jpn_vert'
+            )
+
+            # 連結リストに追加
+            normalized_pdf_paths.append(normalized_part_pdf)
+
+        # --- ループ終了後 ---
+
+        if not normalized_pdf_paths:
+            messagebox.showerror("エラー", "統合できるファイルがありませんでした。", parent=self)
+            return
+
+        # --- 5: PDF連結 (pypdf を使用) ---
+        self.parent_app.status_label.configure(
+            text=f"全 {len(normalized_pdf_paths)} ファイルを連結中..."
+        )
+        self.parent_app.update_idletasks()
+
+        writer = PdfWriter()
+        for pdf_path in normalized_pdf_paths:
+            try:
+                reader = PdfReader(str(pdf_path))
+                for page in reader.pages:
+                    writer.add_page(page)
+            except Exception as e:
+                print(f"警告: {pdf_path.name} の連結に失敗: {e}")
+
+        # 連結したPDFを一時ファイル (final_output_pdf の場所) に保存
+        with open(final_output_pdf, "wb") as f:
+            writer.write(f)
+        writer.close()
+
+        # --- 6: メタデータ追記 (連結後のPDFに対して1回だけ実行) ---
+        self.parent_app.status_label.configure(text="メタデータを追記中...")
+        self.parent_app.update_idletasks()
+
+        add_metadata_to_clip(
+            str(final_output_pdf),
+            font_path,
+            paper_width,
+            paper_height,
+            key_rect_tuple,
+            index_key_to_embed,
+            text_color,
+            comment_to_embed,
+            None,  # sist_string_formal
+            None   # sist_string_readable
+        )
+
+        messagebox.showinfo(
+            "完了", f"{total_files}個のファイルを1つのPDFに統合し、処理が完了しました。", parent=self
+        )
