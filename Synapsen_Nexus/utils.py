@@ -107,8 +107,17 @@ def load_app_config(base_path):
             try:
                 if tags_data_path.is_file():
                     with open(tags_data_path, "r", encoding="utf-8") as f:
-                        config_data['predefined_tags'] = \
-                            sorted([line.strip() for line in f if line.strip() and not line.startswith('#')])
+                        tags_list = []
+                        for line in f:
+                            stripped_line = line.strip()
+
+                            # まず空行でないかチェック
+                            if stripped_line:
+                                # 次にコメント行でないかチェック
+                                if not stripped_line.startswith('#'):
+                                    tags_list.append(stripped_line)
+
+                        config_data['predefined_tags'] = sorted(tags_list)
             except Exception as e:
                 print(f"tags.txtの読み込み中にエラー: {e}")
 
@@ -356,12 +365,17 @@ def build_references_display(
         # --- Event Binding ---
         key = row.get('key')
         if key:
-            # メインアプリのプレビュー機能(open_preview_window)を
-            # 呼び出すようにバインドする
-            command = lambda e, k=key: open_preview_callback(k)
-            item_frame.bind("<Button-1>", command)
-            icon_label.bind("<Button-1>", command)
-            text_label.bind("<Button-1>", command)
+            def create_preview_handler(note_key=key):
+                """ 現在の 'note_key' を保持するイベントハンドラを返す """
+                def handler(event):
+                    # コールバック関数 (open_preview_callback) を 'note_key' で呼び出す
+                    open_preview_callback(note_key)
+                return handler
+
+            preview_command = create_preview_handler()
+            item_frame.bind("<Button-1>", preview_command)
+            icon_label.bind("<Button-1>", preview_command)
+            text_label.bind("<Button-1>", preview_command)
 
 
 def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
@@ -423,7 +437,11 @@ def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
     page_number = 1  # 1-indexed
 
     # 1. 統合PDF (merged_pdf) が指定されている場合
-    if merged_pdf_filename and not pd.isna(start_page_str) and start_page_str != '':
+    if (
+            merged_pdf_filename and
+            not pd.isna(start_page_str) and
+            start_page_str != ''
+    ):
         if loaded_db_path:
             pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
 

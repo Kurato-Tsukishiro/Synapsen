@@ -444,16 +444,16 @@ class Synapsen_Nexus(ctk.CTk):
 
     def update_suggestions(self, query, cursor_pos, match_value):
         """
-        [変更] 'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
+        'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
         """
         self.selected_suggestion_index = -1
-        
+
         last_tag_word = ""
-        
+
         if match_value:
             # 'tag:abc' の 'abc' の部分 (group 2) を取得
             last_tag_word = match_value.group(2).strip()
-        
+
         # (match_value が None の場合 = 'tag:' と入力した直後)
         # last_tag_word は "" (空文字) となる
 
@@ -485,7 +485,13 @@ class Synapsen_Nexus(ctk.CTk):
             widget.destroy()
 
         for i, suggestion in enumerate(suggestions):
-            fg_color = "gray30" if i == self.selected_suggestion_index else "transparent"
+            for i, suggestion in enumerate(suggestions):
+                # 選択中のインデックスに基づいてハイライト色を決定
+                if i == self.selected_suggestion_index:
+                    fg_color = "gray30"
+                else:
+                    fg_color = "transparent"
+
             btn = ctk.CTkButton(
                 self.autocomplete_frame, text=suggestion, fg_color=fg_color,
                 text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
@@ -513,10 +519,10 @@ class Synapsen_Nexus(ctk.CTk):
 
     def select_suggestion(self, suggestion, query, cursor_pos, match_value):
         """オートコンプリート候補をクリックまたはEnterで選択したときの処理。"""
-        
+
         prefix_part = ""
-        suffix_part = query[cursor_pos:] # カーソルより後ろのテキスト
-        
+        suffix_part = query[cursor_pos:]  # カーソルより後ろのテキスト
+
         if match_value:
             # 'tag:Py' のように入力中の場合
             # (group 2 が 'Py' の部分)
@@ -526,14 +532,14 @@ class Synapsen_Nexus(ctk.CTk):
             # 'tag:' と入力した直後の場合 (match_value は None)
             # カーソル位置までをそのまま使用
             prefix_part = query[:cursor_pos]
-            
+
             # 'tag:' の直後にスペースがない場合、自動でスペースを追加
             if not prefix_part.endswith(" "):
                 suggestion = " " + suggestion
 
         # クエリを再構築
         new_query = f"{prefix_part}{suggestion} {suffix_part}"
-        
+
         # 新しいカーソル位置 = 'tag:' + 'Python' + ' ' の直後
         new_cursor_pos = len(prefix_part) + len(suggestion) + 1
 
@@ -541,10 +547,10 @@ class Synapsen_Nexus(ctk.CTk):
         self.search_entry.delete(0, "end")
         self.search_entry.insert(0, new_query)
         self.search_entry.focus_force()
-        self.search_entry.icursor(new_cursor_pos) # カーソル位置を更新
+        self.search_entry.icursor(new_cursor_pos)  # カーソル位置を更新
 
         self.hide_autocomplete()
-        self._trigger_search_now() # 検索を即時実行
+        self._trigger_search_now()  # 検索を即時実行
 
     def hide_autocomplete(self, event=None):
         """オートコンプリートウィンドウを非表示にする。"""
@@ -553,11 +559,9 @@ class Synapsen_Nexus(ctk.CTk):
 
     def navigate_suggestions(self, event):
         """キーボードの上下矢印キーで候補リストを移動する。"""
-        # ▼▼▼【 6a. この行の条件を変更 】▼▼▼
-        if (not self.autocomplete_frame.winfo_ismapped() or 
+        if (not self.autocomplete_frame.winfo_ismapped() or
                 not self.current_suggestions or
                 self._last_suggestion_args is None):
-            # ▲▲▲【 6a. 修正ここまで 】▲▲▲
             return
 
         num_suggestions = len(self.current_suggestions)
@@ -573,25 +577,20 @@ class Synapsen_Nexus(ctk.CTk):
         self.autocomplete_frame._parent_canvas.yview_moveto(
             self.selected_suggestion_index / num_suggestions
         )
-        
-        # ▼▼▼【 6b. このブロックを修正 】▼▼▼
+
         # 選択ハイライトを更新 (保存しておいた引数を使う)
         query, cursor_pos, match_value = self._last_suggestion_args
         self.show_autocomplete(
             self.current_suggestions, query, cursor_pos, match_value
         )
-        # ▲▲▲【 6b. 修正ここまで 】▲▲▲
         return "break"  # 他のキーバインドを抑制
 
     def confirm_suggestion(self, event):
         """Enterキーで選択中の候補を確定する。"""
-        # ▼▼▼【 7a. この行の条件を変更 】▼▼▼
-        if (self.autocomplete_frame.winfo_ismapped() and 
+        if (self.autocomplete_frame.winfo_ismapped() and
                 self.selected_suggestion_index != -1 and
                 self._last_suggestion_args is not None):
-        # ▲▲▲【 7a. 修正ここまで 】▲▲▲
-            
-            # ▼▼▼【 7b. このブロックを修正 】▼▼▼
+
             # 保存しておいた引数を取得
             query, cursor_pos, match_value = self._last_suggestion_args
             # select_suggestion を呼び出す
@@ -599,11 +598,10 @@ class Synapsen_Nexus(ctk.CTk):
                 self.current_suggestions[self.selected_suggestion_index],
                 query, cursor_pos, match_value
             )
-            # ▲▲▲【 7b. 修正ここまで 】▲▲▲
             return "break"  # 検索が二重に実行されるのを防ぐ
 
         # 候補が選択されていない場合は、通常の検索を実行
-        self._trigger_search_now() # (ここは変更なし)
+        self._trigger_search_now()
         self.hide_autocomplete()
 
     # --- フィルターパネル関連メソッド ---
@@ -631,7 +629,13 @@ class Synapsen_Nexus(ctk.CTk):
             widget.destroy()
 
         if not self.filter_panel_expanded:
-            selected_keys = [key for key, var in self.filter_checkboxes.items() if var.get() == '1']
+            if not self.filter_panel_expanded:
+                # 選択されている IndexKey をリストアップ
+                selected_keys = []
+                for key, var in self.filter_checkboxes.items():
+                    if var.get() == '1':
+                        selected_keys.append(key)
+
             if not selected_keys:
                 ctk.CTkLabel(
                     self.collapsed_icons_frame, text="", font=("", 16)
@@ -739,9 +743,15 @@ class Synapsen_Nexus(ctk.CTk):
         filtered_df = self.df.copy()
 
         # 1. IndexKey フィルターを適用
-        selected_keys = [key for key, var in self.filter_checkboxes.items() if var.get() == '1']
+        selected_keys = []
+        for key, var in self.filter_checkboxes.items():
+            if var.get() == '1':
+                selected_keys.append(key)
+
         if selected_keys:
-            filtered_df = filtered_df[filtered_df['commonplace_key'].isin(selected_keys)]
+            filtered_df = (
+                filtered_df[filtered_df['commonplace_key'].isin(selected_keys)]
+            )
 
         # 2. 検索クエリを適用
         query_text = self.search_entry.get().strip()
@@ -840,7 +850,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 1. 使用するDataFrameを選択
         target_df = None
-        if self.filtered_df_cache is not None and not self.filtered_df_cache.empty:
+        if (
+                self.filtered_df_cache is not None and
+                not self.filtered_df_cache.empty
+        ):
             # 現在の検索結果キャッシュが存在すれば、それを使用
             target_df = self.filtered_df_cache
         elif self.df is not None and not self.df.empty:
@@ -907,17 +920,30 @@ class Synapsen_Nexus(ctk.CTk):
             text_label.pack(side="left", fill="x", expand=True)
 
             # --- イベントバインド ---
+            def create_show_details_handler(note_row=row):
+                """ 現在の 'note_row' を保持するイベントハンドラを返す """
+                def handler(event):
+                    self.show_details(note_row)
+                return handler
+
+            def create_open_pdf_handler(note_row=row):
+                """ 現在の 'note_row' を保持するイベントハンドラを返す """
+                def handler(event):
+                    self.open_pdf(note_row)
+                return handler
+
             # シングルクリックで詳細表示
-            command = lambda e, r=row: self.show_details(r)
-            item_frame.bind("<Button-1>", command)
-            icon_label.bind("<Button-1>", command)
-            text_label.bind("<Button-1>", command)
+            # (関数呼び出しで、現在の 'row' が 'note_row' にコピーされる)
+            show_details_command = create_show_details_handler()
+            item_frame.bind("<Button-1>", show_details_command)
+            icon_label.bind("<Button-1>", show_details_command)
+            text_label.bind("<Button-1>", show_details_command)
 
             # ダブルクリックでPDFを開く
-            pdf_command = lambda e, r=row: self.open_pdf(r)
-            item_frame.bind("<Double-Button-1>", pdf_command)
-            icon_label.bind("<Double-Button-1>", pdf_command)
-            text_label.bind("<Double-Button-1>", pdf_command)
+            open_pdf_command = create_open_pdf_handler()
+            item_frame.bind("<Double-Button-1>", open_pdf_command)
+            icon_label.bind("<Double-Button-1>", open_pdf_command)
+            text_label.bind("<Double-Button-1>", open_pdf_command)
 
     def clear_details(self):
         """詳細表示ペインの内容をすべてクリアする。"""
@@ -1154,7 +1180,7 @@ class Synapsen_Nexus(ctk.CTk):
         df = self.filtered_df_cache
 
         if df is None or df.empty:
-            if not output_path: # エクスポート時以外のみメッセージ表示
+            if not output_path:  # エクスポート時以外のみメッセージ表示
                 messagebox.showinfo(
                     "グラフ表示",
                     "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
