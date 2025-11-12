@@ -7,7 +7,7 @@ import shutil
 import fitz  # PyMuPDF (情報埋め込み用)
 from urllib.parse import urlparse  # サイト名取得用
 
-from pdf_utils import add_metadata_to_web_clip, hex_to_rgb_tuple
+from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
 
 # --- Playwright インポート ---
 sync_playwright = None
@@ -530,7 +530,7 @@ class WebClipWindow(ctk.CTkToplevel):
             paper_height = self.parent_app.paper_height
 
             # ヘルパー関数 (add_metadata_to_web_clip) を呼び出し
-            add_metadata_to_web_clip(
+            add_metadata_to_clip(
                 pdf_path_str=str(temp_pdf_path),
                 font_path=font_path,
                 paper_width=paper_width,

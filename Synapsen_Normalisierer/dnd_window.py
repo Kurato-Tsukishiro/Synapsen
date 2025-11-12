@@ -10,8 +10,7 @@ import shutil
 
 from pdf_utils import (
     # D&D/画像クリップ用のメタデータ挿入関数
-    add_metadata_to_image_clip,
-    add_metadata_to_web_clip,
+    add_metadata_to_clip,
     hex_to_rgb_tuple,
     # D&Dパイプラインで個別に実行するためインポート
     convert_image_to_pdf,
@@ -367,10 +366,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         """
         「処理実行」ボタンの処理。
         (D&Dウィンドウ専用のパイプライン)
-
-        メタデータ付与ステップ(5)で、入力タイプに応じて分岐するよう変更。
-        - 画像/PIL: 1ページ目にKey, 2ページ目にComment (add_metadata_to_image_clip)
-        - MD/PDF: 1ページ目にKey, 最終ページにComment (add_metadata_to_web_clip)
         """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
@@ -538,47 +533,19 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     'jpn+jpn_vert'
                 )
 
-                # --- パイプライン 5: メタデータ追記 (分岐) ---
-
-                # original_type が Path かつ is_markdown_source が True -> MDクリップ
-                # original_type が Path で、is_markdown_source が False -> PDFのD&D
-                # original_type が PIL (Image) -> 画像/ペーストクリップ
-
-                if (
-                        is_markdown_source or
-                        (
-                            original_type == Path and
-                            item_data.suffix.lower() == ".pdf"
-                        )
-                ):
-                    # [分岐1] MD または PDF の D&D の場合
-                    # 1ページ目にKey、最終ページにComment (Webクリップ方式)
-                    # (書誌情報は None を渡す)
-                    add_metadata_to_web_clip(
-                        str(final_output_pdf),
-                        font_path,
-                        paper_width,
-                        paper_height,
-                        key_rect_tuple,
-                        index_key_to_embed,
-                        text_color,
-                        comment_to_embed,
-                        None,  # sist_string_formal
-                        None   # sist_string_readable
-                    )
-                else:
-                    # [分岐2] 画像 または PIL (ペースト) の場合
-                    # 1ページ目にKey、2ページ目にComment (画像クリップ方式)
-                    add_metadata_to_image_clip(
-                        str(final_output_pdf),
-                        font_path,
-                        paper_width,
-                        paper_height,
-                        key_rect_tuple,
-                        index_key_to_embed,
-                        text_color,
-                        comment_to_embed
-                    )
+                # --- パイプライン 5: メタデータ追記---
+                add_metadata_to_clip(
+                    str(final_output_pdf),
+                    font_path,
+                    paper_width,
+                    paper_height,
+                    key_rect_tuple,
+                    index_key_to_embed,
+                    text_color,
+                    comment_to_embed,
+                    None,  # sist_string_formal (D&Dでは入力しない)
+                    None   # sist_string_readable (D&Dでは入力しない)
+                )
 
             messagebox.showinfo(
                 "完了",

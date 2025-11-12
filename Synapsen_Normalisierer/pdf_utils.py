@@ -54,7 +54,7 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
         return None
 
 
-def add_metadata_to_web_clip(
+def add_metadata_to_clip(
     pdf_path_str: str,
     font_path: str,
     paper_width: float,
@@ -192,102 +192,6 @@ def add_metadata_to_web_clip(
 
     except Exception as e:
         print(f"  [Error] Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
-        raise  # エラーを再送出
-    finally:
-        if doc:
-            doc.close()
-
-
-def add_metadata_to_image_clip(
-    pdf_path_str: str,
-    font_path: str,
-    paper_width: float,
-    paper_height: float,
-    key_rect_tuple: tuple,
-    index_key_to_embed: str,
-    text_color: tuple | None,
-    comment_to_embed: str
-) -> None:
-    """
-    [新設 / D&D・画像クリップ用]
-    正規化済みの画像PDF（1ページ目=画像）に対し、
-    1ページ目に IndexKey を、
-    2ページ目（新規追加）に コメント を書き込みます。
-
-    Args:
-        pdf_path_str (str): 処理対象のPDFファイルパス (読み書きされる)。
-        font_path (str): 埋め込むフォントファイルのパス。
-        paper_width (float): 表紙ページの幅 (ポイント)。
-        paper_height (float): 表紙ページの高さ (ポイント)。
-        key_rect_tuple (tuple): IndexKeyを描画する座標 (x0, y0, x1, y1)。
-        index_key_to_embed (str): 描画するIndexKeyの文字列。
-        text_color (tuple | None): IndexKeyの文字色 (fitz形式)。
-        comment_to_embed (str): 描画するコメント文字列。
-
-    Raises:
-        Exception: PDFの読み書きやフォント埋め込みに失敗した場合。
-    """
-
-    # --- 埋め込む情報が何もなければ、処理をスキップ ---
-    if not index_key_to_embed and not comment_to_embed:
-        print(f"  [Info] 埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
-        return
-
-    doc = None
-    try:
-        doc = fitz.open(pdf_path_str)
-        if len(doc) == 0:
-            print(f"  [Error] メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}")
-            return
-
-        key_rect = fitz.Rect(key_rect_tuple)
-        font_alias = "embed_font"
-
-        # --- 1. 1ページ目に IndexKey を描画 ---
-        if index_key_to_embed:
-            page1 = doc[0]  # 既存の1ページ目（画像）を取得
-            try:
-                page1.insert_font(fontname=font_alias, fontfile=font_path)
-            except Exception as e:
-                print(f"フォント埋め込み警告 (Page 1): {e}")
-
-            # 1ページ目に直接 IndexKey を描画
-            shape1 = page1.new_shape()
-            shape1.insert_textbox(
-                key_rect, index_key_to_embed, fontname=font_alias,
-                fontsize=10, color=text_color, align=0
-            )
-            shape1.commit()
-
-        # --- 2. 2ページ目に コメント を描画 ---
-        if comment_to_embed:
-            # 2ページ目 (pno=1) に新しい白紙ページを挿入
-            page2 = doc.new_page(pno=1, width=paper_width, height=paper_height)
-            try:
-                page2.insert_font(fontname=font_alias, fontfile=font_path)
-            except Exception as e:
-                print(f"フォント埋め込み警告 (Page 2): {e}")
-
-            # 描画座標 (IndexKeyと同じマージン)
-            comment_rect = fitz.Rect(
-                key_rect.x0,
-                key_rect.y1 + 10,  # IndexKey描画位置の下から
-                page2.rect.width - 50,
-                page2.rect.height - 30
-            )
-
-            shape2 = page2.new_shape()
-            shape2.insert_textbox(
-                comment_rect, f"コメント:\n{comment_to_embed}",
-                fontname=font_alias, fontsize=9, align=0
-            )
-            shape2.commit()
-
-        # 変更を上書き保存
-        doc.saveIncr()
-
-    except Exception as e:
-        print(f"  [Error] 画像クリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
         raise  # エラーを再送出
     finally:
         if doc:
