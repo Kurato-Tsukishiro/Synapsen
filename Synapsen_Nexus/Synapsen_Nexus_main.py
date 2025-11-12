@@ -63,7 +63,8 @@ class Synapsen_Nexus(ctk.CTk):
         # --- オートコンプリート関連 ---
         self.selected_suggestion_index = -1
         self.current_suggestions = []
-        self.search_timer = None  # デバウンス（検索遅延）用タイマー
+        self.search_timer = None      # デバウンス（検索遅延）用タイマー
+        self.suggestion_timer = None  # オートコンプリート用タイマー
 
         self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
 
@@ -280,7 +281,7 @@ class Synapsen_Nexus(ctk.CTk):
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
         self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.update_suggestions)
+        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
         self.search_entry.bind("<Down>", self.navigate_suggestions)
         self.search_entry.bind("<Up>", self.navigate_suggestions)
         self.search_entry.bind("<Return>", self.confirm_suggestion)
@@ -438,7 +439,7 @@ class Synapsen_Nexus(ctk.CTk):
         if event.keysym in ("Up", "Down", "Return", "Escape"):
             return
         self.update_suggestions()
-        self.schedule_search()
+        self.schedule_suggestions()
 
     def update_suggestions(self, event=None):
         """検索バーの入力に基づき、オートコンプリートの候補を更新する。"""
@@ -718,9 +719,15 @@ class Synapsen_Nexus(ctk.CTk):
         デバウンスタイマーをキャンセルし、検索を即座に実行する。
         Enterキー押下時やチェックボックス変更時に使用する。
         """
+        # 検索のタイマー
         if self.search_timer:
             self.after_cancel(self.search_timer)
             self.search_timer = None
+
+        # 予測変換のタイマー
+        if self.suggestion_timer:
+            self.after_cancel(self.suggestion_timer)
+            self.suggestion_timer = None
 
         # 本体の検索を実行
         self.perform_search()
@@ -734,8 +741,19 @@ class Synapsen_Nexus(ctk.CTk):
         if self.search_timer:
             self.after_cancel(self.search_timer)
 
-        # 650ミリ秒後に perform_search を実行するよう予約
+        # 待機時間を 650ミリ秒 (0.65秒) に設定
         self.search_timer = self.after(650, self.perform_search)
+
+    def schedule_suggestions(self, event=None):
+        """
+        オートコンプリートの更新を遅延させる（デバウンス）。
+        IME入力のラグを解消するため、ごく短い待機時間を設定する。
+        """
+        if self.suggestion_timer:
+            self.after_cancel(self.suggestion_timer)
+
+        # 200ミリ秒 (0.2秒) 後に update_suggestions を実行
+        self.suggestion_timer = self.after(200, self.update_suggestions)
 
     def show_random_note(self):
         """
