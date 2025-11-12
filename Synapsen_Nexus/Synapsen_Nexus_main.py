@@ -63,6 +63,7 @@ class Synapsen_Nexus(ctk.CTk):
         # --- オートコンプリート関連 ---
         self.selected_suggestion_index = -1
         self.current_suggestions = []
+        self.search_timer = None  # デバウンス（検索遅延）用タイマー
 
         self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
 
@@ -221,7 +222,7 @@ class Synapsen_Nexus(ctk.CTk):
             right_button_frame, text="本文検索"
         )
         self.fts_checkbox.pack(side="left", padx=5)
-        self.fts_checkbox.configure(command=self.perform_search)
+        self.fts_checkbox.configure(command=self._trigger_search_now)
 
         # グラフ表示ボタン
         self.graph_button = ctk.CTkButton(
@@ -437,7 +438,7 @@ class Synapsen_Nexus(ctk.CTk):
         if event.keysym in ("Up", "Down", "Return", "Escape"):
             return
         self.update_suggestions()
-        self.perform_search()
+        self.schedule_search()
 
     def update_suggestions(self, event=None):
         """検索バーの入力に基づき、オートコンプリートの候補を更新する。"""
@@ -448,12 +449,22 @@ class Synapsen_Nexus(ctk.CTk):
             r'\s+(?:AND|OR)\s+', query, flags=re.IGNORECASE)[-1].strip()
 
         suggestions = []
-        if query == "" or query.upper().endswith(" AND ") or query.upper().endswith(" OR "):
+        if (
+                query == "" or
+                query.upper().endswith(" AND ") or
+                query.upper().endswith(" OR ")
+        ):
             # オペレータの後は全タグリストを表示
             suggestions = self.predefined_tags
         elif last_word:
-            # 入力中の単語で前方一致検索
-            suggestions = [tag for tag in self.predefined_tags if tag.lower().startswith(last_word.lower())]
+            # 比較を高速化するため、先に小文字化しておく
+            last_word_lower = last_word.lower()
+
+            # リスト内包表記を複数行に分割
+            suggestions = [
+                tag for tag in self.predefined_tags
+                if tag.lower().startswith(last_word_lower)
+            ]
 
         if suggestions:
             self.show_autocomplete(suggestions)
@@ -506,7 +517,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.search_entry.icursor("end")
 
         self.hide_autocomplete()
-        self.perform_search()
+        self._trigger_search_now()
 
     def hide_autocomplete(self, event=None):
         """オートコンプリートウィンドウを非表示にする。"""
@@ -541,8 +552,8 @@ class Synapsen_Nexus(ctk.CTk):
             return "break"  # 検索が二重に実行されるのを防ぐ
 
         # 候補が選択されていない場合は、通常の検索を実行
-        self.perform_search()
         self.hide_autocomplete()
+        self._trigger_search_now()
 
     # --- フィルターパネル関連メソッド ---
     def sync_filter_panel_view(self):
@@ -659,7 +670,7 @@ class Synapsen_Nexus(ctk.CTk):
             cb = ctk.CTkCheckBox(
                 row_frame, text=key, variable=var,
                 onvalue='1', offvalue='0',
-                command=self.perform_search  # チェック時に検索を再実行
+                command=self._trigger_search_now  # チェック時に検索を再実行
             )
             cb.pack(side="left", expand=True, fill="x")
 
@@ -701,6 +712,30 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.update_results_list(filtered_df)
         self.update_collapsed_filter_view()
+
+    def _trigger_search_now(self):
+        """
+        デバウンスタイマーをキャンセルし、検索を即座に実行する。
+        Enterキー押下時やチェックボックス変更時に使用する。
+        """
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+            self.search_timer = None
+
+        # 本体の検索を実行
+        self.perform_search()
+
+    def schedule_search(self):
+        """
+        検索の実行を遅延させる（デバウンス）。
+        既にあるタイマーをキャンセルし、新しいタイマーを設定する。
+        """
+        # 既存のタイマーがあればキャンセル
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+
+        # 650ミリ秒後に perform_search を実行するよう予約
+        self.search_timer = self.after(650, self.perform_search)
 
     def show_random_note(self):
         """
