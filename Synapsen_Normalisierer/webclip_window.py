@@ -418,25 +418,43 @@ class WebClipWindow(ctk.CTkToplevel):
         comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
 
         # SIST 02 書誌情報の構築
-        sist_author = self.sist_author_entry.get().strip() or "（著者不明）"
-        sist_title = self.sist_title_entry.get().strip() or "（タイトル不明）"
-        sist_site = self.sist_site_entry.get().strip() or "（サイト名不明）"
-        sist_date = self.sist_date_entry.get().strip() or "（更新日不明）"
-        sist_view_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        # 1. UIから生のテキストを取得
+        raw_sist_author = self.sist_author_entry.get().strip()
+        raw_sist_title = self.sist_title_entry.get().strip()
+        raw_sist_site = self.sist_site_entry.get().strip()
+        raw_sist_date = self.sist_date_entry.get().strip()
 
-        sist_string_formal = (
-            f"{sist_author} . “{sist_title}” . {sist_site} . {sist_date} . "
-            f"{url} , (参照 {sist_view_date})"
-        )
-        sist_string_readable = (
-            f"著者:{sist_author}\n\nページ名:\n“{sist_title}”\n\n"
-            f"サイト名:\n{sist_site}\n\n"
-            f"入手先:\n{url}\n\n更新日:{sist_date} (参照:{sist_view_date})"
-        )
+        sist_view_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        sist_string_formal = None
+        sist_string_readable = None
+
+        # 2. 何か1つでも入力がある場合のみ、書誌情報文字列を構築する
+        if (raw_sist_author or raw_sist_title or
+                raw_sist_site or raw_sist_date):
+
+            # 3. 入力がある場合のみ、デフォルト値を適用
+            sist_author = raw_sist_author or "（著者不明）"
+            sist_title = raw_sist_title or "（タイトル不明）"
+            sist_site = raw_sist_site or "（サイト名不明）"
+            sist_date = raw_sist_date or "（更新日不明）"
+
+            sist_string_formal = (
+                f"{sist_author} . “{sist_title}” . "
+                f"{sist_site} . {sist_date} . {url} , "
+                f"(参照 {sist_view_date})"
+            )
+            sist_string_readable = (
+                f"著者:{sist_author}\n\nページ名:\n“{sist_title}”\n\n"
+                f"サイト名:\n{sist_site}\n\n"
+                f"入手先:\n{url}\n\n更新日:{sist_date} (参照:{sist_view_date})"
+            )
 
         # --- 3. 出力先フォルダを選択 ---
         dest_folder = filedialog.askdirectory(
-            title="出力先フォルダを選択してください", parent=self)
+                comment_to_embed=comment_to_embed,
+                sist_string_formal=sist_string_formal,
+                sist_string_readable=sist_string_readable
+            )
         if not dest_folder:
             return
         dest_path = Path(dest_folder)
