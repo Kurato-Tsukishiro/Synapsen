@@ -1,6 +1,9 @@
 import pandas as pd
 import re  # 正規表現ライブラリをインポート
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def split_respecting_parens(query, operator):
     """
@@ -127,7 +130,7 @@ def evaluate_simple_term(df, term, include_full_text=False):
                     search_value, case=False, na=False, regex=False
                 )
         except Exception as e:
-            print(f"日付検索エラー: {e}")
+            logger.error(f"日付検索エラー: {e}")
             # エラー時は何もヒットしない (False) マスクを返す
             term_condition = pd.Series([False] * len(df), index=df.index)
 

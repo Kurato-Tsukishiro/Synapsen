@@ -22,6 +22,9 @@ from pdf_utils import (
     embed_ocr_text_in_pdf
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 SUPPORTED_EXTENSIONS = [
     ".pdf",
     ".png",
@@ -74,7 +77,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             try:
                 self.iconbitmap(default=str(self.parent_app.icon_path))
             except Exception as e:
-                print(f"Icon set error (DND Window): {e}")
+                logger.error(f"Icon set error (DND Window): {e}")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.transient(parent_app)
@@ -227,7 +230,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.grab_release()
             self.destroy()
         except Exception as e:
-            print(f"DND window close error: {e}")
+            logger.error(f"DND window close error: {e}")
 
     def on_merge_toggle(self):
         """「統合」チェックボックス切り替え時のUI制御"""
@@ -343,7 +346,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 if isinstance(item['data'], Path)
             }
             if item_data in existing_paths:
-                print(f"スキップ (既に追加済み): {original_name}")
+                logger.warning(f"スキップ (既に追加済み): {original_name}")
                 return False
 
         # 内部リストにアイテム辞書を追加
@@ -427,7 +430,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 self.on_merge_toggle()
 
         except ValueError:
-            print("エラー: 削除対象のアイテムがリストに見つかりません。")
+            logger.error("エラー: 削除対象のアイテムがリストに見つかりません。")
 
     def handle_drop(self, event: tkinterdnd2.TkinterDnD.DnDEvent) -> None:
         """
@@ -507,7 +510,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         if self.add_staged_item(p, p.stem, p.name):
                             added_files_count += 1
                     else:
-                        print(f"スキップ (無効なパスまたは非対応拡張子): {f}")
+                        logger.warning(f"スキップ (無効なパスまたは非対応拡張子): {f}")
 
                 if added_files_count > 0:
                     self.update_staged_files_label()
@@ -683,7 +686,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
-                    print(f"警告: 一時フォルダの削除に失敗しました: {e}")
+                    logger.error(f"警告: 一時フォルダの削除に失敗しました: {e}")
 
     def run_pipeline_individual(
             self, items_to_process, dest_path, temp_dir,
@@ -727,7 +730,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
                     item_data = temp_md_pdf  # 次の入力として上書き
                 except Exception as e:
-                    print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                    logger.warning(f"警告: {base_name} のMarkdown変換に失敗: {e}")
                     messagebox.showerror(
                         "Markdown変換エラー", f"{base_name} の変換に失敗しました:\n{e}",
                         parent=self
@@ -856,7 +859,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
                     item_data = temp_md_pdf
                 except Exception as e:
-                    print(f"警告: {item_original_name} のMarkdown変換に失敗: {e}")
+                    logger.error(
+                        f"警告: {item_original_name} のMarkdown変換に失敗: {e}")
                     continue
 
             # --- 1-B: 画像/PIL -> PDF ---
@@ -918,7 +922,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 for page in reader.pages:
                     writer.add_page(page)
             except Exception as e:
-                print(f"警告: {pdf_path.name} の連結に失敗: {e}")
+                logger.error(f"警告: {pdf_path.name} の連結に失敗: {e}")
 
         # 連結したPDFを一時ファイル (final_output_pdf の場所) に保存
         with open(final_output_pdf, "wb") as f:

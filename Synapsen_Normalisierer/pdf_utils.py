@@ -8,11 +8,13 @@ import pandas as pd
 from pytesseract import Output
 import csv
 import shutil
-import sys
 import re
 import subprocess
 
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
+
+import logging
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # 定数定義 (ポイント単位)
@@ -50,7 +52,7 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
         # 0-1 の浮動小数点数に変換
         return (r / 255.0, g / 255.0, b / 255.0)
     except Exception as e:
-        print(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
+        logger.error(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
         return None
 
 
@@ -91,14 +93,14 @@ def add_metadata_to_clip(
     if (not index_key_to_embed and
         not comment_to_embed and
             not sist_string_formal):
-        print(f"  [Info] 埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
+        logger.info(f"埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}")
         return
 
     doc = None
     try:
         doc = fitz.open(pdf_path_str)
         if len(doc) == 0:
-            print(f"  [Error] メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}")
+            logger.error(f"メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}")
             return
 
         key_rect = fitz.Rect(key_rect_tuple)
@@ -110,7 +112,7 @@ def add_metadata_to_clip(
             try:
                 page1.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
-                print(f"フォント埋め込み警告 (Page 1): {e}")
+                logger.warning(f"フォント埋め込み警告 (Page 1): {e}")
 
             shape1 = page1.new_shape()
             shape1.insert_textbox(
@@ -129,7 +131,7 @@ def add_metadata_to_clip(
             try:
                 page_last.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
-                print(f"フォント埋め込み警告 (Last Page): {e}")
+                logger.warning(f"フォント埋め込み警告 (Last Page): {e}")
 
             shape_last = page_last.new_shape()
 
@@ -191,7 +193,7 @@ def add_metadata_to_clip(
         doc.saveIncr()
 
     except Exception as e:
-        print(f"  [Error] Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
+        logger.error(f"Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
         raise  # エラーを再送出
     finally:
         if doc:
@@ -226,7 +228,7 @@ def high_fidelity_flatten(
     try:
         doc = fitz.open(input_path)
         if doc.is_encrypted:
-            print(f"  [Warn]暗号化されたPDFはスキップします: {Path(input_path).name}")
+            logger.warning(f"暗号化されたPDFはスキップします: {Path(input_path).name}")
             return  # 暗号化ファイルは処理せず終了
 
         font_name_in_pdf = "synapsen-embed-font"  # PDF内部で使うフォントのエイリアス名
@@ -235,7 +237,7 @@ def high_fidelity_flatten(
             try:
                 page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
             except Exception as e:
-                print(f"Info: Font insertion issue ({e}). Continuing.")
+                logger.info(f"Font insertion issue ({e}). Continuing.")
 
             # フォームウィジェットを処理
             for widget in page.widgets():
@@ -258,7 +260,7 @@ def high_fidelity_flatten(
         doc.save(output_path, garbage=4, deflate=True)
 
     except Exception as e:
-        print(f"  [Error] フラット化処理中にエラー ({input_path}): {e}")
+        logger.error(f"フラット化処理中にエラー ({input_path}): {e}")
         # エラーが発生した場合も、finally で doc.close() が呼ばれる
         raise  # エラーを再送出
 
@@ -307,7 +309,8 @@ def normalize_pdf_to_papersize(
             original_height = float(content_page.mediabox.height)
 
             if original_width == 0 or original_height == 0:
-                print(f"Skipping empty or invalid page in {input_path}")
+                logger.warning(
+                    f"Skipping empty or invalid page in {input_path}")
                 continue
 
             # 描画可能領域 (drawable_width, drawable_height) に収まるようスケーリング
@@ -334,7 +337,7 @@ def normalize_pdf_to_papersize(
             writer.write(f)
 
     except Exception as e:
-        print(f"  [Error] 正規化処理中にエラー ({input_path}): {e}")
+        logger.error(f"正規化処理中にエラー ({input_path}): {e}")
         raise
 
     # pypdf (PdfReader) は明示的な close() を必要としない
@@ -369,18 +372,18 @@ def embed_ocr_text_in_pdf(
     try:
         doc = fitz.open(pdf_path_str)
         if doc.is_encrypted:
-            print(f"  [Info] 暗号化されたPDFはスキップします: {Path(pdf_path_str).name}")
+            logger.info(f"暗号化されたPDFはスキップします: {Path(pdf_path_str).name}")
             return
 
         # 1. 高速なテキスト抽出を試みる
         meaningful_text_threshold = 10
 
         if not enable_tesseract:
-            print("  [Info] Tesseract OCR は無効です。スキップします。")
+            logger.info("Tesseract OCR は無効です。スキップします。")
             return
 
-        print(
-            "  [Info] Tesseract OCR を実行し、テキストを埋め込みます: "
+        logger.info(
+            "Tesseract OCR を実行し、テキストを埋め込みます: "
             f"{Path(pdf_path_str).name}"
         )
 
@@ -391,11 +394,11 @@ def embed_ocr_text_in_pdf(
             # 1. ページごとに既存テキストをチェック
             page_text = page.get_text("text", sort=True).strip()
             if len(page_text) > meaningful_text_threshold:
-                print(f"  [Info] Page {page_num + 1} には既存テキストがあるためスキップ。")
+                logger.info(f"Page {page_num + 1} には既存テキストがあるためスキップ。")
                 continue
 
             # --- 既存テキストがないページのみ、以下を実行 ---
-            print(f"  [Info] Tesseract OCR を実行中 (Page {page_num + 1})...")
+            logger.info(f"Tesseract OCR を実行中 (Page {page_num + 1})...")
             pages_processed_count += 1
 
             try:
@@ -410,8 +413,8 @@ def embed_ocr_text_in_pdf(
                 )
 
                 if tsv_data is None or len(tsv_data.strip()) == 0:
-                    print(
-                        "  [Warn] TesseractがTSVデータを返しませんでした "
+                    logger.warning(
+                        "TesseractがTSVデータを返しませんでした "
                         f"(Page {page_num + 1})"
                     )
                     continue
@@ -427,8 +430,8 @@ def embed_ocr_text_in_pdf(
                 df = df[df['conf'] > 30]  # 信頼度が低いものは除外
 
                 if df.empty:
-                    print(
-                        "  [Info] Tesseract OCR は実行されましたが、"
+                    logger.info(
+                        "Tesseract OCR は実行されましたが、"
                         "埋め込み可能なテキスト(conf > 30)が見つかりませんでした "
                         f"(Page {page_num + 1})。")
                     continue
@@ -465,13 +468,12 @@ def embed_ocr_text_in_pdf(
                 # このエラーは回復不能なので、ループを抜けて上位に投げる
                 raise Exception("Tesseract-OCRが見つかりません。PATHを確認してください。")
             except Exception as ocr_err:
-                print(
-                    "  [Warn] Tesseract OCRエラー (Page {page_num + 1}): "
-                    f"{ocr_err}")
+                logger.warning(
+                    f"Tesseract OCRエラー (Page {page_num + 1}): {ocr_err}")
                 continue
 
         if pages_processed_count == 0:
-            print("  [Info] OCRが実行されたページはありませんでした。")
+            logger.info("OCRが実行されたページはありませんでした。")
             return
 
         # 11. 変更を「一時ファイル」に保存
@@ -481,15 +483,15 @@ def embed_ocr_text_in_pdf(
             deflate=True,
             encryption=fitz.PDF_ENCRYPT_NONE
         )
-        print(f"  [Info] テキスト埋め込み完了 (一時ファイル): {Path(temp_output_path).name}")
+        logger.info(f"テキスト埋め込み完了 (一時ファイル): {Path(temp_output_path).name}")
 
     except Exception as e:
-        print(f"  [Error] PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}")
+        logger.error(f"PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}")
         if Path(temp_output_path).is_file():
             try:
                 Path(temp_output_path).unlink()  # エラー時は一時ファイルを削除
             except Exception as e_del:
-                print(f"  [Warn] エラー発生後の一時ファイル削除に失敗: {e_del}")
+                logger.warning(f"エラー発生後の一時ファイル削除に失敗: {e_del}")
         if doc:
             doc.close()
         raise  # TesseractNotFoundError などを上位に伝える
@@ -502,9 +504,9 @@ def embed_ocr_text_in_pdf(
     if Path(temp_output_path).is_file():
         try:
             shutil.move(temp_output_path, pdf_path_str)
-            print(f"  [Info] 元ファイルに上書き完了: {Path(pdf_path_str).name}")
+            logger.info(f"元ファイルに上書き完了: {Path(pdf_path_str).name}")
         except Exception as e_move:
-            print(f"  [Error] PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}")
+            logger.error(f"PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}")
             if Path(temp_output_path).is_file():
                 try:
                     Path(temp_output_path).unlink()
@@ -543,7 +545,7 @@ def convert_image_to_pdf(image_path: Path, output_pdf_path: Path) -> None:
         pdf_doc.save(str(output_pdf_path))
 
     except Exception as e:
-        print(f"エラー: {image_path.name} のPDF変換に失敗しました。 {e}", file=sys.stderr)
+        logger.error(f"{image_path.name} のPDF変換に失敗しました。 {e}")
         raise
     finally:
         if img_doc:
@@ -593,7 +595,7 @@ def convert_pil_image_to_pdf(
         pdf_doc.save(str(output_pdf_path))
 
     except Exception as e:
-        print(f"エラー: クリップボード画像のPDF変換に失敗しました。 {e}", file=sys.stderr)
+        logger.error(f"クリップボード画像のPDF変換に失敗しました。 {e}")
         raise
     finally:
         if img_bytes_io:
@@ -664,7 +666,7 @@ def convert_markdown_to_pdf(
         "--to", "html5",
         "-o", str(temp_html_path)
     ]
-    print(f"  [Info] Pandoc (MD->HTML) 実行: {' '.join(pandoc_cmd)}")
+    logger.info(f"Pandoc (MD->HTML) 実行: {' '.join(pandoc_cmd)}")
 
     try:
         subprocess.run(
@@ -696,7 +698,7 @@ def convert_markdown_to_pdf(
     browser = None
     page = None
     try:
-        print(f"  [Info] Playwright (HTML->PDF) 実行: {temp_html_path.name}")
+        logger.info(f"Playwright (HTML->PDF) 実行: {temp_html_path.name}")
         pw_instance = sync_playwright().start()
         browser = pw_instance.chromium.launch()
         page = browser.new_page()
@@ -712,7 +714,7 @@ def convert_markdown_to_pdf(
                 'left': '1cm', 'right': '1cm'
             }
         )
-        print(f"  [Info] Playwright PDF変換完了: {output_pdf_path.name}")
+        logger.info(f"Playwright PDF変換完了: {output_pdf_path.name}")
 
     except PlaywrightError as e:
         # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
@@ -738,13 +740,13 @@ def convert_markdown_to_pdf(
             try:
                 temp_html_path.unlink()
             except Exception as e_del:
-                print(f"  [Warn] 一時HTMLファイルの削除に失敗: {e_del}")
+                logger.warning(f"一時HTMLファイルの削除に失敗: {e_del}")
 
         if temp_modified_md_path.is_file():
             try:
                 temp_modified_md_path.unlink()
             except Exception as e_del:
-                print(
-                    f"  [Warn] 一時MDファイル({temp_modified_md_path.name})の削除に失敗: "
+                logger.warning(
+                    f"一時MDファイル({temp_modified_md_path.name})の削除に失敗: "
                     f"{e_del}"
                 )

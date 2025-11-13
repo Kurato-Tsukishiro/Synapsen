@@ -7,6 +7,9 @@ from pathlib import Path
 import customtkinter as ctk
 
 # --- ローカルモジュールのインポート ---
+# ロギング設定
+import logging
+
 # サブウィンドウ
 from dnd_window import DragAndDropWindow
 from webclip_window import WebClipWindow
@@ -27,6 +30,35 @@ A5_WIDTH = 419.528
 A5_HEIGHT = 595.276
 
 SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
+
+# ==============================================================================
+# ロギング設定の初期化
+# ==============================================================================
+# 親ディレクトリ(ルート)をパスに追加して logging_setup.py をインポート可能にする
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+try:
+    from logging_setup import setup_logging
+    # アプリ名を指定して初期化
+    setup_logging("Synapsen_Normalisierer")
+    logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
+except ImportError:
+    # logging_setup.py がない場合のフォールバック（print出力）
+    print("Warning: logging_setup.py not found. Logging disabled.")
+
+    class MockLogger:
+        def info(self, msg): print(f"[INFO] {msg}")
+
+        def error(self, msg, exc_info=None):
+            print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
+
+        def warning(self, msg): print(f"[WARN] {msg}")
+
+    logger = MockLogger()
+# ==============================================================================
 
 
 class Synapsen_Normalisierer(ctk.CTk):
@@ -136,7 +168,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             if icon_path.is_file():
                 return icon_path
         except Exception as e:
-            print(f"Error finding icon path: {e}")
+            logger.error(f"Error finding icon path: {e}")
         return None
 
     def _load_config(self) -> None:
@@ -172,7 +204,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.font_path = None
                 return
 
-            print(f"[DEBUG] Loading config from: {config_path}")
+            logger.debug(f"Loading config from: {config_path}")
 
             config_dir = os.path.dirname(config_path)
             config = configparser.ConfigParser(interpolation=None)
@@ -405,7 +437,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                         # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
                         item_data = temp_converted_md_pdf
                     except Exception as e:
-                        print(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                        logger.warning(f"警告: {base_name} のMarkdown変換に失敗: {e}")
                         # pandoc がない場合など
                         messagebox.showerror(
                             "Markdown変換エラー",
@@ -432,7 +464,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                                 input_file_path, temp_converted_pdf)
                             path_to_flatten = temp_converted_pdf
                         except Exception as e:
-                            print(f"警告: {base_name} のPDF変換に失敗: {e}")
+                            logger.warning(f"警告: {base_name} のPDF変換に失敗: {e}")
                             continue  # このファイルはスキップ
                     else:
                         # 入力アイテムがPDF (またはMDから変換されたPDF) の場合
@@ -445,7 +477,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                         convert_pil_image_to_pdf(item_data, temp_converted_pdf)
                         path_to_flatten = temp_converted_pdf
                     except Exception as e:
-                        print(f"警告: {base_name} (クリップボード) のPDF変換に失敗: {e}")
+                        logger.warning(
+                            f"警告: {base_name} (クリップボード) のPDF変換に失敗: {e}")
                         continue  # このアイテムはスキップ
 
                 # --- [ステップ2: フラット化 (フォームのテキスト化)] ---
@@ -500,7 +533,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception as e:
-                    print(f"警告: 一時フォルダの削除に失敗しました: {e}")
+                    logger.warning(f"一時フォルダの削除に失敗しました: {e}")
 
 
 if __name__ == "__main__":
@@ -512,8 +545,8 @@ if __name__ == "__main__":
             # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
             app.iconbitmap(default=str(app.icon_path))
         except Exception as e:
-            print(f"Icon default setting error: {e}")
+            logger.error(f"Icon default setting error: {e}")
     else:
-        print("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
 
     app.mainloop()

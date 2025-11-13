@@ -13,10 +13,40 @@ import configparser
 import sqlite3
 import pandas as pd
 
+import logging
 import PDFMargeHelper as Helper
 import pdf_processor as Process
 import latex_generator as Generator
 import gui_dialogs as Dialogs
+
+# ==============================================================================
+# ロギング設定の初期化
+# ==============================================================================
+# 親ディレクトリ(ルート)をパスに追加して logging_setup.py をインポート可能にする
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+try:
+    from logging_setup import setup_logging
+    # アプリ名を指定して初期化
+    setup_logging("Synapsen_Normalisierer")
+    logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
+except ImportError:
+    # logging_setup.py がない場合のフォールバック（print出力）
+    print("Warning: logging_setup.py not found. Logging disabled.")
+
+    class MockLogger:
+        def info(self, msg): print(f"[INFO] {msg}")
+
+        def error(self, msg, exc_info=None):
+            print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
+
+        def warning(self, msg): print(f"[WARN] {msg}")
+
+    logger = MockLogger()
+# ==============================================================================
 
 
 # ==============================================================================
@@ -125,7 +155,7 @@ class Synapsen_Ersteller(ctk.CTk):
             if icon_path.is_file():
                 return icon_path
         except Exception as e:
-            print(f"Error finding icon path: {e}")
+            logger.error(f"Error finding icon path: {e}")
         return None
 
     def load_config(self):
@@ -146,7 +176,7 @@ class Synapsen_Ersteller(ctk.CTk):
             config_path = os.path.join(
                 os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
                 )
-        print(f"[DEBUG] Loading config from: {config_path}")
+        logger.debug(f"Loading config from: {config_path}")
 
         # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)
@@ -200,14 +230,13 @@ class Synapsen_Ersteller(ctk.CTk):
         if os.path.isabs(expanded_path):
             # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合、そのまま使用
             self.font_path = expanded_path
-            # print(f"[DEBUG] Font path is ABSOLUTE: {self.font_path}")
+            logger.debug(f"Font path is ABSOLUTE: {self.font_path}")
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.font_path = os.path.join(config_dir, expanded_path)
-            # print(
-            #     "[DEBUG] Font path is RELATIVE," +
-            #     f" resolved to: {self.font_path}"
-            #    )
+            logger.debug(
+                f"Font path is RELATIVE, resolved to: {self.font_path}"
+            )
 
         # 5. tags_data_pathの解決
         tags_path_from_config = config.get(
@@ -231,7 +260,7 @@ class Synapsen_Ersteller(ctk.CTk):
 
         if not expanded_path:
             self.default_db_path = None
-            print("DEBUG: config.ini [Paths][database_path] が未設定です。")
+            logger.debug("config.ini [Paths][database_path] が未設定です。")
         elif os.path.isabs(expanded_path):
             self.default_db_path = expanded_path
         else:
@@ -244,7 +273,7 @@ class Synapsen_Ersteller(ctk.CTk):
             'Automation', 'auto_append_to_default_db', fallback=False
             )
         if self.auto_append_db and not self.default_db_path:
-            print(
+            logger.warning(
                 "警告: auto_append_to_default_db が True ですが、" +
                 "database_path が未設定のため無効化されます。"
             )
@@ -260,12 +289,12 @@ class Synapsen_Ersteller(ctk.CTk):
         if self.paper_size == 'A5':
             self.paper_width = Helper.A5_WIDTH
             self.paper_height = Helper.A5_HEIGHT
-            print("[DEBUG] Ersteller paper size set to A5")
+            logger.debug("Ersteller paper size set to A5")
         else:
             self.paper_size = 'A4'  # 不正な値はA4に
             self.paper_width = Helper.A4_WIDTH
             self.paper_height = Helper.A4_HEIGHT
-            print("[DEBUG] Ersteller paper size set to A4")
+            logger.debug("Ersteller paper size set to A4")
 
         self.latex_font = config.get('LaTeX', 'font', fallback='Yu Gothic')
         self.latex_author = config.get('LaTeX', 'author', fallback='Your Name')
@@ -285,10 +314,10 @@ class Synapsen_Ersteller(ctk.CTk):
             if tag_file.is_file():
                 with open(tag_file, "r", encoding="utf-8") as f:
                     self.predefined_tags = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-                print(f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。")
-                # print(f"{self.tags_data_path}")
+                logger.info(f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。")
+                logger.debug(f"{self.tags_data_path}")
         except Exception as e:
-            print(f"tags.txtの読み込み中にエラーが発生しました: {e}")
+            logger.error(f"tags.txtの読み込み中にエラーが発生しました: {e}")
 
     def save_to_csv(self):
         if not self.all_notes_info:
@@ -365,7 +394,7 @@ class Synapsen_Ersteller(ctk.CTk):
             df_new_notes['key'].notna() & (df_new_notes['key'] != '')
         ]
         if df_new_notes.empty:
-            print("DB追記対象のノート（有効なKeyを持つもの）がありません。")
+            logger.info("DB追記対象のノート（有効なKeyを持つもの）がありません。")
             return
 
         # タグリストを ';' 区切りの文字列に変換
@@ -384,14 +413,14 @@ class Synapsen_Ersteller(ctk.CTk):
                     f"SELECT key FROM {table_name}", conn
                 )['key'])
             except pd.io.sql.DatabaseError:
-                print(f"テーブル '{table_name}' が存在しません。新規に作成します。")
+                logger.info(f"テーブル '{table_name}' が存在しません。新規に作成します。")
 
             # 3. 既存キーと重複しないノートのみをフィルタリング
             keys_to_append = df_new_notes['key']
             df_to_append = df_new_notes[~keys_to_append.isin(existing_keys)]
 
             if df_to_append.empty:
-                print("DBに追記する新規ノートはありません（すべて重複）。")
+                logger.info("DBに追記する新規ノートはありません（すべて重複）。")
                 conn.close()
                 return
 
@@ -417,7 +446,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 if_exists='append',
                 index=False
             )
-            print(
+            logger.info(
                 f"{len(df_final_append)} 件の新規ノートを " +
                 f"{master_db_path.name} に追記しました。")
 
@@ -505,7 +534,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     keys_inherited_count += 1
 
         if keys_inherited_count > 0:
-            print(f"DEBUG: {keys_inherited_count}件のサイドノートにIndex Keyを継承しました。")
+            logger.debug(f"{keys_inherited_count}件のサイドノートにIndex Keyを継承しました。")
 
         self.all_notes_info.sort(key=lambda note: (note['date'], note['time']))
         self.deselect_all()  # 読み込み時は選択をリセット
@@ -655,15 +684,15 @@ class Synapsen_Ersteller(ctk.CTk):
                         if not extracted_text:
                             missing_text_count += 1
                     except Exception as e:
-                        print(f"警告: {pdf_path.name} のfull_text抽出に失敗: {e}")
+                        logger.warning(f"{pdf_path.name} のfull_text抽出に失敗: {e}")
                 else:
-                    print(
+                    logger.warning(
                         f"警告: {note.get('title')} のファイルパスが見つかりません" +
                         "（full_text取得不可）。"
                         )
 
         if missing_text_count > 0:
-            print(
+            logger.info(
                 f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした" +
                 "（画像のみのPDFの可能性）。")
 
@@ -723,9 +752,10 @@ class Synapsen_Ersteller(ctk.CTk):
                     errors='ignore'
                 )
                 if "Output written on" not in process.stdout:
-                    print(f"--- LaTeX Compilation Error (Pass {i+1}) ---")
-                    print(process.stdout)
-                    print(process.stderr)
+                    logger.error(
+                        f"--- LaTeX Compilation Error (Pass {i+1}) ---")
+                    logger.error(process.stdout)
+                    logger.error(process.stderr)
                     messagebox.showerror(
                         "LaTeX エラー",
                         f"PDFのコンパイルに失敗しました。(Pass {i+1})\n詳細はターミナルを確認してください。"
@@ -774,16 +804,16 @@ class Synapsen_Ersteller(ctk.CTk):
                     f"検索したタイトル:\n'{expected_outline_title}'\n\n"
                     "CSVやファイル名に特殊文字が含まれていないか確認してください。"
                 )
-                print("--- PDF Outline Search Debug ---")
-                print(f"Searching for: '{expected_outline_title}'")
-                print("Available outline items:")
+                logger.error("--- PDF Outline Search Debug ---")
+                logger.error(f"Searching for: '{expected_outline_title}'")
+                logger.error("Available outline items:")
 
                 def print_outline(items, indent=0):
                     for item in items:
                         if isinstance(item, list):
                             print_outline(item, indent + 1)
                         elif hasattr(item, 'title'):
-                            print('  ' * indent + f"- '{item.title}'")
+                            logger.info('  ' * indent + f"- '{item.title}'")
                 print_outline(draft_reader.outline)
                 return
 
@@ -835,7 +865,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 original_reader = PdfReader(note["filepath"])
                 for i in range(len(original_reader.pages)):
                     if note_page_cursor >= index_start_page:
-                        print(f"ページ数計算エラー:note_page_cursor({
+                        logger.error(f"ページ数計算エラー:note_page_cursor({
                             note_page_cursor})が上限({index_start_page})を超えました。")
                         continue
 
@@ -1071,7 +1101,7 @@ class Synapsen_Ersteller(ctk.CTk):
         選択中のすべてのノートのデータを変更する。
         """
         if index_key_to_set is None and not tags_to_add and not tags_to_remove:
-            print("一括編集: 変更内容がありません。")
+            logger.info("一括編集: 変更内容がありません。")
             return
 
         modified_count = 0
@@ -1101,7 +1131,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 note['tags'] = sorted(list(current_tags))
                 modified_count += 1
 
-        print(f"{modified_count} 件のノートを一括編集しました。")
+        logger.info(f"{modified_count} 件のノートを一括編集しました。")
 
         # 変更をUIに反映
         self.deselect_all()  # 選択解除 (UI再描画も含まれる)
@@ -1115,8 +1145,8 @@ if __name__ == "__main__":
             # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
             app.iconbitmap(default=str(app.icon_path))
         except Exception as e:
-            print(f"Icon default setting error: {e}")
+            logger.error(f"Icon default setting error: {e}")
     else:
-        print("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
 
     app.mainloop()

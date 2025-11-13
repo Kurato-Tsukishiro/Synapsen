@@ -1,6 +1,9 @@
 from pathlib import Path
 import PDFMargeHelper as Helper
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def create_latex_source(notes_info, config, title, paper_size="A4"):
     """

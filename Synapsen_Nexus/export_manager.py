@@ -8,6 +8,9 @@ import fitz  # PyMuPDF (プレースホルダー生成用に追加)
 # グラフ出力のためにGraphManagerを利用
 from graph_manager import GraphManager
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class ExportManager:
     def __init__(self, config_data):
@@ -77,7 +80,7 @@ class ExportManager:
                 try:
                     shutil.rmtree(final_export_dir)
                 except Exception as e_del:
-                    print(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
+                    logger.error(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
                     pass
             raise e
 
@@ -113,7 +116,7 @@ class ExportManager:
             try:
                 page_count = int(row.get('pages', 0))
             except Exception as e:
-                print(f"ページ数の取得エラー: {e}")
+                logger.error(f"ページ数の取得エラー: {e}")
                 page_count = 0
 
             pdf_source_path = None
@@ -154,7 +157,7 @@ class ExportManager:
                 try:
                     reader = PdfReader(pdf_source_path)
                 except Exception as e:
-                    print(
+                    logger.error(
                         "[ExportManager] PDF read error "
                         f"({pdf_source_path.name}): {e}"
                     )
@@ -162,7 +165,7 @@ class ExportManager:
 
             # ソースがない、または読み込みエラーの場合はフォールバック生成
             if reader is None:
-                print(
+                logger.info(
                     "[ExportManager] Creating fallback page for: "
                     f"{note_title}"
                 )
@@ -202,7 +205,7 @@ class ExportManager:
                     processed_count += 1
 
                 except Exception as e:
-                    print(f"[ExportManager] PDF add page error: {e}")
+                    logger.error(f"[ExportManager] PDF add page error: {e}")
 
         if processed_count > 0:
             with open(save_path, "wb") as f:
@@ -258,7 +261,7 @@ class ExportManager:
             return PdfReader(io.BytesIO(pdf_bytes))
 
         except Exception as e:
-            print(f"[ExportManager] Fallback generation failed: {e}")
+            logger.error(f"[ExportManager] Fallback generation failed: {e}")
             return None
 
     def _save_meta_txt(self, dir_path, mode, count, query):

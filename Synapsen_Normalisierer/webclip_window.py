@@ -10,6 +10,9 @@ import urllib.request  # Content-Type取得 / ダウンロード用
 
 from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- Playwright インポート ---
 sync_playwright = None
 PlaywrightError = Exception
@@ -79,7 +82,7 @@ class WebClipWindow(ctk.CTkToplevel):
             try:
                 self.iconbitmap(default=str(self.parent_app.icon_path))
             except Exception as e:
-                print(f"Icon set error (WebClip Window): {e}")
+                logger.error(f"Icon set error (WebClip Window): {e}")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.transient(parent_app)
@@ -212,24 +215,24 @@ class WebClipWindow(ctk.CTkToplevel):
             try:
                 self.page.close()
             except Exception as e:
-                print(f"Playwright page close error: {e}")
+                logger.error(f"Playwright page close error: {e}")
         if self.browser:
             try:
                 self.browser.close()
             except Exception as e:
-                print(f"Playwright browser close error: {e}")
+                logger.error(f"Playwright browser close error: {e}")
         if self.playwright_context:
             try:
                 self.playwright_context.stop()
             except Exception as e:
-                print(f"Playwright context stop error: {e}")
+                logger.error(f"Playwright context stop error: {e}")
 
         # 一時フォルダのクリーンアップ
         if self.temp_dir and self.temp_dir.exists():
             try:
                 shutil.rmtree(self.temp_dir)
             except Exception as e:
-                print(f"WebClip一時フォルダの削除に失敗: {e}")
+                logger.error(f"WebClip一時フォルダの削除に失敗: {e}")
 
         self.grab_release()
         self.destroy()
@@ -262,7 +265,7 @@ class WebClipWindow(ctk.CTkToplevel):
                     'Content-Type', 'text/html'
                 ).lower()
         except Exception as http_err:
-            print(f"Content-Typeの取得リクエストに失敗: {http_err}")
+            logger.error(f"Content-Typeの取得リクエストに失敗: {http_err}")
             # 失敗したらHTMLとして続行を試みる
             self.fetched_content_type = 'text/html'
 
@@ -363,7 +366,7 @@ class WebClipWindow(ctk.CTkToplevel):
 
         except (PlaywrightTimeoutError, PlaywrightError) as e:
             # 5. タイムアウト時のロジック (page.title と urlparse のみ取得)
-            print(f"ページ読み込みがタイムアウトしました: {e}")
+            logger.warning(f"ページ読み込みがタイムアウトしました: {e}")
             self.status_label.configure(
                 text="タイムアウト。簡易情報(タイトル/ドメイン)を取得します...",
                 text_color="orange"
@@ -580,8 +583,7 @@ class WebClipWindow(ctk.CTkToplevel):
             PlaywrightTimeoutError,
             urllib.error.URLError
         ) as e:
-            # [修正] ダウンロードエラーとPlaywrightエラーを両方捕捉
-            print(f"PDFの印刷またはダウンロードに失敗: {e}")
+            logger.error(f"PDFの印刷またはダウンロードに失敗: {e}")
             self.status_label.configure(text="印刷失敗。最小限の簡易PDFを生成します...")
             self.update_idletasks()
             try:

@@ -2,6 +2,9 @@ import customtkinter as ctk
 from tkinter import messagebox
 import json
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # ==============================================================================
 # 検索削除用ウィンドウ
@@ -23,7 +26,7 @@ class ManageSearchesWindow(ctk.CTkToplevel):
             try:
                 self.iconbitmap(default=str(self.parent_app.icon_path))
             except Exception as e:
-                print(f"Icon set error (ManageSearches): {e}")
+                logger.error(f"Icon set error (ManageSearches): {e}")
 
         self.transient(parent_app)
         self.grab_set()
@@ -125,7 +128,7 @@ class SavedSearchManager:
                         self.saved_searches_path, 'r', encoding='utf-8') as f:
                     self.saved_searches = json.load(f)
             except Exception as e:
-                print(f"saved_searches.json の読み込みに失敗: {e}")
+                logger.error(f"saved_searches.json の読み込みに失敗: {e}")
                 self.saved_searches = {}
         else:
             self.saved_searches = {}

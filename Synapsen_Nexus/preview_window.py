@@ -3,8 +3,11 @@ import customtkinter as ctk
 # utilsからメモ欄構築関数をインポート
 from utils import (
     build_memo_display, find_backlinks_df, build_references_display,
-    get_pdf_page_image  # <-- [追加] PDF画像化ヘルパーをインポート
+    get_pdf_page_image
 )
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
@@ -44,7 +47,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error: {e}")
+                    logger.error(f"Initial icon set error: {e}")
 
         title = self.note_data.get('title', 'N/A')
         self.title(f"プレビュー: {title}")
