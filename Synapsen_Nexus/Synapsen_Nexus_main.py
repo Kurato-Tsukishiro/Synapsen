@@ -485,12 +485,11 @@ class Synapsen_Nexus(ctk.CTk):
             widget.destroy()
 
         for i, suggestion in enumerate(suggestions):
-            for i, suggestion in enumerate(suggestions):
-                # 選択中のインデックスに基づいてハイライト色を決定
-                if i == self.selected_suggestion_index:
-                    fg_color = "gray30"
-                else:
-                    fg_color = "transparent"
+            # 選択中のインデックスに基づいてハイライト色を決定
+            if i == self.selected_suggestion_index:
+                fg_color = "gray30"
+            else:
+                fg_color = "transparent"
 
             btn = ctk.CTkButton(
                 self.autocomplete_frame, text=suggestion, fg_color=fg_color,
