@@ -1,7 +1,9 @@
 import shutil
 import datetime
+import io
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
+import fitz  # PyMuPDF (プレースホルダー生成用に追加)
 
 # グラフ出力のためにGraphManagerを利用
 from graph_manager import GraphManager
@@ -48,7 +50,6 @@ class ExportManager:
             self._save_full_text(final_export_dir, target_df)
 
             # 4. グラフ (HTML)
-            # 保存先パスを指定してGraphManagerを呼び出す
             graph_path = final_export_dir / "relation_graph.html"
             GraphManager.generate_graph_html(
                 target_df,
@@ -62,7 +63,11 @@ class ExportManager:
             # 5. 統合PDF (オプション)
             if include_pdf:
                 pdf_save_path = final_export_dir / "Merged_Notes.pdf"
-                self.merge_pdf(target_df, pdf_save_path, pdf_root_folder)
+                self.merge_pdf(
+                    target_df,
+                    pdf_save_path, pdf_root_folder,
+                    loaded_db_path
+                )
 
             return True, final_export_dir
 
@@ -76,57 +81,185 @@ class ExportManager:
                     pass
             raise e
 
-    def merge_pdf(self, target_df, save_path, pdf_root_folder):
+    def merge_pdf(
+            self, target_df,
+            save_path, pdf_root_folder,
+            loaded_db_path=None
+    ):
         """
         DataFrame内のPDFを結合し、しおりを付けて保存する。
+        統合PDF -> 元PDF -> フォールバック(代替ページ) の順で取得を試みる。
         """
         writer = PdfWriter()
         processed_count = 0
         current_page_index = 0
 
         for _, row in target_df.iterrows():
-            filepath_str = row.get('filepath', '')
-            if not filepath_str:
-                continue
+            # ノート情報の取得
+            note_title = row.get('title', 'No Title')
+            note_key = row.get('key', 'Unknown Key')
+            date_str = row.get('date', '??????')
 
-            pdf_path = Path(filepath_str)
-            if not pdf_path.is_absolute() and pdf_root_folder:
-                pdf_path = Path(pdf_root_folder) / pdf_path
+            if len(date_str) == 8:
+                fmt_date = f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:]}"
+            else:
+                fmt_date = date_str
 
-            if pdf_path.is_file():
+            bookmark_title = f"{fmt_date} {note_title}"
+
+            # --- 戦略 A: 統合PDF (月刊ノート) から取得 ---
+            merged_filename = row.get('merged_pdf_filename')
+            merged_start_page_str = row.get('merged_start_page')
+            try:
+                page_count = int(row.get('pages', 0))
+            except Exception as e:
+                print(f"ページ数の取得エラー: {e}")
+                page_count = 0
+
+            pdf_source_path = None
+            source_type = None  # "merged" or "original" or "fallback"
+            start_p = 0
+
+            # 1. 統合PDFのパスを確認
+            if loaded_db_path and merged_filename:
+                potential_path = Path(loaded_db_path).parent / merged_filename
+                if (
+                        potential_path.is_file()
+                        and merged_start_page_str
+                        and str(merged_start_page_str).isdigit()
+                ):
+                    pdf_source_path = potential_path
+                    # DBは1始まり、pypdfは0始まりなので -1
+                    start_p = int(merged_start_page_str) - 1
+                    source_type = "merged"
+
+            # 2. 統合PDFがなければ、元のPDFを確認
+            if not pdf_source_path:
+                filepath_str = row.get('filepath', '')
+                if filepath_str:
+                    potential_path = Path(filepath_str)
+                    if not potential_path.is_absolute() and pdf_root_folder:
+                        potential_path = Path(pdf_root_folder) / potential_path
+
+                    if potential_path.is_file():
+                        pdf_source_path = potential_path
+                        start_p = 0
+                        source_type = "original"
+
+            # --- PDF結合処理 ---
+            reader = None
+
+            # ソースが見つかった場合
+            if pdf_source_path:
                 try:
-                    reader = PdfReader(pdf_path)
+                    reader = PdfReader(pdf_source_path)
+                except Exception as e:
+                    print(
+                        "[ExportManager] PDF read error "
+                        f"({pdf_source_path.name}): {e}"
+                    )
+                    reader = None
 
-                    # しおり追加 (YYYY/MM/DD Title)
-                    date_str = row.get('date', '??????')
-                    if len(date_str) == 8:
-                        yyyy = date_str[:4]
-                        mm = date_str[4:6]
-                        dd = date_str[6:]
-                        fmt_date = f"{yyyy}/{mm}/{dd}"
-                    else:
-                        fmt_date = date_str
+            # ソースがない、または読み込みエラーの場合はフォールバック生成
+            if reader is None:
+                print(
+                    "[ExportManager] Creating fallback page for: "
+                    f"{note_title}"
+                )
+                reader = self._create_fallback_page_reader(
+                    note_title, fmt_date, note_key)
+                source_type = "fallback"
+                # フォールバックページは常に1ページとみなす
+                start_p = 0
+                page_count = 1
 
-                    title = row.get('title', 'No Title')
-                    bookmark_title = f"{fmt_date} {title}"
+            # ページ追加実行
+            if reader:
+                try:
+                    # しおり追加 (現在のページ位置)
                     writer.add_outline_item(bookmark_title, current_page_index)
 
-                    for page in reader.pages:
-                        writer.add_page(page)
+                    if source_type == "merged":
+                        # 統合PDF: 指定範囲だけ追加
+                        pages_to_add = page_count if page_count > 0 else 1
+                        for i in range(pages_to_add):
+                            p_idx = start_p + i
+                            if 0 <= p_idx < len(reader.pages):
+                                writer.add_page(reader.pages[p_idx])
+                                current_page_index += 1
+
+                    elif source_type == "original":
+                        # 元PDF: 全ページ追加
+                        for page in reader.pages:
+                            writer.add_page(page)
+                            current_page_index += 1
+
+                    elif source_type == "fallback":
+                        # フォールバック: 生成された1ページを追加
+                        writer.add_page(reader.pages[0])
                         current_page_index += 1
 
                     processed_count += 1
+
                 except Exception as e:
-                    print(
-                        "[ExportManager] PDF merge warning "
-                        f"({pdf_path.name}): {e}"
-                    )
+                    print(f"[ExportManager] PDF add page error: {e}")
 
         if processed_count > 0:
             with open(save_path, "wb") as f:
                 writer.write(f)
             return True
         return False
+
+    def _create_fallback_page_reader(self, title, date, key):
+        """
+        PyMuPDFを使用して「ファイルが見つかりません」というPDFページをオンメモリで生成し、
+        pypdf.PdfReader オブジェクトとして返す。
+        """
+        try:
+            doc = fitz.open()
+            page = doc.new_page(width=595, height=842)   # A4 size
+
+            # デザイン設定
+            rect_header = fitz.Rect(50, 100, 545, 200)
+            rect_body = fitz.Rect(50, 220, 545, 500)
+
+            # ヘッダー（警告）
+            page.insert_textbox(
+                rect_header,
+                "FILE NOT FOUND",
+                fontsize=24,
+                fontname="helv",
+                color=(1, 0, 0),  # Red
+                align=1  # Center
+            )
+
+            # 詳細情報
+            info_text = (
+                f"Original file is missing or inaccessible.\n\n"
+                f"Date: {date}\n"
+                f"Title: {title}\n"
+                f"Key: {key}\n\n"
+                f"This placeholder preserves the page order."
+            )
+
+            page.insert_textbox(
+                rect_body,
+                info_text,
+                fontsize=14,
+                fontname="helv",
+                align=0  # Left
+            )
+
+            # メモリ上にPDFを保存
+            pdf_bytes = doc.tobytes()
+            doc.close()
+
+            # BytesIOを経由してpypdfで読み込む
+            return PdfReader(io.BytesIO(pdf_bytes))
+
+        except Exception as e:
+            print(f"[ExportManager] Fallback generation failed: {e}")
+            return None
 
     def _save_meta_txt(self, dir_path, mode, count, query):
         mode_str = '選択アイテムのみ' if mode == 'selected_items' else '検索結果全体'
@@ -140,7 +273,6 @@ class ExportManager:
     def _save_csv(self, dir_path, df):
         csv_path = dir_path / "metadata.csv"
         df_export = df.drop(columns=['full_text'], errors='ignore')
-        # リスト型のタグを文字列に戻す
         if 'tags' in df_export.columns:
             df_export['tags'] = df_export['tags'].apply(
                 lambda x: ";".join(x) if isinstance(x, list) else str(x)
@@ -154,6 +286,5 @@ class ExportManager:
             key = row.get('key')
             if key:
                 text = row.get('full_text', '')
-                # ファイル名はKeyを使用
                 with open(text_dir / f"{key}.txt", 'w', encoding='utf-8') as f:
                     f.write(text)
