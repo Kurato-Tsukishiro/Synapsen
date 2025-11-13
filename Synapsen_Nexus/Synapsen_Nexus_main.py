@@ -10,6 +10,7 @@ from pyvis.network import Network
 import datetime
 import shutil
 from textwrap import dedent
+from pypdf import PdfReader, PdfWriter
 
 # 分割したモジュールをインポート
 from utils import (
@@ -230,7 +231,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.selection_info_label.pack(side="left", padx=(10, 0))
 
         # グラフメニュー
-        self.graph_menu_var = ctk.StringVar(value="グラフ表示 ▼")
+        self.graph_menu_var = ctk.StringVar(value="グラフ表示")
 
         self.graph_menu = ctk.CTkOptionMenu(
             right_button_frame,
@@ -255,16 +256,18 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.copy_links_button.pack(side="left", padx=(5, 0))
 
-        # エクスポートボタン
-        self.export_button = ctk.CTkButton(
+        # エクスポートメニュー
+        self.export_menu_var = ctk.StringVar(value="エクスポート")
+        self.export_menu = ctk.CTkOptionMenu(
             right_button_frame,
-            text="エクスポート",
-            command=self.export_search_results,
-            width=90,
-            fg_color="#17a2b8",    # シアン系 (出力・情報アクションとして区別)
-            hover_color="#138496"
+            variable=self.export_menu_var,
+            values=["データ (CSV/TXT)", "統合PDF (Merge)", "全て (Data + PDF)"],
+            command=self.handle_export_menu,
+            width=140,
+            fg_color="#17a2b8",  # シアン系 (出力・情報アクションとして区別)
+            button_color="#138496"
         )
-        self.export_button.pack(side="left", padx=(5, 0))
+        self.export_menu.pack(side="left", padx=(5, 0))
 
         # 選択解除ボタン
         self.clear_selection_button = ctk.CTkButton(
@@ -487,7 +490,20 @@ class Synapsen_Nexus(ctk.CTk):
             self.show_selected_graph()
 
         # 処理後、メニューの表示を元に戻してボタンのように振る舞わせる
-        self.graph_menu.set("グラフ表示 ▼")
+        self.graph_menu.set("グラフ表示")
+
+    def handle_export_menu(self, choice):
+        if choice == "データ (CSV/TXT)":
+            # (情報)エクスポートメソッドを呼び出す
+            self.export_search_results(include_pdf=False)
+        elif choice == "統合PDF (Merge)":
+            # PDF結合メソッドを呼び出す
+            self.merge_and_export_pdf()
+        elif choice == "全て (Data + PDF)":
+            # 情報及び統合PDF出力を両方呼び出す
+            self.export_search_results(include_pdf=True)
+
+        self.export_menu.set("エクスポート")
 
     # --- オートコンプリート関連メソッド ---
     def handle_keyrelease(self, event):
@@ -1627,10 +1643,10 @@ class Synapsen_Nexus(ctk.CTk):
         self.generate_and_show_graph(target_df=local_df)
 
     # --- エクスポート機能 ---
-    def export_search_results(self):
+    def export_search_results(self, include_pdf=False):
         """
-        「エクスポート」ボタン押下時。
-        [変更] 選択中のノートがある場合はそれらを、なければ現在の検索結果全体をエクスポートする。
+        検索結果(または選択中)のデータをエクスポートする。
+        include_pdf=True の場合、同じフォルダに統合PDFも生成する。
         """
         target_df = None
         export_mode = "search_results"  # メッセージ用
@@ -1734,6 +1750,30 @@ class Synapsen_Nexus(ctk.CTk):
             self.generate_and_show_graph(
                 output_path=graph_html_path, target_df=target_df)
 
+            if include_pdf:
+                pdf_save_path = final_export_dir / "Merged_Notes.pdf"
+                # 共通のPDF結合処理を呼び出す
+                merge_result = self._execute_pdf_merge(
+                    target_df, pdf_save_path)
+
+                if not merge_result:
+                    # 失敗時
+                    messagebox.showwarning(
+                        "PDF結合警告", "PDFの結合に失敗したか、対象ファイルがありませんでした。",
+                        parent=self
+                    )
+
+            # 完了メッセージ
+            msg = f"エクスポートが完了しました。\n保存先: {final_export_dir}"
+            if include_pdf:
+                msg += "\n(統合PDFも含みます)"
+
+            messagebox.showinfo("完了", msg, parent=self)
+
+        except Exception as e:
+            print(f"エクスポート処理中にエラー: {e}")
+            messagebox.showerror("エクスポートエラー", f"失敗しました:\n{e}", parent=self)
+
             messagebox.showinfo(
                 "エクスポート完了",
                 f"検索結果を指定のフォルダに保存しました:\n\n"
@@ -1756,6 +1796,112 @@ class Synapsen_Nexus(ctk.CTk):
                     shutil.rmtree(final_export_dir)
                 except Exception as e_del:
                     print(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
+
+    def merge_and_export_pdf(self):
+        """メニューから「統合PDF」単体を選んだ場合のラッパー"""
+        # 1. 対象データの決定
+        target_df = None
+        if self.selected_keys:
+            if self.df is not None:
+                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+        else:
+            target_df = self.filtered_df_cache
+
+        if target_df is None or target_df.empty:
+            messagebox.showinfo("PDF結合", "出力対象のノートがありません。", parent=self)
+            return
+
+        # 2. 保存先ダイアログ (単体の場合はファイル保存ダイアログ)
+        time_text = datetime.datetime.now().strftime('%Y%m%d')
+        save_path = filedialog.asksaveasfilename(
+            title="統合PDFを保存",
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=f"Merged_Notes_{time_text}.pdf"
+        )
+        if not save_path:
+            return
+
+        # 3. 実行
+        if self._execute_pdf_merge(target_df, Path(save_path)):
+            messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
+        else:
+            messagebox.showwarning(
+                "失敗", "結合できるPDFファイルが見つかりませんでした。", parent=self)
+
+    def _execute_pdf_merge(self, target_df, save_path: Path):
+        """
+        指定されたDataFrameのノートをPDF結合し、save_pathに保存する。
+        同時に「しおり(Bookmark)」を追加する。
+        """
+        try:
+            writer = PdfWriter()
+            processed_count = 0
+            current_page_index = 0  # 結合後の現在のページ番号
+
+            # 待機カーソル
+            self.configure(cursor="watch")
+            self.update()
+
+            # データは日付順(またはリスト順)で処理する
+            for index, row in target_df.iterrows():
+                filepath_str = row.get('filepath', '')
+                if not filepath_str:
+                    continue
+
+                # パス解決
+                pdf_path = Path(filepath_str)
+                if not pdf_path.is_absolute() and self.pdf_root_folder:
+                    pdf_path = self.pdf_root_folder / pdf_path
+
+                if pdf_path.is_file():
+                    try:
+                        reader = PdfReader(pdf_path)
+
+                        # --- [しおり追加] ---
+                        # 各ノートの先頭ページに、そのノートのタイトルでしおりを追加
+                        # フォーマット: "YYYY/MM/DD タイトル"
+                        date_str = row.get('date', '??????')
+                        if len(date_str) == 8:
+                            yyyy = date_str[:4]
+                            mm = date_str[4:6]
+                            dd = date_str[6:]
+                            date_fmt = f"{yyyy}/{mm}/{dd}"
+                        else:
+                            date_fmt = date_str
+
+                        title = row.get('title', 'No Title')
+                        bookmark_title = f"{date_fmt} {title}"
+
+                        # しおりを追加 (現在のページ位置を指定)
+                        writer.add_outline_item(
+                            title=bookmark_title,
+                            page_number=current_page_index
+                        )
+
+                        # ページ追加
+                        for page in reader.pages:
+                            writer.add_page(page)
+                            current_page_index += 1  # ページ番号を進める
+
+                        processed_count += 1
+                    except Exception as e:
+                        print(f"PDF merge error ({pdf_path.name}): {e}")
+                else:
+                    print(f"File not found: {pdf_path}")
+
+            if processed_count > 0:
+                with open(save_path, "wb") as f:
+                    writer.write(f)
+                return True
+            else:
+                return False
+
+        except Exception as e:
+            print(f"PDF merge execution error: {e}")
+            raise e
+        finally:
+            self.configure(cursor="")
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
