@@ -9,6 +9,7 @@ import networkx as nx
 from pyvis.network import Network
 import datetime
 import shutil
+from textwrap import dedent
 
 # 分割したモジュールをインポート
 from utils import (
@@ -1232,7 +1233,7 @@ class Synapsen_Nexus(ctk.CTk):
 
             tooltip = f"Key: {key}\nIndex: {cp_key}"
             if file_uri:
-                tooltip += "\n(ダブルクリックしてPDFを開く)"
+                tooltip += "\n(ダブルクリックしてPDFを開く)\n(右クリックでKeyをコピー)"
 
             G.add_node(
                 key,
@@ -1334,10 +1335,12 @@ class Synapsen_Nexus(ctk.CTk):
             # 6a. まずHTMLファイルを保存
             nt.save_graph(str(graph_file_path))
 
-            # 6b. ダブルクリックのJavaScriptを挿入
-            click_handler_js = """
+            # 6b. JavaScriptを拡張 (ダブルクリックでPDF + 右クリックでKeyコピー)
+            custom_interaction_js = dedent("""
             document.addEventListener('DOMContentLoaded', function() {
                 if (typeof network !== 'undefined') {
+
+                    // --- ダブルクリック: PDFを開く ---
                     network.on("doubleClick", function(properties) {
                         var { nodes } = properties;
                         if (nodes.length > 0) {
@@ -1348,28 +1351,67 @@ class Synapsen_Nexus(ctk.CTk):
                             }
                         }
                     });
+
+                    // --- 右クリック: Keyをコピー ---
+                    network.on("oncontext", function (params) {
+                        params.event.preventDefault();
+                        var nodeId = network.getNodeAt(params.pointer.DOM);
+
+                        if (nodeId) {
+                            // ノードID (= Key) を取得
+                            var textToCopy = nodeId;
+
+                            // クリップボードへのコピーを試行
+                            // (file:// プロトコル等での制限対策)
+                            if (
+                                navigator.clipboard &&
+                                window.isSecureContext
+                            ) {
+                                navigator.clipboard.writeText(textToCopy).then(
+                                    function() {
+                                        // 成功時のフィードバック
+                                        alert('Keyをコピーしました: ' + textToCopy);
+                                    },
+                                    function(err) {
+                                        // 失敗時 -> プロンプトを表示
+                                        prompt(
+                                            "コピーしてください (Ctrl+C):",
+                                            textToCopy
+                                        );
+                                    }
+                                );
+                            } else {
+                                // API非対応環境用 -> プロンプトを表示
+                                prompt(
+                                    "コピーしてください (Ctrl+C):",
+                                    textToCopy
+                                );
+                            }
+                        }
+                    });
                 }
             });
-            """
+            """)
 
-            # 6b. 保存したHTMLを読み込む
+            # 6c. 保存したHTMLを読み込む
             with open(graph_file_path, 'r', encoding='utf-8') as f:
                 html_content = f.read()
 
-            # 6c. </head> タグの直前に <script> ブロックを挿入
+            # 6d. </head> タグの直前に <script> ブロックを挿入
             script_tag = (
                 "<script type=\"text/javascript\">\n" +
-                f"{click_handler_js}\n</script>\n</head>"
+                f"{custom_interaction_js}\n</script>\n</head>"
             )
             html_content = html_content.replace("</head>", script_tag, 1)
 
-            # 6d. 変更したHTMLを上書き保存
+            # 6e. 変更したHTMLを上書き保存
             with open(graph_file_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-            # 6e. 変更後のHTMLをブラウザで開く
+            # 6f. 変更後のHTMLをブラウザで開く
             if not output_path:
                 webbrowser.open(graph_file_path.as_uri())
+        
         except Exception as e:
             print(f"Graph display error: {e}")
             if not output_path:
@@ -1402,7 +1444,7 @@ class Synapsen_Nexus(ctk.CTk):
         link_pattern = re.compile(r"\[\[(.*?)\]\]")
         for match in link_pattern.finditer(memo):
             # [[key: title]] の形式も考慮し、:の前だけを取得
-            content = match.group(1).split(':')[0].strip() 
+            content = match.group(1).split(':')[0].strip()
             related_keys.add(content)
 
         # B. このノートを引用している元 (Backlinks)
@@ -1410,10 +1452,11 @@ class Synapsen_Nexus(ctk.CTk):
         escaped_key = re.escape(center_key)
         # [[key]] または [[key:title]] にマッチ
         pattern = f"\\[\\[{escaped_key}[:\\]]"
-        
+
         # 高速化のため、memo列が空でない行のみ対象にする等の工夫も可能ですが、
         # ここではシンプルに str.contains でフィルタリングします
-        backlinks = self.df[self.df['memo'].str.contains(pattern, regex=True, na=False)]
+        backlinks = self.df[
+            self.df['memo'].str.contains(pattern, regex=True, na=False)]
         related_keys.update(backlinks['key'].tolist())
 
         # 2. 関連キーのみを含むDataFrameを作成
