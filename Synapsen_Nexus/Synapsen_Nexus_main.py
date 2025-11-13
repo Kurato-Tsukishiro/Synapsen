@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import threading
 from tkinter import filedialog, messagebox
 import pandas as pd
 from pathlib import Path
@@ -53,6 +54,9 @@ class Synapsen_Nexus(ctk.CTk):
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
 
         self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
+
+        self._current_search_id = 0  # 検索リクエストのID
+        self._search_lock = threading.Lock()
 
         self.filtered_df_cache = pd.DataFrame()
         self.current_selected_row = None
@@ -833,46 +837,125 @@ class Synapsen_Nexus(ctk.CTk):
 
     def perform_search(self):
         """
-        現在のフィルター状態と検索クエリに基づき、DataFrameをフィルタリングし、
-        結果リストを更新する。search_parser.parse_or_expression を使用する。
+        【修正版】
+        検索処理のエントリーポイント。
+        UIスレッドで直接検索せず、バックグラウンドスレッドを開始します。
         """
         if self.df is None:
             self.update_results_list(pd.DataFrame())
             return
 
-        filtered_df = self.df.copy()
+        # 1. UIからの検索条件取得（これはメインスレッドで行う必要がある）
+        query_text = self.search_entry.get().strip()
+        include_full_text = self.fts_checkbox.get()
 
-        # 1. IndexKey フィルターを適用
-        selected_keys = []
+        # IndexKey フィルターの状態取得
+        selected_filter_keys = []
         for key, var in self.filter_checkboxes.items():
             if var.get() == '1':
-                selected_keys.append(key)
+                selected_filter_keys.append(key)
 
-        if selected_keys:
-            filtered_df = (
-                filtered_df[filtered_df['commonplace_key'].isin(selected_keys)]
-            )
+        # 2. 検索IDを更新
+        with self._search_lock:
+            self._current_search_id += 1
+            search_id = self._current_search_id
 
-        # 2. 検索クエリを適用
-        query_text = self.search_entry.get().strip()
-        include_full_text = self.fts_checkbox.get()  # 本文検索が有効かを取得
+        # 3. UIの更新: 検索中表示
+        self.results_list.configure(
+            label_text="検索結果 (検索中...)",
+            label_text_color="#E0a800"  # オレンジ色
+        )
 
-        if query_text:
-            try:
-                # 2. 最初の関数 parse_or_expression にフラグを渡す
-                final_mask = parse_or_expression(
-                    filtered_df, query_text, include_full_text
-                )
-                filtered_df = filtered_df[final_mask]
-            except Exception as e:
-                print(f"検索クエリの解析エラー: {e}")
-                # エラー時は空の結果を表示
-                filtered_df = filtered_df.iloc[0:0]
+        # マウスカーソルを待機状態に
+        self.configure(cursor="watch")
 
-        self.filtered_df_cache = filtered_df
+        # 4. バックグラウンドスレッドの開始
+        thread = threading.Thread(
+            target=self._execute_search_worker,
+            args=(
+                search_id,
+                query_text, include_full_text,
+                selected_filter_keys
+            ),
+            daemon=True
+        )
+        thread.start()
 
-        self.update_results_list(filtered_df)
+    def _execute_search_worker(
+            self,
+            search_id,
+            query_text, include_full_text,
+            selected_filter_keys
+    ):
+        """
+        【新規】
+        バックグラウンドスレッドで実行される検索ロジック。
+        重い処理（Pandasの計算）はここで行います。
+        """
+        try:
+            # データのコピーを作成（スレッドセーフのため）
+            # ※ self.df が非常に大きい場合は copy() のコストも考慮が必要ですが、
+            #    参照読み込みだけであれば copy なしでも多くの場合は動作します。
+            #    念のためフィルタリング前のベースデータとして扱います。
+            filtered_df = self.df.copy()
+
+            # --- 1. IndexKey フィルター ---
+            if selected_filter_keys:
+                filtered_df = filtered_df[
+                    filtered_df['commonplace_key'].isin(selected_filter_keys)]
+
+            # --- 2. クエリ検索 (重い処理) ---
+            if query_text:
+                try:
+                    final_mask = parse_or_expression(
+                        filtered_df, query_text, include_full_text
+                    )
+                    filtered_df = filtered_df[final_mask]
+                except Exception as e:
+                    print(f"検索クエリ解析エラー: {e}")
+                    filtered_df = filtered_df.iloc[0:0]
+
+            # --- 3. メインスレッドに結果を渡す ---
+            # CustomTkinter/TkinterのUI更新は必ずメインスレッドで行う必要があるため、
+            # after メソッドを使用しません。代わりに、コールバック用のメソッドを
+            # メインスレッドで実行するようにスケジュールします。
+
+            # 結果のDataFrameのみを渡す
+            self.after(
+                0, lambda: self._on_search_complete(search_id, filtered_df))
+
+        except Exception as e:
+            print(f"検索スレッドエラー: {e}")
+            self.after(
+                0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
+
+    def _on_search_complete(self, search_id, result_df):
+        """
+        【新規】
+        検索完了時にメインスレッドから呼び出されるコールバック。
+        結果の検証とUI更新を行います。
+        """
+        # マウスカーソルを元に戻す
+        self.configure(cursor="")
+
+        # 最新の検索IDと一致するか確認
+        with self._search_lock:
+            if search_id != self._current_search_id:
+                return
+
+        # キャッシュの更新
+        self.filtered_df_cache = result_df
+
+        # UIリストの更新
+        self.update_results_list(result_df)
         self.update_collapsed_filter_view()
+
+        self.results_list.configure(
+            label_text_color=("gray10", "#DCE4EE")
+        )
+
+        # デバッグ用出力
+        # print(f"検索完了 (ID: {search_id}): {len(result_df)} 件ヒット")
 
     def _trigger_search_now(self):
         """
