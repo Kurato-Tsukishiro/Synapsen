@@ -45,15 +45,18 @@ class Synapsen_Nexus(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
 
         # --- アプリケーションの状態変数 ---
-        self.df = None  # ノートデータを保持するDataFrame
-        self.pdf_root_folder = None  # config.iniから読み込むPDFのルートパス
-        self.key_icons = {}  # IndexKeyごとのアイコン
-        self.key_colors = {}  # IndexKeyごとの色
+        self.df = None                      # ノートデータを保持するDataFrame
+        self.pdf_root_folder = None         # config.iniから読み込むPDFのルートパス
+        self.loaded_db_path = None          # 現在開いているDBのパス
+
+        self.key_icons = {}                 # IndexKeyごとのアイコン
+        self.key_colors = {}                # IndexKeyごとの色
         self.commonplace_keys_options = []  # IndexKeyの全オプション
-        self.predefined_tags = []  # オートコンプリート用のタグリスト
-        self.loaded_db_path = None  # 現在開いているDBのパス
-        self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
+
+        self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
+
+        self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
 
         self.filtered_df_cache = pd.DataFrame()
         self.current_selected_row = None
@@ -62,6 +65,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.preview_image_object = None
 
         # --- オートコンプリート関連 ---
+        self.predefined_tags = []          # オートコンプリート用のタグリスト
         self.selected_suggestion_index = -1
         self.current_suggestions = []
         self.search_timer = None           # デバウンス（検索遅延）用タイマー
@@ -81,7 +85,6 @@ class Synapsen_Nexus(ctk.CTk):
         # 最大化失敗時のフォールバックサイズ指定
         self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
 
-    # --- ▼ [追加] ウィンドウ表示（Map）イベントハンドラ ▼ ---
     def on_map(self, event):
         """
         ウィンドウが初めて画面に描画されたときに呼び出される。
@@ -246,6 +249,29 @@ class Synapsen_Nexus(ctk.CTk):
             hover_color="#36719F"
         )
         self.local_graph_button.pack(side="left", padx=(5, 0))
+
+        # 選択グラフボタン
+        self.selected_graph_button = ctk.CTkButton(
+            right_button_frame,
+            text="選択グラフ(0)",     # 初期状態
+            command=self.show_selected_graph,
+            width=90,
+            fg_color="#E0a800",
+            hover_color="#C69500",
+            state="disabled"         # 初期は無効
+        )
+        self.selected_graph_button.pack(side="left", padx=(5, 0))
+
+        # 選択解除ボタン
+        self.clear_selection_button = ctk.CTkButton(
+            right_button_frame,
+            text="×",
+            command=self.clear_selection,
+            width=30,
+            fg_color="#6C757D",
+            hover_color="#5A6268"
+        )
+        self.clear_selection_button.pack(side="left", padx=(2, 0))
 
         # ランダムノートボタン
         self.random_note_button = ctk.CTkButton(
@@ -913,6 +939,27 @@ class Synapsen_Nexus(ctk.CTk):
                 )
             item_frame.pack(fill="x", padx=5, pady=2)
 
+            # チェックボックス ---
+            note_key = row.get('key')
+            is_selected = note_key in self.selected_keys
+
+            # チェックボックスの状態変数
+            chk_var = ctk.StringVar(value="on" if is_selected else "off")
+
+            def on_toggle(k=note_key, v=chk_var):
+                self.toggle_note_selection(k, v)
+
+            checkbox = ctk.CTkCheckBox(
+                item_frame,
+                text="",
+                width=24,
+                variable=chk_var,
+                onvalue="on",
+                offvalue="off",
+                command=on_toggle
+            )
+            checkbox.pack(side="left", padx=(0, 5))
+
             cp_key = str(row.get("commonplace_key", "")).lower()
             icon = self.key_icons.get(cp_key, '•')
             color = self.key_colors.get(cp_key, 'gray')
@@ -932,21 +979,20 @@ class Synapsen_Nexus(ctk.CTk):
 
             # --- イベントバインド ---
             def create_show_details_handler(note_row=row):
-                """ 現在の 'note_row' を保持するイベントハンドラを返す """
                 def handler(event):
                     self.show_details(note_row)
                 return handler
 
             def create_open_pdf_handler(note_row=row):
-                """ 現在の 'note_row' を保持するイベントハンドラを返す """
                 def handler(event):
                     self.open_pdf(note_row)
                 return handler
 
             # シングルクリックで詳細表示
-            # (関数呼び出しで、現在の 'row' が 'note_row' にコピーされる)
             show_details_command = create_show_details_handler()
+            # item_frame自体へのクリックは詳細表示
             item_frame.bind("<Button-1>", show_details_command)
+            # アイコンやテキストへのクリックも詳細表示
             icon_label.bind("<Button-1>", show_details_command)
             text_label.bind("<Button-1>", show_details_command)
 
@@ -955,6 +1001,54 @@ class Synapsen_Nexus(ctk.CTk):
             item_frame.bind("<Double-Button-1>", open_pdf_command)
             icon_label.bind("<Double-Button-1>", open_pdf_command)
             text_label.bind("<Double-Button-1>", open_pdf_command)
+
+    def toggle_note_selection(self, key, var):
+        """チェックボックスの切り替え時の処理"""
+        if var.get() == "on":
+            self.selected_keys.add(key)
+        else:
+            self.selected_keys.discard(key)
+
+        self.update_selection_ui_state()
+
+    def clear_selection(self):
+        """選択をすべて解除する"""
+        self.selected_keys.clear()
+        self.update_selection_ui_state()
+        # リストのチェックボックス表示を更新するため、現在の検索結果でリストを再描画
+        if self.filtered_df_cache is not None:
+            self.update_results_list(self.filtered_df_cache)
+
+    def update_selection_ui_state(self):
+        """ボタンの表示（件数）と有効無効を更新"""
+        count = len(self.selected_keys)
+        self.selected_graph_button.configure(text=f"選択グラフ({count})")
+
+        if count > 0:
+            self.selected_graph_button.configure(state="normal")
+        else:
+            self.selected_graph_button.configure(state="disabled")
+
+    def show_selected_graph(self):
+        """
+        選択されたノート(self.selected_keys)のみでグラフを表示する。
+        """
+        if not self.selected_keys:
+            return
+
+        if self.df is None:
+            return
+
+        # 全データ(self.df)から、選択されたキーを持つ行だけを抽出
+        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+
+        if selected_df.empty:
+            messagebox.showinfo("情報", "選択されたノートのデータが見つかりません。")
+            return
+
+        print(f"Selected Graph: {len(selected_df)} notes")
+        # 既存のグラフ生成メソッドを再利用
+        self.generate_and_show_graph(target_df=selected_df)
 
     def clear_details(self):
         """詳細表示ペインの内容をすべてクリアする。"""
