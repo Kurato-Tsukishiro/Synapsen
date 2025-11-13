@@ -49,7 +49,7 @@ class ManageSearchesWindow(ctk.CTkToplevel):
 
         for search_name in sorted_search_names:
             query = self.search_manager.saved_searches[search_name]
-            row_frame = ctk.CTkFrame(self.scroll_frame, fg_color="gray25")
+            row_frame = ctk.CTkFrame(self.scroll_frame, fg_color="#ADADAD")
 
             delete_btn = ctk.CTkButton(
                 row_frame,
@@ -166,22 +166,37 @@ class SavedSearchManager:
         # メインアプリのUI (parent_app) を操作
         combo_box = self.parent_app.saved_search_combo
 
-        if not self.saved_searches:
-            combo_box.configure(values=["保存済み検索..."])
-            combo_box.set("保存済み検索...")
-        else:
-            search_names =\
-                ["保存済み検索..."] + sorted(list(self.saved_searches.keys()))
-            combo_box.configure(values=search_names)
-            combo_box.set("保存済み検索...")
+        # 基本の選択肢リスト
+        search_names = ["保存済み検索..."]
+
+        # 管理用の特別項目を追加 (区切り線的に少し目立たせる)
+        search_names.append("【 管理... 】")
+
+        if self.saved_searches:
+            # その後に検索項目を追加
+            search_names.extend(sorted(list(self.saved_searches.keys())))
+
+        combo_box.configure(values=search_names)
+
+        # 現在の表示をリセット
+        combo_box.set("保存済み検索...")
 
     def on_saved_search_selected(self, selected_name: str):
         """
         ComboBoxで保存済み検索が選択されたときに呼び出される。
         """
+        # 何もしない選択肢
         if selected_name == "保存済み検索...":
             return
 
+        # 管理コマンドが選ばれた場合
+        if selected_name == "【 管理... 】":
+            # 選択表示を元に戻してからウィンドウを開く
+            self.parent_app.saved_search_combo.set("保存済み検索...")
+            self.open_manage_searches_window()
+            return
+
+        # 通常の検索実行
         if selected_name in self.saved_searches:
             query = self.saved_searches[selected_name]
 
