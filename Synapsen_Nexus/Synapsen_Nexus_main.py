@@ -226,14 +226,25 @@ class Synapsen_Nexus(ctk.CTk):
         self.fts_checkbox.pack(side="left", padx=5)
         self.fts_checkbox.configure(command=self._trigger_search_now)
 
-        # グラフ表示ボタン
+        # publicグラフボタン
         self.graph_button = ctk.CTkButton(
             right_button_frame,
-            text="グラフ表示",
+            text="グラフ表示",  # 全体/検索結果グラフ
             command=self.generate_and_show_graph,
             width=80
         )
         self.graph_button.pack(side="left", padx=(5, 0))
+
+        # ローカルグラフボタン
+        self.local_graph_button = ctk.CTkButton(
+            right_button_frame,
+            text="関連グラフ",  # 選択ノート中心グラフ
+            command=self.show_local_graph,
+            width=80,
+            fg_color="#3B8ED0",
+            hover_color="#36719F"
+        )
+        self.local_graph_button.pack(side="left", padx=(5, 0))
 
         # ランダムノートボタン
         self.random_note_button = ctk.CTkButton(
@@ -1164,25 +1175,28 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
     # --- グラフ生成メソッド ---
-    def generate_and_show_graph(self, output_path=None):
+    def generate_and_show_graph(self, output_path=None, target_df=None):
         """
-        現在の検索結果（キャッシュ済み）に基づき、
-        ノート間のリンクグラフを生成してブラウザで表示、またはファイルに保存する。
+        グラフを生成して表示する。
 
         Args:
-            output_path (Path, optional):
-                指定された場合、グラフをこのパスにHTMLとして保存し、
-                ブラウザでは開かない。
+            output_path (Path, optional): 保存先パス。
+            target_df (pd.DataFrame, optional):
+                グラフ化対象のデータフレーム。
+                Noneの場合は現在の検索結果(self.filtered_df_cache)を使用する。
         """
-
-        # 1. キャッシュされた検索結果（DataFrame）を取得
-        df = self.filtered_df_cache
+        # 1. 使用するデータフレームを決定
+        if target_df is not None:
+            df = target_df
+        else:
+            # 引数がない場合は、「現在の(キャッシュされた)検索結果」を使用
+            df = self.filtered_df_cache
 
         if df is None or df.empty:
-            if not output_path:  # エクスポート時以外のみメッセージ表示
+            if not output_path:
                 messagebox.showinfo(
                     "グラフ表示",
-                    "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
+                    "グラフ化するノートがありません。\n(対象データが0件です)",
                     parent=self
                 )
             return
@@ -1361,6 +1375,57 @@ class Synapsen_Nexus(ctk.CTk):
             if not output_path:
                 messagebox.showerror(
                     "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
+
+    def show_local_graph(self):
+        """
+        現在詳細ペインで選択されているノートと、
+        そのノートに「リンクしている」または「リンクされている」ノートのみでグラフを表示する。
+        """
+        if self.current_selected_row is None:
+            messagebox.showinfo("情報", "ローカルグラフを表示するノートを選択してください。")
+            return
+
+        if self.df is None:
+            return
+
+        center_key = self.current_selected_row.get('key')
+        if not center_key:
+            return
+
+        # 1. 関連するキーのセットを作成 (中心ノード + リンク先 + リンク元)
+        related_keys = set()
+        related_keys.add(center_key)
+
+        # A. このノートが引用している先 (Forward Links)
+        # memo欄から [[key]] を抽出して追加
+        memo = self.current_selected_row.get('memo', '')
+        link_pattern = re.compile(r"\[\[(.*?)\]\]")
+        for match in link_pattern.finditer(memo):
+            # [[key: title]] の形式も考慮し、:の前だけを取得
+            content = match.group(1).split(':')[0].strip() 
+            related_keys.add(content)
+
+        # B. このノートを引用している元 (Backlinks)
+        # 全件走査で center_key を含んでいるノートを探す
+        escaped_key = re.escape(center_key)
+        # [[key]] または [[key:title]] にマッチ
+        pattern = f"\\[\\[{escaped_key}[:\\]]"
+        
+        # 高速化のため、memo列が空でない行のみ対象にする等の工夫も可能ですが、
+        # ここではシンプルに str.contains でフィルタリングします
+        backlinks = self.df[self.df['memo'].str.contains(pattern, regex=True, na=False)]
+        related_keys.update(backlinks['key'].tolist())
+
+        # 2. 関連キーのみを含むDataFrameを作成
+        local_df = self.df[self.df['key'].isin(related_keys)]
+
+        if local_df.empty:
+            messagebox.showinfo("情報", "関連するノートが見つかりませんでした。")
+            return
+
+        # 3. グラフ生成 (target_df を指定して呼び出し)
+        print(f"Local Graph: {len(local_df)} notes related to {center_key}")
+        self.generate_and_show_graph(target_df=local_df)
 
     # --- エクスポート機能 ---
     def export_search_results(self):
