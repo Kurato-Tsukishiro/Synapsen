@@ -4,27 +4,22 @@ import pandas as pd
 from pathlib import Path
 import re
 import sys
-import webbrowser
-import networkx as nx
-from pyvis.network import Network
 import datetime
-import shutil
-from textwrap import dedent
-from pypdf import PdfReader, PdfWriter
 
 # 分割したモジュールをインポート
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df,
     update_note_in_db, delete_note_from_db,
-    get_pdf_page_image,
-    get_pdf_uri_for_note
+    get_pdf_page_image
 )
 from search_parser import parse_or_expression
 
 from preview_window import NotePreviewWindow
 from editor_window import NoteEditorWindow
 from saved_search_manager import SavedSearchManager
+from graph_manager import GraphManager
+from export_manager import ExportManager
 
 
 class Synapsen_Nexus(ctk.CTk):
@@ -83,6 +78,12 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.create_widgets()
         self.load_config()
+
+        # ExportManagerの初期化 (config情報を渡す為 設定読み込み後)
+        self.exporter = ExportManager({
+            'key_icons': self.key_icons,
+            'key_colors': self.key_colors
+        })
 
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
@@ -1387,237 +1388,39 @@ class Synapsen_Nexus(ctk.CTk):
                 グラフ化対象のデータフレーム。
                 Noneの場合は現在の検索結果(self.filtered_df_cache)を使用する。
         """
-        # 1. 使用するデータフレームを決定
-        if target_df is not None:
-            df = target_df
-        else:
-            # 引数がない場合は、「現在の(キャッシュされた)検索結果」を使用
-            df = self.filtered_df_cache
+        # 1. データフレーム決定
+        df = target_df if target_df is not None else self.filtered_df_cache
 
         if df is None or df.empty:
             if not output_path:
-                messagebox.showinfo(
-                    "グラフ表示",
-                    "グラフ化するノートがありません。\n(対象データが0件です)",
-                    parent=self
-                )
+                messagebox.showinfo("グラフ表示", "グラフ化するノートがありません。", parent=self)
             return
 
         # 2. パフォーマンス制限
-        if len(df) > 500:
-            if not output_path:
-                messagebox.showwarning(
-                    "グラフ表示",
-                    f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
-                    parent=self
-                )
+        if len(df) > 500 and not output_path:
+            messagebox.showwarning(
+                "グラフ表示", "件数が多いため500件に制限します。", parent=self)
             df = df.head(500)
 
-        # 3. グラフ構築 (NetworkX)
-        G = nx.DiGraph()
-        notes_in_graph = set(df['key'])
-        link_pattern = re.compile(r"\[\[(.*?)\]\]")
-
-        # 3a. ノードを追加
-        for index, row in df.iterrows():
-            key = row.get('key')
-            title = row.get('title', 'N/A')
-            cp_key = row.get('commonplace_key', '').lower()
-
-            icon_code = self.key_icons.get(cp_key, '•')
-            color_hex = self.key_colors.get(cp_key, '#FFFFFF')
-
-            # PDFへのURIを取得
-            file_uri = get_pdf_uri_for_note(
-                row, self.loaded_db_path, self.pdf_root_folder
-            )
-
-            tooltip = f"Key: {key}\nIndex: {cp_key}"
-            if file_uri:
-                tooltip += "\n(ダブルクリックしてPDFを開く)\n(右クリックでKeyをコピー)"
-
-            G.add_node(
-                key,
-                label=title,
-                title=tooltip,
-                shape='icon',
-                icon={
-                    'code': icon_code,
-                    'color': color_hex,
-                    'size': 40
-                },
-                color=color_hex,
-                # URIをノード属性に追加 (JavaScriptから参照)
-                pdf_url=file_uri if file_uri else ""
-            )
-
-        # 3b. エッジを追加
-        edge_count = 0
-        for index, row in df.iterrows():
-            source_key = row.get('key')
-            memo = row.get('memo', '')
-
-            for match in link_pattern.finditer(memo):
-                full_match_content = match.group(1).strip()
-                target_key = full_match_content.split(':')[0].strip()
-
-                if target_key in notes_in_graph:
-                    if source_key != target_key:
-                        G.add_edge(source_key, target_key)
-                        edge_count += 1
-
-        print(f"グラフを生成: {len(df)} ノード, {edge_count} エッジ")
-
-        # 4. 視覚化 (Pyvis)
-        nt = Network(
-            height="95vh",
-            width="100%",
-            bgcolor="#222222",
-            font_color="white",
-            directed=True,
-            notebook=False
-        )
-        nt.from_nx(G)
-
-        # 5. 物理演算のオプションを設定
-        nt.set_options("""
-        var options = {
-          "physics": {
-            "solver": "barnesHut",
-            "barnesHut": {
-              "gravitationalConstant": -8000,
-              "centralGravity": 0.3,
-              "springLength": 95,
-              "springConstant": 0.04,
-              "damping": 0.09
-            },
-            "minVelocity": 0.75
-          },
-          "interaction": {
-            "tooltipDelay": 200,
-            "hideEdgesOnDrag": true,
-            "hover": true,
-            "hoverConnectedEdges": true,
-            "selectConnectedEdges": true,
-            "navigationButtons": true,
-            "keyboard": { "enabled": true }
-          },
-          "edges": {
-            "arrows": {
-              "to": { "enabled": true, "scaleFactor": 0.5 }
-            },
-            "color": {
-              "color": "#848484",
-              "highlight": "#FFFFFF",
-              "hover": "#DDDDDD",
-              "inherit": false
-            },
-            "smooth": {
-              "type": "continuous",
-              "forceDirection": "none",
-              "roundness": 0.5
-            }
-          }
-        }
-        """)
-
-        # 6. HTMLファイルとして保存し、ブラウザで開く
         try:
-            if output_path:
-                graph_file_path = output_path
-            else:
-                # デフォルトのパス (アプリと同じ場所)
-                if getattr(sys, 'frozen', False):
-                    base_path = Path(sys.executable).parent
-                else:
-                    base_path = Path(__file__).parent.parent
-                graph_file_path = base_path / "synapsen_graph.html"
-
-            # 6a. まずHTMLファイルを保存
-            nt.save_graph(str(graph_file_path))
-
-            # 6b. JavaScriptを拡張 (ダブルクリックでPDF + 右クリックでKeyコピー)
-            custom_interaction_js = dedent("""
-            document.addEventListener('DOMContentLoaded', function() {
-                if (typeof network !== 'undefined') {
-
-                    // --- ダブルクリック: PDFを開く ---
-                    network.on("doubleClick", function(properties) {
-                        var { nodes } = properties;
-                        if (nodes.length > 0) {
-                            var nodeId = nodes[0];
-                            var nodeData = this.body.nodes[nodeId].options;
-                            if (nodeData.pdf_url && nodeData.pdf_url !== "") {
-                                window.open(nodeData.pdf_url, '_blank');
-                            }
-                        }
-                    });
-
-                    // --- 右クリック: Keyをコピー ---
-                    network.on("oncontext", function (params) {
-                        params.event.preventDefault();
-                        var nodeId = network.getNodeAt(params.pointer.DOM);
-
-                        if (nodeId) {
-                            // ノードID (= Key) を取得
-                            var textToCopy = nodeId;
-
-                            // クリップボードへのコピーを試行
-                            // (file:// プロトコル等での制限対策)
-                            if (
-                                navigator.clipboard &&
-                                window.isSecureContext
-                            ) {
-                                navigator.clipboard.writeText(textToCopy).then(
-                                    function() {
-                                        // 成功時のフィードバック
-                                        alert('Keyをコピーしました: ' + textToCopy);
-                                    },
-                                    function(err) {
-                                        // 失敗時 -> プロンプトを表示
-                                        prompt(
-                                            "コピーしてください (Ctrl+C):",
-                                            textToCopy
-                                        );
-                                    }
-                                );
-                            } else {
-                                // API非対応環境用 -> プロンプトを表示
-                                prompt(
-                                    "コピーしてください (Ctrl+C):",
-                                    textToCopy
-                                );
-                            }
-                        }
-                    });
-                }
-            });
-            """)
-
-            # 6c. 保存したHTMLを読み込む
-            with open(graph_file_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # 6d. </head> タグの直前に <script> ブロックを挿入
-            script_tag = (
-                "<script type=\"text/javascript\">\n" +
-                f"{custom_interaction_js}\n</script>\n</head>"
+            # 3. GraphManager に処理を委譲
+            generated_path = GraphManager.generate_graph_html(
+                df,
+                self.key_icons,
+                self.key_colors,
+                self.loaded_db_path,
+                self.pdf_root_folder,
+                output_path=output_path
             )
-            html_content = html_content.replace("</head>", script_tag, 1)
 
-            # 6e. 変更したHTMLを上書き保存
-            with open(graph_file_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-
-            # 6f. 変更後のHTMLをブラウザで開く
+            # 4. ブラウザで表示 (ファイル保存モードでない場合)
             if not output_path:
-                webbrowser.open(graph_file_path.as_uri())
+                GraphManager.open_graph(generated_path)
 
         except Exception as e:
-            print(f"Graph display error: {e}")
+            print(f"Graph error: {e}")
             if not output_path:
-                messagebox.showerror(
-                    "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
+                messagebox.showerror("エラー", f"グラフ生成失敗: {e}", parent=self)
 
     def show_local_graph(self):
         """
@@ -1678,157 +1481,45 @@ class Synapsen_Nexus(ctk.CTk):
         include_pdf=True の場合、同じフォルダに統合PDFも生成する。
         """
         target_df = None
-        export_mode = "search_results"  # メッセージ用
+        mode = "search_results"
 
-        # 1. エクスポート対象の決定
+        # 対象データの決定
         if self.selected_keys:
-            # 選択されている場合、そのノートのみを対象にする
             if self.df is not None:
                 target_df = self.df[self.df['key'].isin(self.selected_keys)]
-                export_mode = "selected_items"
+                mode = "selected_items"
         else:
-            # 選択されていない場合、検索結果全体(キャッシュ)を使用
             target_df = self.filtered_df_cache
 
         if target_df is None or target_df.empty:
-            messagebox.showinfo(
-                "エクスポート",
-                "エクスポートするノートがありません。\n(検索結果または選択アイテムが0件です)",
-                parent=self
-            )
+            messagebox.showinfo("エクスポート", "対象データがありません。", parent=self)
             return
 
-        # 2. 保存先フォルダをユーザーに選択させる
-        export_folder_path = filedialog.askdirectory(title="エクスポート先フォルダを選択")
-        if not export_folder_path:
+        export_folder = filedialog.askdirectory(title="エクスポート先を選択")
+        if not export_folder:
             return
-
-        export_path = Path(export_folder_path)
-        now = datetime.datetime.now()
-        timestamp = now.strftime("%Y%m%d_%H%M%S")
-
-        if export_mode == "selected_items":
-            folder_suffix = "Selected"
-        else:
-            folder_suffix = "Search"
-
-        # ディレクトリ名を先に生成してから結合
-        dir_name = f"Synapsen_Export_{folder_suffix}_{timestamp}"
-        final_export_dir = export_path / dir_name
 
         try:
-            final_export_dir.mkdir(parents=True, exist_ok=True)
-
-            # 3. メタデータ保存 (target_df の長さを使用)
-            meta_path = final_export_dir / "export_meta.txt"
-            current_query = self.search_entry.get()
-
-            with open(meta_path, 'w', encoding='utf-8') as f:
-                # モード文字列を先に生成して行長を抑える
-                mode_str = (
-                    '選択アイテムのみ' if export_mode == 'selected_items' else '検索結果全体'
-                )
-
-                f.write("Synapsen Nexus エクスポート\n")
-                f.write(f"モード: {mode_str}\n")
-                f.write(f"件数: {len(target_df)} 件\n")
-                f.write("=" * 30 + "\n")
-                f.write(f"検索クエリ:\n{current_query}\n")
-
-            # 4. CSV保存
-            # CSVファイル名を変更
-            csv_path = final_export_dir / "metadata.csv"
-
-            # .drop() を使って full_text 列を明示的に削除
-            df_to_export = target_df.drop(
-                columns=['full_text'], errors='ignore'
+            # ExportManager に処理を委譲
+            success, result_path = self.exporter.execute_export(
+                target_df=target_df,
+                query_text=self.search_entry.get(),
+                export_folder_path=export_folder,
+                mode=mode,
+                include_pdf=include_pdf,
+                loaded_db_path=self.loaded_db_path,
+                pdf_root_folder=self.pdf_root_folder
             )
 
-            # ( tags 列がリストの場合 ; 区切りに戻す - Nexus内では文字列のはずだが念のため )
-            if 'tags' in df_to_export.columns:
-                df_to_export['tags'] = df_to_export['tags'].apply(
-                    lambda x: ";".join(x) if isinstance(x, list) else str(x)
-                )
-
-            df_to_export.to_csv(csv_path, index=False, encoding='utf-8-sig')
-
-            # full_text を個別の .txt ファイルとして保存
-            text_export_dir = final_export_dir / "FullText_Contents"
-            text_export_dir.mkdir(exist_ok=True)
-
-            print(f"FullText を {text_export_dir} にエクスポート中...")
-
-            # 5. 本文テキスト保存
-            # 元の (full_textを含む) DataFrame を使用
-            for index, row in target_df.iterrows():
-                key = row.get('key')
-                text_content = row.get('full_text', '')
-
-                if not key:
-                    # keyが無いノートはスキップ (ほぼあり得ないが念のため)
-                    continue
-
-                # ファイル名は {key}.txt (例: 20240101000000.txt)
-                text_file_path = text_export_dir / f"{key}.txt"
-
-                with open(text_file_path, 'w', encoding='utf-8') as f:
-                    f.write(text_content)
-
-            # 6. グラフ (HTML) を保存
-            graph_html_path = final_export_dir / "relation_graph.html"
-            self.generate_and_show_graph(
-                output_path=graph_html_path, target_df=target_df)
-
-            if include_pdf:
-                pdf_save_path = final_export_dir / "Merged_Notes.pdf"
-                # 共通のPDF結合処理を呼び出す
-                merge_result = self._execute_pdf_merge(
-                    target_df, pdf_save_path)
-
-                if not merge_result:
-                    # 失敗時
-                    messagebox.showwarning(
-                        "PDF結合警告", "PDFの結合に失敗したか、対象ファイルがありませんでした。",
-                        parent=self
-                    )
-
-            # 完了メッセージ
-            msg = f"エクスポートが完了しました。\n保存先: {final_export_dir}"
-            if include_pdf:
-                msg += "\n(統合PDFも含みます)"
-
+            msg = f"エクスポート完了:\n{result_path}"
             messagebox.showinfo("完了", msg, parent=self)
 
         except Exception as e:
-            print(f"エクスポート処理中にエラー: {e}")
             messagebox.showerror("エクスポートエラー", f"失敗しました:\n{e}", parent=self)
-
-            messagebox.showinfo(
-                "エクスポート完了",
-                f"検索結果を指定のフォルダに保存しました:\n\n"
-                f"・メタデータCSV (search_results_metadata.csv)\n"
-                f"・本文テキスト (FullText_Contents フォルダ)\n"
-                f"・関連グラフ (search_graph.html)\n\n"
-                f"保存先:\n{final_export_dir}",
-                parent=self
-            )
-
-        except Exception as e:
-            print(f"エクスポート処理中にエラー: {e}")
-            messagebox.showerror(
-                "エクスポートエラー",
-                f"エクスポートに失敗しました:\n{e}", parent=self
-                )
-            # (もしエラーが発生したら、中途半端に作成したフォルダを削除する)
-            if final_export_dir.exists():
-                try:
-                    shutil.rmtree(final_export_dir)
-                except Exception as e_del:
-                    print(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
 
     def merge_and_export_pdf(self):
         """メニューから「統合PDF」単体を選んだ場合のラッパー"""
-        # 1. 対象データの決定
+        # 対象データの決定
         target_df = None
         if self.selected_keys:
             if self.df is not None:
@@ -1837,10 +1528,9 @@ class Synapsen_Nexus(ctk.CTk):
             target_df = self.filtered_df_cache
 
         if target_df is None or target_df.empty:
-            messagebox.showinfo("PDF結合", "出力対象のノートがありません。", parent=self)
+            messagebox.showinfo("PDF結合", "対象データがありません。", parent=self)
             return
 
-        # 2. 保存先ダイアログ (単体の場合はファイル保存ダイアログ)
         time_text = datetime.datetime.now().strftime('%Y%m%d')
         save_path = filedialog.asksaveasfilename(
             title="統合PDFを保存",
@@ -1851,86 +1541,14 @@ class Synapsen_Nexus(ctk.CTk):
         if not save_path:
             return
 
-        # 3. 実行
-        if self._execute_pdf_merge(target_df, Path(save_path)):
+        # ExportManager の merge_pdf を直接利用
+        if (
+                self.exporter.merge_pdf(
+                    target_df, Path(save_path), self.pdf_root_folder)
+        ):
             messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
         else:
-            messagebox.showwarning(
-                "失敗", "結合できるPDFファイルが見つかりませんでした。", parent=self)
-
-    def _execute_pdf_merge(self, target_df, save_path: Path):
-        """
-        指定されたDataFrameのノートをPDF結合し、save_pathに保存する。
-        同時に「しおり(Bookmark)」を追加する。
-        """
-        try:
-            writer = PdfWriter()
-            processed_count = 0
-            current_page_index = 0  # 結合後の現在のページ番号
-
-            # 待機カーソル
-            self.configure(cursor="watch")
-            self.update()
-
-            # データは日付順(またはリスト順)で処理する
-            for index, row in target_df.iterrows():
-                filepath_str = row.get('filepath', '')
-                if not filepath_str:
-                    continue
-
-                # パス解決
-                pdf_path = Path(filepath_str)
-                if not pdf_path.is_absolute() and self.pdf_root_folder:
-                    pdf_path = self.pdf_root_folder / pdf_path
-
-                if pdf_path.is_file():
-                    try:
-                        reader = PdfReader(pdf_path)
-
-                        # --- [しおり追加] ---
-                        # 各ノートの先頭ページに、そのノートのタイトルでしおりを追加
-                        # フォーマット: "YYYY/MM/DD タイトル"
-                        date_str = row.get('date', '??????')
-                        if len(date_str) == 8:
-                            yyyy = date_str[:4]
-                            mm = date_str[4:6]
-                            dd = date_str[6:]
-                            date_fmt = f"{yyyy}/{mm}/{dd}"
-                        else:
-                            date_fmt = date_str
-
-                        title = row.get('title', 'No Title')
-                        bookmark_title = f"{date_fmt} {title}"
-
-                        # しおりを追加 (現在のページ位置を指定)
-                        writer.add_outline_item(
-                            title=bookmark_title,
-                            page_number=current_page_index
-                        )
-
-                        # ページ追加
-                        for page in reader.pages:
-                            writer.add_page(page)
-                            current_page_index += 1  # ページ番号を進める
-
-                        processed_count += 1
-                    except Exception as e:
-                        print(f"PDF merge error ({pdf_path.name}): {e}")
-                else:
-                    print(f"File not found: {pdf_path}")
-
-            if processed_count > 0:
-                with open(save_path, "wb") as f:
-                    writer.write(f)
-                return True
-            else:
-                return False
-
-        except Exception as e:
-            print(f"PDF merge execution error: {e}")
-            raise e
-        finally:
-            self.configure(cursor="")
+            messagebox.showwarning("失敗", "結合可能なPDFが見つかりませんでした。", parent=self)
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
