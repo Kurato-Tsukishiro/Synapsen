@@ -29,7 +29,8 @@ def load_app_config(base_path):
 
                 'commonplace_keys_options',
                 'predefined_tags',
-                'default_csv_path')
+                'default_csv_path',
+                'include_all_tags_for_autocomplete')
 
     Raises:
         FileNotFoundError: config.ini が見つからない場合。
@@ -91,6 +92,16 @@ def load_app_config(base_path):
             ]
         else:
             config_data['commonplace_keys_options'] = []
+
+        # [Search] セクションの読み込み
+        if parser.has_section('Search'):
+            config_data[
+                'include_all_tags_for_autocomplete'] = parser.getboolean(
+                'Search', 'include_all_tags_for_autocomplete', fallback=True
+            )
+        else:
+            # セクションがない場合のデフォルト値
+            config_data['include_all_tags_for_autocomplete'] = True
 
         # タグリストの読み込み ([Paths] 'tags_data_path')
         config_data['predefined_tags'] = []

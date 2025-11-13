@@ -67,6 +67,9 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- オートコンプリート関連 ---
         self.predefined_tags = []          # オートコンプリート用のタグリスト
+        self.all_unique_tags = []          # 全ノート + 事前定義の統合タグリスト
+        self.include_all_tags_for_autocomplete = True
+
         self.selected_suggestion_index = -1
         self.current_suggestions = []
         self.search_timer = None           # デバウンス（検索遅延）用タイマー
@@ -147,6 +150,10 @@ class Synapsen_Nexus(ctk.CTk):
                 )
             self.predefined_tags = config_data.get('predefined_tags', [])
 
+            self.include_all_tags_for_autocomplete = config_data.get(
+                'include_all_tags_for_autocomplete', True
+            )
+
             # フィルターチェックボックスをUIに反映
             self.populate_key_filters()
 
@@ -179,6 +186,37 @@ class Synapsen_Nexus(ctk.CTk):
         except Exception as e:
             messagebox.showerror("設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}")
             self.destroy()
+
+    def refresh_unique_tags(self):
+        """
+        タグリストを更新する。
+        config設定(include_all_tags_for_autocomplete)によって挙動が変わる。
+        """
+        # 1. 事前定義タグでセットを初期化
+        tags_set = set(self.predefined_tags)
+
+        # ★変更: 設定が True の場合のみ、全ノートのタグをスキャンして追加
+        if self.include_all_tags_for_autocomplete:
+            if (
+                self.df is not None
+                and not self.df.empty
+                and 'tags' in self.df.columns
+            ):
+                valid_tags_series = self.df['tags'].dropna()
+                valid_tags_series = valid_tags_series[valid_tags_series != ""]
+
+                for tags_str in valid_tags_series:
+                    current_note_tags = [
+                        t.strip() for t in tags_str.split(';') if t.strip()]
+                    tags_set.update(current_note_tags)
+
+        # 3. ソートしてリスト化
+        self.all_unique_tags = sorted(list(tags_set))
+        # print(
+        #     "[DEBUG] タグリスト更新 "
+        #     f"(全タグ含む: {self.include_all_tags_for_autocomplete}): "
+        #     f"{len(self.all_unique_tags)} 件"
+        # )
 
     def create_widgets(self):
         # --- トップフレーム ---
@@ -514,18 +552,17 @@ class Synapsen_Nexus(ctk.CTk):
             # 'tag:abc' の 'abc' の部分 (group 2) を取得
             last_tag_word = match_value.group(2).strip()
 
-        # (match_value が None の場合 = 'tag:' と入力した直後)
-        # last_tag_word は "" (空文字) となる
-
         suggestions = []
+        target_list = self.all_unique_tags or self.predefined_tags
+
         if last_tag_word == "":
-            # 'tag:' と入力した直後の場合は、全タグリストを表示
-            suggestions = self.predefined_tags
+            # 'tag:' 直後は全リスト
+            suggestions = target_list
         else:
-            # 'tag:Py' のように入力中の場合は、前方一致検索
+            # 前方一致検索# 'tag:Py' のように入力中の場合は、前方一致検索
             last_word_lower = last_tag_word.lower()
             suggestions = [
-                tag for tag in self.predefined_tags
+                tag for tag in target_list
                 if tag.lower().startswith(last_word_lower)
             ]
 
@@ -735,6 +772,9 @@ class Synapsen_Nexus(ctk.CTk):
             # utilsの関数でDataFrameを読み込む
             self.df = load_sql_data_file(filepath)
             self.loaded_db_path = filepath
+
+            # データを読み込んだらタグリストを更新
+            self.refresh_unique_tags()
 
             # UIをリセット・更新
             self.perform_search()
@@ -1935,7 +1975,8 @@ class Synapsen_Nexus(ctk.CTk):
         update_note_in_db(self.loaded_db_path, key_to_update, new_data_dict)
 
         # 2. 変更をUIに反映するため、DBを再読み込み
-        print(f"ノート {key_to_update} を更新しました。DBを再読み込みします。")
+        self.load_db_from_path(
+            self.loaded_db_path, key_to_redisplay=key_to_update)
 
         # 再表示したいキーを引数に渡す
         self.load_db_from_path(
