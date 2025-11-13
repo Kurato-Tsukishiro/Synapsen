@@ -3,6 +3,7 @@ import tkinter
 import csv
 import sys
 import json
+import db_recovery_tool
 from tkinter import messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -107,6 +108,13 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
             fg_color="green", hover_color="darkgreen"
             ).pack(side="right", padx=10)  # 1段目の右側に配置
+
+        ctk.CTkButton(
+            top_button_frame, text="DB復旧ツール",
+            command=self.open_recovery_tool,
+            fg_color="#17a2b8", hover_color="#138496",  # シアン系（ユーティリティ）
+            width=100
+        ).pack(side="right", padx=5)
 
         # --- 2段目のボタフレーム (一括編集) ---
         batch_button_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -927,8 +935,8 @@ class Synapsen_Ersteller(ctk.CTk):
                         "commonplace_key": note.get("commonplace_key"),
                         "pages": note.get("pages"),
                         "merged_start_page": note.get("merged_start_page"),
-                        # full_text も重要なので埋め込む (サイズが大きくなる場合は除外を検討)
-                        "full_text": note.get("full_text", "")
+                        "merged_pdf_filename": note.get("merged_pdf_filename"),
+                        # full_text は pdfから直接取得する為 埋め込まない
                     }
                     metadata_to_embed.append(clean_note)
 
@@ -1180,6 +1188,16 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 変更をUIに反映
         self.deselect_all()  # 選択解除 (UI再描画も含まれる)
+
+    def open_recovery_tool(self):
+        """DB復旧ツールウィンドウを開く"""
+        # 現在設定されているDBパスをデフォルトとして渡す
+        default_db = self.default_db_path if self.default_db_path else ""
+
+        # ツールウィンドウの作成
+        recovery_win = db_recovery_tool.DBRecoveryWindow(
+            self, default_db_path=default_db)
+        recovery_win.focus()
 
 
 if __name__ == "__main__":
