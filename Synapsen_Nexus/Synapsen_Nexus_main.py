@@ -262,6 +262,18 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.selected_graph_button.pack(side="left", padx=(5, 0))
 
+        # リンクコピーボタン
+        self.copy_links_button = ctk.CTkButton(
+            right_button_frame,
+            text="リンクコピー",
+            command=self.copy_selected_links,
+            width=90,
+            fg_color="#28a745",    # 緑色 (コピー系のアクション色)
+            hover_color="#218838",
+            state="disabled"
+        )
+        self.copy_links_button.pack(side="left", padx=(5, 0))
+
         # 選択解除ボタン
         self.clear_selection_button = ctk.CTkButton(
             right_button_frame,
@@ -1026,8 +1038,49 @@ class Synapsen_Nexus(ctk.CTk):
 
         if count > 0:
             self.selected_graph_button.configure(state="normal")
+            self.copy_links_button.configure(state="normal")
         else:
             self.selected_graph_button.configure(state="disabled")
+            self.copy_links_button.configure(state="disabled")
+
+    def copy_selected_links(self):
+        """
+        選択されたノートのリンク文字列（[[Key: Title]]）を生成し、
+        クリップボードにコピーする。
+        """
+        if not self.selected_keys or self.df is None:
+            return
+
+        # 選択されたキーに対応する行を取得
+        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+
+        if selected_df.empty:
+            return
+
+        # 日付順（またはKey順）にソートしてリスト化
+        selected_df = selected_df.sort_values(by='key')
+
+        link_texts = []
+        for _, row in selected_df.iterrows():
+            key = row['key']
+            title = row['title']
+            # Synapsenのリンク形式: [[Key: Title]]
+            link_texts.append(f"[[{key}: {title}]]")
+
+        # 改行区切りで結合
+        clipboard_text = "\n".join(link_texts)
+
+        # クリップボードへコピー
+        self.clipboard_clear()
+        self.clipboard_append(clipboard_text)
+        self.update()  # クリップボード更新を確定させるために必要
+
+        messagebox.showinfo(
+            "コピー完了", 
+            f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
+            "新しいノートのメモ欄にペーストして、MOC（目次）として利用できます。",
+            parent=self
+        )
 
     def show_selected_graph(self):
         """
@@ -1568,51 +1621,72 @@ class Synapsen_Nexus(ctk.CTk):
     def export_search_results(self):
         """
         「エクスポート」ボタン押下時。
-        現在の検索結果 (CSV)、メタデータ (TXT)、グラフ (HTML)、
-        および本文 (TXT) を指定したフォルダに保存する。
+        [変更] 選択中のノートがある場合はそれらを、なければ現在の検索結果全体をエクスポートする。
         """
+        target_df = None
+        export_mode = "search_results"  # メッセージ用
 
-        # 1. 検索結果があるか確認
-        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
+        # 1. エクスポート対象の決定
+        if self.selected_keys:
+            # 選択されている場合、そのノートのみを対象にする
+            if self.df is not None:
+                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+                export_mode = "selected_items"
+        else:
+            # 選択されていない場合、検索結果全体(キャッシュ)を使用
+            target_df = self.filtered_df_cache
+
+        if target_df is None or target_df.empty:
             messagebox.showinfo(
                 "エクスポート",
-                "エクスポートする検索結果がありません。",
+                "エクスポートするノートがありません。\n(検索結果または選択アイテムが0件です)",
                 parent=self
             )
             return
 
         # 2. 保存先フォルダをユーザーに選択させる
-        export_folder_path = filedialog.askdirectory(
-            title="エクスポート先フォルダを選択"
-        )
+        export_folder_path = filedialog.askdirectory(title="エクスポート先フォルダを選択")
         if not export_folder_path:
-            return  # キャンセル
+            return
 
         export_path = Path(export_folder_path)
-
         now = datetime.datetime.now()
         timestamp = now.strftime("%Y%m%d_%H%M%S")
-        final_export_dir = export_path / f"Synapsen_Export_{timestamp}"
+
+        if export_mode == "selected_items":
+            folder_suffix = "Selected"
+        else:
+            folder_suffix = "Search"
+
+        # ディレクトリ名を先に生成してから結合
+        dir_name = f"Synapsen_Export_{folder_suffix}_{timestamp}"
+        final_export_dir = export_path / dir_name
 
         try:
             final_export_dir.mkdir(parents=True, exist_ok=True)
 
-            # 3. メタデータ (検索クエリと日時) を保存
+            # 3. メタデータ保存 (target_df の長さを使用)
             meta_path = final_export_dir / "export_meta.txt"
             current_query = self.search_entry.get()
 
             with open(meta_path, 'w', encoding='utf-8') as f:
+                # モード文字列を先に生成して行長を抑える
+                mode_str = (
+                    '選択アイテムのみ' if export_mode == 'selected_items' else '検索結果全体'
+                )
+
                 f.write("Synapsen Nexus エクスポート\n")
-                f.write(f"エクスポート日時: {now.isoformat()}\n")
-                f.write(f"検索結果件数: {len(self.filtered_df_cache)} 件\n")
-                f.write("="*30 + "\n")
+                f.write(f"モード: {mode_str}\n")
+                f.write(f"件数: {len(target_df)} 件\n")
+                f.write("=" * 30 + "\n")
                 f.write(f"検索クエリ:\n{current_query}\n")
 
+            # 4. CSV保存
             # CSVファイル名を変更
-            csv_path = final_export_dir / "search_results_metadata.csv"
+            csv_path = final_export_dir / "metadata.csv"
 
             # .drop() を使って full_text 列を明示的に削除
-            df_to_export = self.filtered_df_cache.drop(
+            df_to_export = target_df.drop(
                 columns=['full_text'], errors='ignore'
             )
 
@@ -1630,8 +1704,9 @@ class Synapsen_Nexus(ctk.CTk):
 
             print(f"FullText を {text_export_dir} にエクスポート中...")
 
+            # 5. 本文テキスト保存
             # 元の (full_textを含む) DataFrame を使用
-            for index, row in self.filtered_df_cache.iterrows():
+            for index, row in target_df.iterrows():
                 key = row.get('key')
                 text_content = row.get('full_text', '')
 
@@ -1645,9 +1720,10 @@ class Synapsen_Nexus(ctk.CTk):
                 with open(text_file_path, 'w', encoding='utf-8') as f:
                     f.write(text_content)
 
-            # 5. グラフ (HTML) を保存
-            graph_html_path = final_export_dir / "search_graph.html"
-            self.generate_and_show_graph(output_path=graph_html_path)
+            # 6. グラフ (HTML) を保存
+            graph_html_path = final_export_dir / "relation_graph.html"
+            self.generate_and_show_graph(
+                output_path=graph_html_path, target_df=target_df)
 
             messagebox.showinfo(
                 "エクスポート完了",
