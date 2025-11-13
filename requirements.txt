@@ -6,4 +6,5 @@ Pillow
 pytesseract
 networkx
 pyvis
-
+tkinterdnd2
+playwright
