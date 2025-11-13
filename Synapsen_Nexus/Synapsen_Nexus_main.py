@@ -1,3 +1,4 @@
+import shutil
 import customtkinter as ctk
 import threading
 from tkinter import filedialog, messagebox
@@ -126,6 +127,9 @@ class Synapsen_Nexus(ctk.CTk):
         # 最大化失敗時のフォールバックサイズ指定
         self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
 
+        # ウィンドウを閉じるときのイベントをフック
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
     def on_map(self, event):
         """
         ウィンドウが初めて画面に描画されたときに呼び出される。
@@ -137,6 +141,28 @@ class Synapsen_Nexus(ctk.CTk):
             logger.debug("ウィンドウを最大化しました。")
         except Exception as e:
             logger.error(f"ウィンドウの最大化に失敗しました: {e}")
+
+    def on_closing(self):
+        """アプリ終了時の処理 (バックアップ作成 - 強制上書き)"""
+        if self.loaded_db_path and Path(self.loaded_db_path).exists():
+            try:
+                # バックアップフォルダ作成
+                db_path = Path(self.loaded_db_path)
+                backup_dir = db_path.parent / "db_backups"
+                backup_dir.mkdir(exist_ok=True)
+
+                # 日付付きファイル名でコピー (例: Synapsen_Master_20231027.db)
+                today = datetime.datetime.now().strftime('%Y%m%d')
+                backup_path = backup_dir / f"{db_path.stem}_{today}.db"
+
+                # 常に上書きコピー
+                shutil.copy2(db_path, backup_path)
+                print(f"DBバックアップを更新しました: {backup_path.name}")
+
+            except Exception as e:
+                print(f"DBバックアップ失敗: {e}")
+
+        self.destroy()
 
     def get_icon_path(self):
         """

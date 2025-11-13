@@ -1,0 +1,311 @@
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
+import pandas as pd
+import sqlite3
+import json
+from pathlib import Path
+from pypdf import PdfReader
+import fitz  # PyMuPDF (テキスト抽出用)
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+class DBRecoveryWindow(ctk.CTkToplevel):
+    """
+    統合PDFに埋め込まれたメタデータ(JSON)から、
+    マスターDBを復旧・追記するためのウィンドウ。
+    """
+    def __init__(self, parent, default_db_path=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("DB復旧・再構築ツール")
+        self.geometry("500x450")
+
+        # アイコン設定 (親から継承)
+        if hasattr(parent, 'icon_path') and parent.icon_path:
+            try:
+                self.iconbitmap(default=str(parent.icon_path))
+            except Exception:
+                pass
+
+        self.grab_set()  # モーダル化
+
+        # --- UI配置 ---
+        self.grid_columnconfigure(1, weight=1)
+
+        # 1. 説明ラベル
+        ctk.CTkLabel(
+            self,
+            text="統合PDF内のバックアップデータから、DBを復旧します。\n"
+                 "※ 元のPDFを削除していても、ここからメタデータと本文を復元できます。",
+            justify="left", text_color="gray"
+        ).grid(row=0, column=0, columnspan=3, padx=10, pady=10, sticky="w")
+
+        # 2. ソースPDF選択
+        ctk.CTkLabel(
+            self, text="ソースPDF:"
+        ).grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.pdf_path_entry = ctk.CTkEntry(
+            self, placeholder_text="メタデータ入りの統合PDFを選択...")
+        self.pdf_path_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        ctk.CTkButton(
+            self, text="参照", width=60, command=self.browse_pdf
+        ).grid(row=1, column=2, padx=10, pady=5)
+
+        # 3. ターゲットDB選択
+        ctk.CTkLabel(
+            self, text="復旧先DB:"
+        ).grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.db_path_entry = ctk.CTkEntry(
+            self, placeholder_text="Synapsen_Master.db")
+        self.db_path_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+
+        if default_db_path:
+            self.db_path_entry.insert(0, str(default_db_path))
+
+        ctk.CTkButton(
+            self, text="参照", width=60, command=self.browse_db
+        ).grid(row=2, column=2, padx=10, pady=5)
+
+        # 4. 情報表示エリア
+        self.info_textbox = ctk.CTkTextbox(self, height=150)
+        self.info_textbox.grid(
+            row=3, column=0, columnspan=3, padx=10, pady=10, sticky="nsew")
+        self.info_textbox.insert("1.0", "PDFを選択して「内容確認」を押してください。\n")
+        self.info_textbox.configure(state="disabled")
+
+        # 5. ボタンエリア
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
+
+        ctk.CTkButton(
+            btn_frame, text="1. 内容確認 (スキャン)", command=self.scan_pdf
+        ).pack(side="left", padx=10)
+
+        self.restore_button = ctk.CTkButton(
+            btn_frame, text="2. DBに復元 (実行)",
+            command=self.execute_restore, state="disabled",
+            fg_color="#D9534F", hover_color="#C9302C"  # 注意を促す赤系
+        )
+        self.restore_button.pack(side="left", padx=10)
+
+        # 内部保持用データ
+        self.extracted_data = []
+
+    def log(self, message):
+        self.info_textbox.configure(state="normal")
+        self.info_textbox.insert("end", message + "\n")
+        self.info_textbox.see("end")
+        self.info_textbox.configure(state="disabled")
+
+    def browse_pdf(self):
+        path = filedialog.askopenfilename(
+            filetypes=[("PDF Files", "*.pdf")], title="統合PDFを選択"
+        )
+        if path:
+            self.pdf_path_entry.delete(0, "end")
+            self.pdf_path_entry.insert(0, path)
+            self.restore_button.configure(state="disabled")
+            self.extracted_data = []
+
+    def browse_db(self):
+        path = filedialog.asksaveasfilename(
+            filetypes=[("SQLite DB", "*.db")],
+            title="復旧先DBを選択 (新規作成または上書き)",
+            initialfile="Synapsen_Master_Restored.db"
+        )
+        if path:
+            self.db_path_entry.delete(0, "end")
+            self.db_path_entry.insert(0, path)
+
+    def scan_pdf(self):
+        """PDF内の添付ファイルをチェックし、データをメモリに展開する"""
+        pdf_path = self.pdf_path_entry.get()
+        if not pdf_path or not Path(pdf_path).is_file():
+            messagebox.showerror("エラー", "有効なPDFファイルを選択してください。")
+            return
+
+        self.log("-" * 30)
+        self.log(f"スキャン中: {Path(pdf_path).name} ...")
+        self.update_idletasks()
+
+        try:
+            reader = PdfReader(pdf_path)
+            attachments = reader.attachments
+
+            target_filename = "synapsen_metadata_backup.json"
+
+            if not attachments or target_filename not in attachments:
+                self.log(f"[エラー] 復旧用データ ({target_filename}) が見つかりません。")
+                self.log("このPDFは新しいバージョンのSynapsenで作成されたものではない可能性があります。")
+                return
+
+            # データの読み出し
+            json_bytes = attachments[target_filename][0]
+            self.extracted_data = json.loads(json_bytes.decode('utf-8'))
+
+            count = len(self.extracted_data)
+            self.log(f"[成功] {count} 件のノートデータが見つかりました。")
+
+            if count > 0:
+                sample = self.extracted_data[0]
+                self.log(f"データ例: {sample.get('date')} - {sample.get('title')}")
+                self.restore_button.configure(state="normal")
+            else:
+                self.log("データ件数が0件です。")
+
+        except Exception as e:
+            self.log(f"[例外] スキャン中にエラー: {e}")
+            logger.error(f"Scan Error: {e}")
+
+    def execute_restore(self):
+        """メモリ上のデータをDBにINSERTする"""
+        db_path = self.db_path_entry.get()
+        pdf_path = self.pdf_path_entry.get()  # PDFパスを取得
+
+        if not db_path:
+            messagebox.showerror("エラー", "復旧先のデータベースパスを指定してください。")
+            return
+
+        if not self.extracted_data:
+            return
+
+        # 確認ダイアログ (省略なしで既存通り)
+        ans = messagebox.askyesno(
+            "実行確認",
+            f"{len(self.extracted_data)} 件のデータを以下のDBに復元します。\n\n"
+            f"復元先: {Path(db_path).name}\n\n"
+            "既存のデータがある場合、Keyが重複するノートは無視(スキップ)されます。\n"
+            "実行しますか？"
+        )
+        if not ans:
+            return
+
+        self.log("-" * 30)
+        self.log("DB復元を開始します...")
+        self.update_idletasks()
+
+        # ソースPDFのファイル名を取得
+        current_pdf_name = Path(pdf_path).name
+
+        # 統合PDFから本文テキスト(full_text)を再抽出するためのPDFドキュメントを開く
+        doc = None
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as e:
+            self.log(f"[エラー] テキスト抽出のためにPDFを開けませんでした: {e}")
+            return
+
+        try:
+            # DataFrameに変換
+            df = pd.DataFrame(self.extracted_data)
+
+            # 1. 統合PDFファイル名の上書き
+            df['merged_pdf_filename'] = current_pdf_name
+
+            # 2. タグリストを文字列(;)に戻す
+            if 'tags' in df.columns:
+                df['tags'] = df['tags'].apply(
+                    lambda x: ";".join(sorted(x)) if isinstance(x, list) else x
+                )
+
+            # ==========================================================
+            # 統合PDFから本文テキスト(full_text)を再抽出する処理
+            # ==========================================================
+            self.log("PDFから本文テキストを再抽出しています...")
+            self.update_idletasks()
+
+            def extract_text_from_range(row):
+                try:
+                    # ページ情報の取得
+                    start_page_1based = int(row.get('merged_start_page', 0))
+                    page_count = int(row.get('pages', 0))
+
+                    if start_page_1based < 1 or page_count < 1:
+                        return ""
+
+                    # 0-indexedに変換
+                    start_idx = start_page_1based - 1
+                    end_idx = start_idx + page_count
+
+                    # 範囲チェック
+                    if start_idx >= len(doc):
+                        return ""
+
+                    # 指定範囲のページからテキストを結合
+                    full_text = ""
+                    # end_idx は len(doc) を超えないように制限
+                    actual_end = min(end_idx, len(doc))
+
+                    for i in range(start_idx, actual_end):
+                        full_text += doc[i].get_text() + "\n"
+
+                    return full_text.strip()
+
+                except Exception as e:
+                    print(f"Text extraction error for {row.get('key')}: {e}")
+                    return ""
+
+            # 各行に対してテキスト抽出を実行
+            # (tqdmなどが使えないのでGUIが固まらないよう簡易的に処理)
+            df['full_text'] = df.apply(extract_text_from_range, axis=1)
+            # ==========================================================
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # テーブル作成 (既存コードと同じ)
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS notes (
+                "date" TEXT,
+                "time" TEXT,
+                "title" TEXT,
+                "pages" INTEGER,
+                "tags" TEXT,
+                "key" TEXT PRIMARY KEY,
+                "memo" TEXT,
+                "commonplace_key" TEXT,
+                "filepath" TEXT,
+                "full_text" TEXT,
+                "merged_pdf_filename" TEXT,
+                "merged_start_page" TEXT
+            )
+            """
+            cursor.execute(create_table_sql)
+            conn.commit()
+
+            # 重複チェックとインサート (既存コードと同じ)
+            existing_keys = set()
+            try:
+                existing = pd.read_sql("SELECT key FROM notes", conn)
+                existing_keys = set(existing['key'].astype(str))
+            except Exception:
+                pass
+
+            df_to_insert = df[~df['key'].isin(existing_keys)]
+
+            skipped_count = len(df) - len(df_to_insert)
+            insert_count = len(df_to_insert)
+
+            if insert_count > 0:
+                df_to_insert.to_sql(
+                    'notes', conn, if_exists='append', index=False)
+                self.log(f"[完了] {insert_count} 件を追記しました。")
+            else:
+                self.log("[完了] 新規データはありませんでした (すべて重複)。")
+
+            if skipped_count > 0:
+                self.log(f"(重複のためスキップ: {skipped_count} 件)")
+
+            conn.close()
+            doc.close()  # ドキュメントを閉じる
+
+            messagebox.showinfo("完了", "データベースの復元が完了しました。\n(本文テキストも再抽出されました)")
+            self.destroy()
+
+        except Exception as e:
+            if doc:
+                doc.close()
+            self.log(f"[エラー] DB書き込み中にエラー: {e}")
+            messagebox.showerror("エラー", f"復元に失敗しました:\n{e}")

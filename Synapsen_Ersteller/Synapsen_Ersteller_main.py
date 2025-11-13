@@ -2,6 +2,8 @@ import os
 import tkinter
 import csv
 import sys
+import json
+import db_recovery_tool
 from tkinter import messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -106,6 +108,13 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
             fg_color="green", hover_color="darkgreen"
             ).pack(side="right", padx=10)  # 1段目の右側に配置
+
+        ctk.CTkButton(
+            top_button_frame, text="DB復旧ツール",
+            command=self.open_recovery_tool,
+            fg_color="#17a2b8", hover_color="#138496",  # シアン系（ユーティリティ）
+            width=100
+        ).pack(side="right", padx=5)
 
         # --- 2段目のボタフレーム (一括編集) ---
         batch_button_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -907,6 +916,50 @@ class Synapsen_Ersteller(ctk.CTk):
                     draft_reader
                     )
 
+            # ==================================================================
+            # 復旧用メタデータの埋め込み処理
+            # ==================================================================
+            try:
+                # 1. 埋め込むデータを辞書リストとして準備
+                # (CSVよりも構造が柔軟で復旧しやすい JSON を推奨)
+                metadata_to_embed = []
+                for note in updated_notes_info:
+                    # 必要な情報のみ抽出 (filepathなどは削除済みなので不要だが、念のため除外)
+                    clean_note = {
+                        "key": note.get("key"),
+                        "title": note.get("title"),
+                        "date": note.get("date"),
+                        "time": note.get("time"),
+                        "tags": note.get("tags"),  # リストのまま保存可能
+                        "memo": note.get("memo"),
+                        "commonplace_key": note.get("commonplace_key"),
+                        "pages": note.get("pages"),
+                        "merged_start_page": note.get("merged_start_page"),
+                        "merged_pdf_filename": note.get("merged_pdf_filename"),
+                        # full_text は pdfから直接取得する為 埋め込まない
+                    }
+                    metadata_to_embed.append(clean_note)
+
+                # 2. JSON文字列に変換 (日本語対応)
+                json_data = json.dumps(
+                    metadata_to_embed, ensure_ascii=False, indent=2)
+
+                # 3. バイトデータに変換
+                json_bytes = json_data.encode('utf-8')
+
+                # 4. PDFに添付ファイルとして追加
+                # ファイル名: "synapsen_metadata_backup.json"
+                final_writer.add_attachment(
+                    "synapsen_metadata_backup.json", json_bytes)
+
+                logger.info("復旧用メタデータをPDFに埋め込みました。")
+
+            except Exception as e:
+                logger.warning(f"メタデータの埋め込みに失敗しました: {e}")
+                # 埋め込みに失敗してもPDF生成自体は止めない
+            # ==================================================================
+
+            # ファイル保存
             with open(save_filepath, "wb") as f:
                 final_writer.write(f)
 
@@ -1135,6 +1188,16 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 変更をUIに反映
         self.deselect_all()  # 選択解除 (UI再描画も含まれる)
+
+    def open_recovery_tool(self):
+        """DB復旧ツールウィンドウを開く"""
+        # 現在設定されているDBパスをデフォルトとして渡す
+        default_db = self.default_db_path if self.default_db_path else ""
+
+        # ツールウィンドウの作成
+        recovery_win = db_recovery_tool.DBRecoveryWindow(
+            self, default_db_path=default_db)
+        recovery_win.focus()
 
 
 if __name__ == "__main__":
