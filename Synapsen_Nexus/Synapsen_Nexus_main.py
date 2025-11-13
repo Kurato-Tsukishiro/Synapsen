@@ -4,25 +4,22 @@ import pandas as pd
 from pathlib import Path
 import re
 import sys
-import webbrowser
-import networkx as nx
-from pyvis.network import Network
 import datetime
-import shutil
 
 # 分割したモジュールをインポート
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df,
     update_note_in_db, delete_note_from_db,
-    get_pdf_page_image,
-    get_pdf_uri_for_note
+    get_pdf_page_image
 )
 from search_parser import parse_or_expression
 
 from preview_window import NotePreviewWindow
 from editor_window import NoteEditorWindow
 from saved_search_manager import SavedSearchManager
+from graph_manager import GraphManager
+from export_manager import ExportManager
 
 
 class Synapsen_Nexus(ctk.CTk):
@@ -44,15 +41,18 @@ class Synapsen_Nexus(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
 
         # --- アプリケーションの状態変数 ---
-        self.df = None  # ノートデータを保持するDataFrame
-        self.pdf_root_folder = None  # config.iniから読み込むPDFのルートパス
-        self.key_icons = {}  # IndexKeyごとのアイコン
-        self.key_colors = {}  # IndexKeyごとの色
+        self.df = None                      # ノートデータを保持するDataFrame
+        self.pdf_root_folder = None         # config.iniから読み込むPDFのルートパス
+        self.loaded_db_path = None          # 現在開いているDBのパス
+
+        self.key_icons = {}                 # IndexKeyごとのアイコン
+        self.key_colors = {}                # IndexKeyごとの色
         self.commonplace_keys_options = []  # IndexKeyの全オプション
-        self.predefined_tags = []  # オートコンプリート用のタグリスト
-        self.loaded_db_path = None  # 現在開いているDBのパス
-        self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
+
+        self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
+
+        self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
 
         self.filtered_df_cache = pd.DataFrame()
         self.current_selected_row = None
@@ -61,8 +61,15 @@ class Synapsen_Nexus(ctk.CTk):
         self.preview_image_object = None
 
         # --- オートコンプリート関連 ---
+        self.predefined_tags = []          # オートコンプリート用のタグリスト
+        self.all_unique_tags = []          # 全ノート + 事前定義の統合タグリスト
+        self.include_all_tags_for_autocomplete = True
+
         self.selected_suggestion_index = -1
         self.current_suggestions = []
+        self.search_timer = None           # デバウンス（検索遅延）用タイマー
+        self.suggestion_timer = None       # オートコンプリート用タイマー
+        self._last_suggestion_args = None  # 予測変換の引数(query, cursor_pos, match)
 
         self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
 
@@ -72,12 +79,17 @@ class Synapsen_Nexus(ctk.CTk):
         self.create_widgets()
         self.load_config()
 
+        # ExportManagerの初期化 (config情報を渡す為 設定読み込み後)
+        self.exporter = ExportManager({
+            'key_icons': self.key_icons,
+            'key_colors': self.key_colors
+        })
+
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
         # 最大化失敗時のフォールバックサイズ指定
         self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
 
-    # --- ▼ [追加] ウィンドウ表示（Map）イベントハンドラ ▼ ---
     def on_map(self, event):
         """
         ウィンドウが初めて画面に描画されたときに呼び出される。
@@ -139,6 +151,10 @@ class Synapsen_Nexus(ctk.CTk):
                 )
             self.predefined_tags = config_data.get('predefined_tags', [])
 
+            self.include_all_tags_for_autocomplete = config_data.get(
+                'include_all_tags_for_autocomplete', True
+            )
+
             # フィルターチェックボックスをUIに反映
             self.populate_key_filters()
 
@@ -172,9 +188,38 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showerror("設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}")
             self.destroy()
 
-    def create_widgets(self):
-        """アプリケーションのUIコンポーネントを作成し、配置する。"""
+    def refresh_unique_tags(self):
+        """
+        タグリストを更新する。
+        config設定(include_all_tags_for_autocomplete)によって挙動が変わる。
+        """
+        # 1. 事前定義タグでセットを初期化
+        tags_set = set(self.predefined_tags)
 
+        # ★変更: 設定が True の場合のみ、全ノートのタグをスキャンして追加
+        if self.include_all_tags_for_autocomplete:
+            if (
+                self.df is not None
+                and not self.df.empty
+                and 'tags' in self.df.columns
+            ):
+                valid_tags_series = self.df['tags'].dropna()
+                valid_tags_series = valid_tags_series[valid_tags_series != ""]
+
+                for tags_str in valid_tags_series:
+                    current_note_tags = [
+                        t.strip() for t in tags_str.split(';') if t.strip()]
+                    tags_set.update(current_note_tags)
+
+        # 3. ソートしてリスト化
+        self.all_unique_tags = sorted(list(tags_set))
+        # print(
+        #     "[DEBUG] タグリスト更新 "
+        #     f"(全タグ含む: {self.include_all_tags_for_autocomplete}): "
+        #     f"{len(self.all_unique_tags)} 件"
+        # )
+
+    def create_widgets(self):
         # --- トップフレーム ---
         top_frame = ctk.CTkFrame(self)
         top_frame.grid(
@@ -189,15 +234,6 @@ class Synapsen_Nexus(ctk.CTk):
         ctk.CTkButton(
             left_button_frame, text="DBを開く", command=self.load_database_dialog
         ).pack(side="left", padx=(0, 5))
-
-        # エクスポートボタン
-        self.export_button = ctk.CTkButton(
-            left_button_frame,
-            text="エクスポート",
-            command=self.export_search_results,
-            width=100
-        )
-        self.export_button.pack(side="left", padx=5)
 
         # 検索バーコンテナ
         search_container = ctk.CTkFrame(top_frame, fg_color="transparent")
@@ -216,21 +252,72 @@ class Synapsen_Nexus(ctk.CTk):
         right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         right_button_frame.pack(side="right", padx=(5, 10))
 
-        # 本文検索(FTS)をトグルするチェックボックス
+        # 本文検索(FTS)
         self.fts_checkbox = ctk.CTkCheckBox(
             right_button_frame, text="本文検索"
         )
         self.fts_checkbox.pack(side="left", padx=5)
-        self.fts_checkbox.configure(command=self.perform_search)
+        self.fts_checkbox.configure(command=self._trigger_search_now)
 
-        # グラフ表示ボタン
-        self.graph_button = ctk.CTkButton(
+        # 選択数表示ラベル
+        self.selection_info_label = ctk.CTkLabel(
             right_button_frame,
-            text="グラフ表示",
-            command=self.generate_and_show_graph,
-            width=80
+            text="選択: 0",
+            font=("", 12, "bold"),
+            text_color="gray",
+            width=60                # 固定幅を確保してレイアウト揺れを防ぐ
         )
-        self.graph_button.pack(side="left", padx=(5, 0))
+        self.selection_info_label.pack(side="left", padx=(10, 0))
+
+        # グラフメニュー
+        self.graph_menu_var = ctk.StringVar(value="グラフ表示")
+
+        self.graph_menu = ctk.CTkOptionMenu(
+            right_button_frame,
+            variable=self.graph_menu_var,
+            values=["全体 (Global)", "関連 (Local)", "選択 (Selected)"],
+            command=self.handle_graph_menu,
+            width=140,
+            fg_color="#585a9c",
+            button_color="#494B83"
+        )
+        self.graph_menu.pack(side="left", padx=(5, 0))
+
+        # リンクコピーボタン
+        self.copy_links_button = ctk.CTkButton(
+            right_button_frame,
+            text="リンクコピー",
+            command=self.copy_selected_links,
+            width=90,
+            fg_color="#28a745",    # 緑色 (コピー系のアクション色)
+            hover_color="#218838",
+            state="disabled"
+        )
+        self.copy_links_button.pack(side="left", padx=(5, 0))
+
+        # エクスポートメニュー
+        self.export_menu_var = ctk.StringVar(value="エクスポート")
+        self.export_menu = ctk.CTkOptionMenu(
+            right_button_frame,
+            variable=self.export_menu_var,
+            values=["データ (CSV/TXT)", "統合PDF (Merge)", "全て (Data + PDF)"],
+            command=self.handle_export_menu,
+            width=140,
+            fg_color="#17a2b8",  # シアン系 (出力・情報アクションとして区別)
+            button_color="#138496"
+        )
+        self.export_menu.pack(side="left", padx=(5, 0))
+
+        # 選択解除ボタン
+        self.clear_selection_button = ctk.CTkButton(
+            right_button_frame,
+            text="×",
+            command=self.clear_selection,
+            width=30,
+            fg_color="#6C757D",
+            hover_color="#5A6268"
+        )
+        self.clear_selection_button.pack(side="left", padx=(2, 0))
 
         # ランダムノートボタン
         self.random_note_button = ctk.CTkButton(
@@ -255,17 +342,6 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.save_search_button.pack(side="left", padx=(5, 0))
 
-        # 保存済み検索管理ボタン
-        self.delete_search_button = ctk.CTkButton(
-            smart_search_frame,
-            text="管理",
-            command=self.search_manager.open_manage_searches_window,
-            width=50,
-            fg_color="#6C757D",
-            hover_color="#5A6268"
-        )
-        self.delete_search_button.pack(side="left", padx=5)
-
         # 保存済み検索呼び出しボタン
         self.saved_search_combo = ctk.CTkComboBox(
             smart_search_frame,
@@ -279,7 +355,7 @@ class Synapsen_Nexus(ctk.CTk):
         # 検索バーのイベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
         self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.update_suggestions)
+        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
         self.search_entry.bind("<Down>", self.navigate_suggestions)
         self.search_entry.bind("<Up>", self.navigate_suggestions)
         self.search_entry.bind("<Return>", self.confirm_suggestion)
@@ -431,53 +507,106 @@ class Synapsen_Nexus(ctk.CTk):
         # フィルターパネルの初期表示を同期
         self.sync_filter_panel_view()
 
+    # --- グラフメニューのハンドラ ---
+    def handle_graph_menu(self, choice):
+        """グラフメニューで選択された項目に応じて処理を分岐する"""
+        if choice == "全体 (Global)":
+            self.generate_and_show_graph()
+        elif choice == "関連 (Local)":
+            self.show_local_graph()
+        elif choice == "選択 (Selected)":
+            self.show_selected_graph()
+
+        # 処理後、メニューの表示を元に戻してボタンのように振る舞わせる
+        self.graph_menu.set("グラフ表示")
+
+    def handle_export_menu(self, choice):
+        if choice == "データ (CSV/TXT)":
+            # (情報)エクスポートメソッドを呼び出す
+            self.export_search_results(include_pdf=False)
+        elif choice == "統合PDF (Merge)":
+            # PDF結合メソッドを呼び出す
+            self.merge_and_export_pdf()
+        elif choice == "全て (Data + PDF)":
+            # 情報及び統合PDF出力を両方呼び出す
+            self.export_search_results(include_pdf=True)
+
+        self.export_menu.set("エクスポート")
+
     # --- オートコンプリート関連メソッド ---
     def handle_keyrelease(self, event):
         """検索バーでのキー入力（リリース）イベントを処理する。"""
         if event.keysym in ("Up", "Down", "Return", "Escape"):
             return
-        self.update_suggestions()
-        self.perform_search()
+        self.schedule_suggestions()
+        self.schedule_search()
 
-    def update_suggestions(self, event=None):
-        """検索バーの入力に基づき、オートコンプリートの候補を更新する。"""
+    def update_suggestions(self, query, cursor_pos, match_value):
+        """
+        'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
+        """
         self.selected_suggestion_index = -1
-        query = self.search_entry.get()
-        # " AND " や " OR " で区切られた最後の単語を取得
-        last_word = re.split(
-            r'\s+(?:AND|OR)\s+', query, flags=re.IGNORECASE)[-1].strip()
+
+        last_tag_word = ""
+
+        if match_value:
+            # 'tag:abc' の 'abc' の部分 (group 2) を取得
+            last_tag_word = match_value.group(2).strip()
 
         suggestions = []
-        if query == "" or query.upper().endswith(" AND ") or query.upper().endswith(" OR "):
-            # オペレータの後は全タグリストを表示
-            suggestions = self.predefined_tags
-        elif last_word:
-            # 入力中の単語で前方一致検索
-            suggestions = [tag for tag in self.predefined_tags if tag.lower().startswith(last_word.lower())]
+        target_list = self.all_unique_tags or self.predefined_tags
+
+        if last_tag_word == "":
+            # 'tag:' 直後は全リスト
+            suggestions = target_list
+        else:
+            # 前方一致検索# 'tag:Py' のように入力中の場合は、前方一致検索
+            last_word_lower = last_tag_word.lower()
+            suggestions = [
+                tag for tag in target_list
+                if tag.lower().startswith(last_word_lower)
+            ]
+
+        # 上下キーでの移動 (navigate_suggestions) のために引数を保存
+        self._last_suggestion_args = (query, cursor_pos, match_value)
 
         if suggestions:
-            self.show_autocomplete(suggestions)
+            # show_autocomplete にも引数を渡す
+            self.show_autocomplete(suggestions, query, cursor_pos, match_value)
         else:
             self.hide_autocomplete()
 
-    def show_autocomplete(self, suggestions):
+    def show_autocomplete(self, suggestions, query, cursor_pos, match_value):
         """オートコンプリートの候補リストウィンドウを表示する。"""
         self.current_suggestions = suggestions
         for widget in self.autocomplete_frame.winfo_children():
             widget.destroy()
 
         for i, suggestion in enumerate(suggestions):
-            fg_color = "gray30" if i == self.selected_suggestion_index else "transparent"
+            # 選択中のインデックスに基づいてハイライト色を決定
+            if i == self.selected_suggestion_index:
+                fg_color = "gray30"
+            else:
+                fg_color = "transparent"
+
             btn = ctk.CTkButton(
                 self.autocomplete_frame, text=suggestion, fg_color=fg_color,
                 text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
-                anchor="w", command=lambda s=suggestion: self.select_suggestion(s)
+                anchor="w",
+                # select_suggestion に必要な情報をラムダで渡す
+                command=lambda s=suggestion: self.select_suggestion(
+                    s, query, cursor_pos, match_value
+                )
             )
             btn.pack(fill="x", padx=5, pady=2)
 
-        # 検索バーの真下に配置
+        # 検索バーの真下に配置 (元のコード)
         x = self.search_entry.winfo_rootx() - self.winfo_rootx()
-        y = self.search_entry.winfo_rooty() - self.winfo_rooty() + self.search_entry.winfo_height()
+        y = (
+            self.search_entry.winfo_rooty() -
+            self.winfo_rooty() +
+            self.search_entry.winfo_height()
+        )
         width = self.search_entry.winfo_width()
         height = min(200, len(suggestions) * 35)
 
@@ -485,28 +614,40 @@ class Synapsen_Nexus(ctk.CTk):
         self.autocomplete_frame.place(x=x, y=y)
         self.autocomplete_frame.lift()
 
-    def select_suggestion(self, suggestion):
+    def select_suggestion(self, suggestion, query, cursor_pos, match_value):
         """オートコンプリート候補をクリックまたはEnterで選択したときの処理。"""
-        query = self.search_entry.get()
 
-        # 現在入力中の単語を、選択した候補で置き換える
-        match = re.search(
-            r'(\s+(?:AND|OR)\s+)?([^\s,]*)$', query, re.IGNORECASE
-            )
-        if match:
-            preceding_operator = match.group(1) if match.group(1) else ''
-            base_query = query[:match.start()]
-            new_query = f"{base_query}{preceding_operator}{suggestion} "
+        prefix_part = ""
+        suffix_part = query[cursor_pos:]  # カーソルより後ろのテキスト
+
+        if match_value:
+            # 'tag:Py' のように入力中の場合
+            # (group 2 が 'Py' の部分)
+            # 'tag:' の直前までを取得
+            prefix_part = query[:match_value.start(2)]
         else:
-            new_query = f"{suggestion} "
+            # 'tag:' と入力した直後の場合 (match_value は None)
+            # カーソル位置までをそのまま使用
+            prefix_part = query[:cursor_pos]
 
+            # 'tag:' の直後にスペースがない場合、自動でスペースを追加
+            if not prefix_part.endswith(" "):
+                suggestion = " " + suggestion
+
+        # クエリを再構築
+        new_query = f"{prefix_part}{suggestion} {suffix_part}"
+
+        # 新しいカーソル位置 = 'tag:' + 'Python' + ' ' の直後
+        new_cursor_pos = len(prefix_part) + len(suggestion) + 1
+
+        # UIに反映
         self.search_entry.delete(0, "end")
         self.search_entry.insert(0, new_query)
         self.search_entry.focus_force()
-        self.search_entry.icursor("end")
+        self.search_entry.icursor(new_cursor_pos)  # カーソル位置を更新
 
         self.hide_autocomplete()
-        self.perform_search()
+        self._trigger_search_now()  # 検索を即時実行
 
     def hide_autocomplete(self, event=None):
         """オートコンプリートウィンドウを非表示にする。"""
@@ -515,33 +656,49 @@ class Synapsen_Nexus(ctk.CTk):
 
     def navigate_suggestions(self, event):
         """キーボードの上下矢印キーで候補リストを移動する。"""
-        if not self.autocomplete_frame.winfo_ismapped() or not self.current_suggestions:
+        if (not self.autocomplete_frame.winfo_ismapped() or
+                not self.current_suggestions or
+                self._last_suggestion_args is None):
             return
 
         num_suggestions = len(self.current_suggestions)
         if event.keysym == "Down":
-            self.selected_suggestion_index = (self.selected_suggestion_index + 1) % num_suggestions
+            self.selected_suggestion_index = (
+                self.selected_suggestion_index + 1) % num_suggestions
         elif event.keysym == "Up":
-            self.selected_suggestion_index = (self.selected_suggestion_index - 1 + num_suggestions) % num_suggestions
+            self.selected_suggestion_index = (
+                self.selected_suggestion_index - 1 + num_suggestions
+                ) % num_suggestions
 
         # 選択項目がリストに表示されるようにスクロール
         self.autocomplete_frame._parent_canvas.yview_moveto(
             self.selected_suggestion_index / num_suggestions
         )
-        # 選択ハイライトを更新
-        self.show_autocomplete(self.current_suggestions)
+
+        # 選択ハイライトを更新 (保存しておいた引数を使う)
+        query, cursor_pos, match_value = self._last_suggestion_args
+        self.show_autocomplete(
+            self.current_suggestions, query, cursor_pos, match_value
+        )
         return "break"  # 他のキーバインドを抑制
 
     def confirm_suggestion(self, event):
         """Enterキーで選択中の候補を確定する。"""
-        if self.autocomplete_frame.winfo_ismapped() and self.selected_suggestion_index != -1:
+        if (self.autocomplete_frame.winfo_ismapped() and
+                self.selected_suggestion_index != -1 and
+                self._last_suggestion_args is not None):
+
+            # 保存しておいた引数を取得
+            query, cursor_pos, match_value = self._last_suggestion_args
+            # select_suggestion を呼び出す
             self.select_suggestion(
-                self.current_suggestions[self.selected_suggestion_index]
+                self.current_suggestions[self.selected_suggestion_index],
+                query, cursor_pos, match_value
             )
             return "break"  # 検索が二重に実行されるのを防ぐ
 
         # 候補が選択されていない場合は、通常の検索を実行
-        self.perform_search()
+        self._trigger_search_now()
         self.hide_autocomplete()
 
     # --- フィルターパネル関連メソッド ---
@@ -569,7 +726,13 @@ class Synapsen_Nexus(ctk.CTk):
             widget.destroy()
 
         if not self.filter_panel_expanded:
-            selected_keys = [key for key, var in self.filter_checkboxes.items() if var.get() == '1']
+            if not self.filter_panel_expanded:
+                # 選択されている IndexKey をリストアップ
+                selected_keys = []
+                for key, var in self.filter_checkboxes.items():
+                    if var.get() == '1':
+                        selected_keys.append(key)
+
             if not selected_keys:
                 ctk.CTkLabel(
                     self.collapsed_icons_frame, text="", font=("", 16)
@@ -595,22 +758,43 @@ class Synapsen_Nexus(ctk.CTk):
             return
         self.load_db_from_path(Path(filepath))
 
-    def load_db_from_path(self, filepath: Path):
+    def load_db_from_path(self, filepath: Path, key_to_redisplay: str = None):
         """
         指定されたパスからDBを読み込み、DataFrameを更新する。
         utils.load_sql_data_file を使用する。
 
         Args:
             filepath (Path): 読み込むDBファイルのパス。
+            key_to_redisplay (str, optional):
+                読み込み後に詳細ペインに再表示するノートのキー。
+                Noneの場合は詳細ペインをクリアする。
         """
         try:
             # utilsの関数でDataFrameを読み込む
             self.df = load_sql_data_file(filepath)
             self.loaded_db_path = filepath
 
+            # データを読み込んだらタグリストを更新
+            self.refresh_unique_tags()
+
             # UIをリセット・更新
             self.perform_search()
-            self.clear_details()
+
+            # 変更したノートを再表示するロジック
+            if key_to_redisplay and self.df is not None:
+                # key_to_redisplay を使って、更新後のdfから行を検索
+                target_note_row = self.df[self.df['key'] == key_to_redisplay]
+
+                if not target_note_row.empty:
+                    # 編集したノートが見つかったら、詳細を再表示
+                    self.show_details(target_note_row.iloc[0])
+                else:
+                    # ノートが見つからない場合 (削除されたなど) はクリア
+                    self.clear_details()
+            else:
+                # 再表示するキーが指定されていない場合はクリア
+                self.clear_details()
+
             self.filter_panel_expanded = False
             self.sync_filter_panel_view()
 
@@ -641,7 +825,7 @@ class Synapsen_Nexus(ctk.CTk):
             cb = ctk.CTkCheckBox(
                 row_frame, text=key, variable=var,
                 onvalue='1', offvalue='0',
-                command=self.perform_search  # チェック時に検索を再実行
+                command=self._trigger_search_now  # チェック時に検索を再実行
             )
             cb.pack(side="left", expand=True, fill="x")
 
@@ -659,9 +843,15 @@ class Synapsen_Nexus(ctk.CTk):
         filtered_df = self.df.copy()
 
         # 1. IndexKey フィルターを適用
-        selected_keys = [key for key, var in self.filter_checkboxes.items() if var.get() == '1']
+        selected_keys = []
+        for key, var in self.filter_checkboxes.items():
+            if var.get() == '1':
+                selected_keys.append(key)
+
         if selected_keys:
-            filtered_df = filtered_df[filtered_df['commonplace_key'].isin(selected_keys)]
+            filtered_df = (
+                filtered_df[filtered_df['commonplace_key'].isin(selected_keys)]
+            )
 
         # 2. 検索クエリを適用
         query_text = self.search_entry.get().strip()
@@ -684,6 +874,73 @@ class Synapsen_Nexus(ctk.CTk):
         self.update_results_list(filtered_df)
         self.update_collapsed_filter_view()
 
+    def _trigger_search_now(self):
+        """
+        デバウンスタイマーをキャンセルし、検索を即座に実行する。
+        Enterキー押下時やチェックボックス変更時に使用する。
+        """
+        # 検索のタイマー
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+            self.search_timer = None
+
+        # 予測変換のタイマー
+        if self.suggestion_timer:
+            self.after_cancel(self.suggestion_timer)
+            self.suggestion_timer = None
+
+        # 本体の検索を実行
+        self.perform_search()
+
+    def schedule_search(self):
+        """
+        検索の実行を遅延させる（デバウンス）。
+        既にあるタイマーをキャンセルし、新しいタイマーを設定する。
+        """
+        # 既存のタイマーがあればキャンセル
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+
+        # 待機時間を 650ミリ秒 (0.65秒) に設定
+        self.search_timer = self.after(650, self.perform_search)
+
+    def schedule_suggestions(self, event=None):
+        """
+        オートコンプリートの更新を遅延させる（デバウンス）。
+        [変更] 'tag:' プレフィックス入力中のみ予測変換を実行する。
+        """
+        if self.suggestion_timer:
+            self.after_cancel(self.suggestion_timer)
+            self.suggestion_timer = None
+
+        query = self.search_entry.get()
+
+        # 現在のカーソル位置までのクエリを取得
+        cursor_pos = self.search_entry.index(ctk.INSERT)
+        query_to_cursor = query[:cursor_pos]
+
+        # 正規表現: 'tag:' (または 'tags:') の後に文字を入力中か
+        # (大文字小文字を無視, ^|\s|\( は行頭/空白/括弧の意)
+        tag_value_pattern = r'(?i)(^|\s|\()tags?:([^\s\)]*)$'
+        match_value = re.search(tag_value_pattern, query_to_cursor)
+
+        # 正規表現: 'tag:' (または 'tags:') を入力した直後か
+        tag_prefix_pattern = r'(?i)(^|\s|\()tags?:\s*$'
+        match_prefix = re.search(tag_prefix_pattern, query_to_cursor)
+
+        if match_prefix or match_value:
+            # 'tag:' が入力されている場合のみ、予測変換を実行 (200ms後)
+            # update_suggestions に必要な情報を渡す
+            self.suggestion_timer = self.after(
+                200,
+                lambda q=query, c=cursor_pos, m=match_value:
+                    self.update_suggestions(q, c, m)
+            )
+        else:
+            # 'tag:' 以外が入力されている場合は、予測変換を即座に隠す
+            self.hide_autocomplete()
+            self._last_suggestion_args = None  # 引数キャッシュをクリア
+
     def show_random_note(self):
         """
         「閃き」ボタン押下時。
@@ -693,7 +950,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 1. 使用するDataFrameを選択
         target_df = None
-        if self.filtered_df_cache is not None and not self.filtered_df_cache.empty:
+        if (
+                self.filtered_df_cache is not None and
+                not self.filtered_df_cache.empty
+        ):
             # 現在の検索結果キャッシュが存在すれば、それを使用
             target_df = self.filtered_df_cache
         elif self.df is not None and not self.df.empty:
@@ -742,6 +1002,27 @@ class Synapsen_Nexus(ctk.CTk):
                 )
             item_frame.pack(fill="x", padx=5, pady=2)
 
+            # チェックボックス ---
+            note_key = row.get('key')
+            is_selected = note_key in self.selected_keys
+
+            # チェックボックスの状態変数
+            chk_var = ctk.StringVar(value="on" if is_selected else "off")
+
+            def on_toggle(k=note_key, v=chk_var):
+                self.toggle_note_selection(k, v)
+
+            checkbox = ctk.CTkCheckBox(
+                item_frame,
+                text="",
+                width=24,
+                variable=chk_var,
+                onvalue="on",
+                offvalue="off",
+                command=on_toggle
+            )
+            checkbox.pack(side="left", padx=(0, 5))
+
             cp_key = str(row.get("commonplace_key", "")).lower()
             icon = self.key_icons.get(cp_key, '•')
             color = self.key_colors.get(cp_key, 'gray')
@@ -760,17 +1041,122 @@ class Synapsen_Nexus(ctk.CTk):
             text_label.pack(side="left", fill="x", expand=True)
 
             # --- イベントバインド ---
+            def create_show_details_handler(note_row=row):
+                def handler(event):
+                    self.show_details(note_row)
+                return handler
+
+            def create_open_pdf_handler(note_row=row):
+                def handler(event):
+                    self.open_pdf(note_row)
+                return handler
+
             # シングルクリックで詳細表示
-            command = lambda e, r=row: self.show_details(r)
-            item_frame.bind("<Button-1>", command)
-            icon_label.bind("<Button-1>", command)
-            text_label.bind("<Button-1>", command)
+            show_details_command = create_show_details_handler()
+            # item_frame自体へのクリックは詳細表示
+            item_frame.bind("<Button-1>", show_details_command)
+            # アイコンやテキストへのクリックも詳細表示
+            icon_label.bind("<Button-1>", show_details_command)
+            text_label.bind("<Button-1>", show_details_command)
 
             # ダブルクリックでPDFを開く
-            pdf_command = lambda e, r=row: self.open_pdf(r)
-            item_frame.bind("<Double-Button-1>", pdf_command)
-            icon_label.bind("<Double-Button-1>", pdf_command)
-            text_label.bind("<Double-Button-1>", pdf_command)
+            open_pdf_command = create_open_pdf_handler()
+            item_frame.bind("<Double-Button-1>", open_pdf_command)
+            icon_label.bind("<Double-Button-1>", open_pdf_command)
+            text_label.bind("<Double-Button-1>", open_pdf_command)
+
+    def toggle_note_selection(self, key, var):
+        """チェックボックスの切り替え時の処理"""
+        if var.get() == "on":
+            self.selected_keys.add(key)
+        else:
+            self.selected_keys.discard(key)
+
+        self.update_selection_ui_state()
+
+    def clear_selection(self):
+        """選択をすべて解除する"""
+        self.selected_keys.clear()
+        self.update_selection_ui_state()
+        # リストのチェックボックス表示を更新するため、現在の検索結果でリストを再描画
+        if self.filtered_df_cache is not None:
+            self.update_results_list(self.filtered_df_cache)
+
+    def update_selection_ui_state(self):
+        """選択数に応じてラベル表示とボタン状態を更新"""
+        count = len(self.selected_keys)
+        self.selection_info_label.configure(text=f"選択: {count}")
+
+        # リンクコピーボタンの制御
+        if count > 0:
+            # 選択がある時は強調色（黄色/オレンジ系）にする
+            self.selection_info_label.configure(text_color="#E0a800")
+            self.copy_links_button.configure(state="normal")
+            # 選択グラフも有効化されていることを視覚的に示すため、メニューは常に有効のまま
+        else:
+            # 0件の時はグレーアウト
+            self.selection_info_label.configure(text_color="gray")
+            self.copy_links_button.configure(state="disabled")
+
+    def copy_selected_links(self):
+        """
+        選択されたノートのリンク文字列（[[Key: Title]]）を生成し、
+        クリップボードにコピーする。
+        """
+        if not self.selected_keys or self.df is None:
+            return
+
+        # 選択されたキーに対応する行を取得
+        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+
+        if selected_df.empty:
+            return
+
+        # 日付順（またはKey順）にソートしてリスト化
+        selected_df = selected_df.sort_values(by='key')
+
+        link_texts = []
+        for _, row in selected_df.iterrows():
+            key = row['key']
+            title = row['title']
+            # Synapsenのリンク形式: [[Key: Title]]
+            link_texts.append(f"[[{key}: {title}]]")
+
+        # 改行区切りで結合
+        clipboard_text = "\n".join(link_texts)
+
+        # クリップボードへコピー
+        self.clipboard_clear()
+        self.clipboard_append(clipboard_text)
+        self.update()  # クリップボード更新を確定させるために必要
+
+        messagebox.showinfo(
+            "コピー完了",
+            f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
+            "新しいノートのメモ欄にペーストして、MOC（目次）として利用できます。",
+            parent=self
+        )
+
+    def show_selected_graph(self):
+        """
+        選択されたノート(self.selected_keys)のみでグラフを表示する。
+        """
+        if not self.selected_keys:
+            return
+
+        if self.df is None:
+            return
+
+        # 全データ(self.df)から、選択されたキーを持つ行だけを抽出
+        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+
+        if selected_df.empty:
+            messagebox.showinfo("情報", "選択されたノートのデータが見つかりません。")
+            return
+
+        print(f"Selected Graph: {len(selected_df)} notes")
+        # 既存のグラフ生成メソッドを再利用
+        self.generate_and_show_graph(target_df=selected_df)
 
     def clear_details(self):
         """詳細表示ペインの内容をすべてクリアする。"""
@@ -781,11 +1167,21 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- PDFプレビューのクリア ▼ ---
         self.preview_image_object = None
-        self.pdf_preview_label.configure(
-            image=None,
+
+        # 既存のラベルを破棄
+        if hasattr(self, 'pdf_preview_label'):
+            self.pdf_preview_label.destroy()
+
+        # ラベルを「クリア状態」で再作成
+        self.pdf_preview_label = ctk.CTkLabel(
+            self.details_frame,
             text="ノートを選択するとプレビューが表示されます",
-            fg_color="gray20",
-            text_color="gray70"
+            fg_color="gray20",   # プレースホルダーの背景色
+            anchor="center",
+            text_color="gray70"  # プレースホルダーの文字色
+        )
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
         # -----------------------------------
 
@@ -858,6 +1254,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- ▼ PDFプレビューの表示 ▼ ---
 
+        # 既存のプレビューラベルを破棄
+        if hasattr(self, 'pdf_preview_label'):
+            self.pdf_preview_label.destroy()
+
         max_preview_width = 225  # プレビュー表示の最大幅
 
         pil_image = get_pdf_page_image(
@@ -874,21 +1274,29 @@ class Synapsen_Nexus(ctk.CTk):
                 dark_image=pil_image,
                 size=(pil_image.width, pil_image.height)
             )
-            # プレビュー用ラベルに画像を設定
-            self.pdf_preview_label.configure(
+            # プレビュー用ラベルを「画像付き」で再作成
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.details_frame,
                 image=self.preview_image_object,
-                text="",  # テキストを削除
+                text="",                # テキストを削除
                 fg_color="transparent"  # 背景を透明に
             )
         else:
             # 画像取得失敗
             self.preview_image_object = None
-            self.pdf_preview_label.configure(
+            # プレビュー用ラベルを「失敗状態」で再作成
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.details_frame,
                 image=None,
                 text="プレビューの読み込みに失敗しました",
                 fg_color="gray20",
                 text_color="#D9534F"  # 赤色
             )
+
+        # 新しく作成したラベルをグリッドに配置
+        self.pdf_preview_label.grid(
+            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+        )
 
         # メモ表示（リンク構築）
         # (row=6, column=1 の memo_display_frame を使用)
@@ -970,311 +1378,177 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
     # --- グラフ生成メソッド ---
-    def generate_and_show_graph(self, output_path=None):
+    def generate_and_show_graph(self, output_path=None, target_df=None):
         """
-        現在の検索結果（キャッシュ済み）に基づき、
-        ノート間のリンクグラフを生成してブラウザで表示、またはファイルに保存する。
+        グラフを生成して表示する。
 
         Args:
-            output_path (Path, optional):
-                指定された場合、グラフをこのパスにHTMLとして保存し、
-                ブラウザでは開かない。
+            output_path (Path, optional): 保存先パス。
+            target_df (pd.DataFrame, optional):
+                グラフ化対象のデータフレーム。
+                Noneの場合は現在の検索結果(self.filtered_df_cache)を使用する。
         """
-
-        # 1. キャッシュされた検索結果（DataFrame）を取得
-        df = self.filtered_df_cache
+        # 1. データフレーム決定
+        df = target_df if target_df is not None else self.filtered_df_cache
 
         if df is None or df.empty:
-            if not output_path: # エクスポート時以外のみメッセージ表示
-                messagebox.showinfo(
-                    "グラフ表示",
-                    "グラフ化するノートがありません。\n(現在の検索結果が0件です)",
-                    parent=self
-                )
+            if not output_path:
+                messagebox.showinfo("グラフ表示", "グラフ化するノートがありません。", parent=self)
             return
 
         # 2. パフォーマンス制限
-        if len(df) > 500:
-            if not output_path:
-                messagebox.showwarning(
-                    "グラフ表示",
-                    f"検索結果が多すぎます ({len(df)}件)。\nグラフ表示は500件に制限されます。",
-                    parent=self
-                )
+        if len(df) > 500 and not output_path:
+            messagebox.showwarning(
+                "グラフ表示", "件数が多いため500件に制限します。", parent=self)
             df = df.head(500)
 
-        # 3. グラフ構築 (NetworkX)
-        G = nx.DiGraph()
-        notes_in_graph = set(df['key'])
-        link_pattern = re.compile(r"\[\[(.*?)\]\]")
-
-        # 3a. ノードを追加
-        for index, row in df.iterrows():
-            key = row.get('key')
-            title = row.get('title', 'N/A')
-            cp_key = row.get('commonplace_key', '').lower()
-
-            icon_code = self.key_icons.get(cp_key, '•')
-            color_hex = self.key_colors.get(cp_key, '#FFFFFF')
-
-            # PDFへのURIを取得
-            file_uri = get_pdf_uri_for_note(
-                row, self.loaded_db_path, self.pdf_root_folder
-            )
-
-            tooltip = f"Key: {key}\nIndex: {cp_key}"
-            if file_uri:
-                tooltip += "\n(ダブルクリックしてPDFを開く)"
-
-            G.add_node(
-                key,
-                label=title,
-                title=tooltip,
-                shape='icon',
-                icon={
-                    'code': icon_code,
-                    'color': color_hex,
-                    'size': 40
-                },
-                color=color_hex,
-                # URIをノード属性に追加 (JavaScriptから参照)
-                pdf_url=file_uri if file_uri else ""
-            )
-
-        # 3b. エッジを追加
-        edge_count = 0
-        for index, row in df.iterrows():
-            source_key = row.get('key')
-            memo = row.get('memo', '')
-
-            for match in link_pattern.finditer(memo):
-                full_match_content = match.group(1).strip()
-                target_key = full_match_content.split(':')[0].strip()
-
-                if target_key in notes_in_graph:
-                    if source_key != target_key:
-                        G.add_edge(source_key, target_key)
-                        edge_count += 1
-
-        print(f"グラフを生成: {len(df)} ノード, {edge_count} エッジ")
-
-        # 4. 視覚化 (Pyvis)
-        nt = Network(
-            height="95vh",
-            width="100%",
-            bgcolor="#222222",
-            font_color="white",
-            directed=True,
-            notebook=False
-        )
-        nt.from_nx(G)
-
-        # 5. 物理演算のオプションを設定
-        nt.set_options("""
-        var options = {
-          "physics": {
-            "solver": "barnesHut",
-            "barnesHut": {
-              "gravitationalConstant": -8000,
-              "centralGravity": 0.3,
-              "springLength": 95,
-              "springConstant": 0.04,
-              "damping": 0.09
-            },
-            "minVelocity": 0.75
-          },
-          "interaction": {
-            "tooltipDelay": 200,
-            "hideEdgesOnDrag": true,
-            "hover": true,
-            "hoverConnectedEdges": true,
-            "selectConnectedEdges": true,
-            "navigationButtons": true,
-            "keyboard": { "enabled": true }
-          },
-          "edges": {
-            "arrows": {
-              "to": { "enabled": true, "scaleFactor": 0.5 }
-            },
-            "color": {
-              "color": "#848484",
-              "highlight": "#FFFFFF",
-              "hover": "#DDDDDD",
-              "inherit": false
-            },
-            "smooth": {
-              "type": "continuous",
-              "forceDirection": "none",
-              "roundness": 0.5
-            }
-          }
-        }
-        """)
-
-        # 6. HTMLファイルとして保存し、ブラウザで開く
         try:
-            if output_path:
-                graph_file_path = output_path
-            else:
-                # デフォルトのパス (アプリと同じ場所)
-                if getattr(sys, 'frozen', False):
-                    base_path = Path(sys.executable).parent
-                else:
-                    base_path = Path(__file__).parent.parent
-                graph_file_path = base_path / "synapsen_graph.html"
-
-            # 6a. まずHTMLファイルを保存
-            nt.save_graph(str(graph_file_path))
-
-            # 6b. ダブルクリックのJavaScriptを挿入
-            click_handler_js = """
-            document.addEventListener('DOMContentLoaded', function() {
-                if (typeof network !== 'undefined') {
-                    network.on("doubleClick", function(properties) {
-                        var { nodes } = properties;
-                        if (nodes.length > 0) {
-                            var nodeId = nodes[0];
-                            var nodeData = this.body.nodes[nodeId].options;
-                            if (nodeData.pdf_url && nodeData.pdf_url !== "") {
-                                window.open(nodeData.pdf_url, '_blank');
-                            }
-                        }
-                    });
-                }
-            });
-            """
-
-            # 6b. 保存したHTMLを読み込む
-            with open(graph_file_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # 6c. </head> タグの直前に <script> ブロックを挿入
-            script_tag = (
-                "<script type=\"text/javascript\">\n" +
-                f"{click_handler_js}\n</script>\n</head>"
+            # 3. GraphManager に処理を委譲
+            generated_path = GraphManager.generate_graph_html(
+                df,
+                self.key_icons,
+                self.key_colors,
+                self.loaded_db_path,
+                self.pdf_root_folder,
+                output_path=output_path
             )
-            html_content = html_content.replace("</head>", script_tag, 1)
 
-            # 6d. 変更したHTMLを上書き保存
-            with open(graph_file_path, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-
-            # 6e. 変更後のHTMLをブラウザで開く
+            # 4. ブラウザで表示 (ファイル保存モードでない場合)
             if not output_path:
-                webbrowser.open(graph_file_path.as_uri())
+                GraphManager.open_graph(generated_path)
+
         except Exception as e:
-            print(f"Graph display error: {e}")
+            print(f"Graph error: {e}")
             if not output_path:
-                messagebox.showerror(
-                    "グラフ表示エラー", f"グラフの生成または表示に失敗しました:\n{e}", parent=self)
+                messagebox.showerror("エラー", f"グラフ生成失敗: {e}", parent=self)
 
-    # --- エクスポート機能 ---
-    def export_search_results(self):
+    def show_local_graph(self):
         """
-        「エクスポート」ボタン押下時。
-        現在の検索結果 (CSV)、メタデータ (TXT)、グラフ (HTML)、
-        および本文 (TXT) を指定したフォルダに保存する。
+        現在詳細ペインで選択されているノートと、
+        そのノートに「リンクしている」または「リンクされている」ノートのみでグラフを表示する。
         """
-
-        # 1. 検索結果があるか確認
-        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
-            messagebox.showinfo(
-                "エクスポート",
-                "エクスポートする検索結果がありません。",
-                parent=self
-            )
+        if self.current_selected_row is None:
+            messagebox.showinfo("情報", "ローカルグラフを表示するノートを選択してください。")
             return
 
-        # 2. 保存先フォルダをユーザーに選択させる
-        export_folder_path = filedialog.askdirectory(
-            title="エクスポート先フォルダを選択"
-        )
-        if not export_folder_path:
-            return  # キャンセル
+        if self.df is None:
+            return
 
-        export_path = Path(export_folder_path)
+        center_key = self.current_selected_row.get('key')
+        if not center_key:
+            return
 
-        now = datetime.datetime.now()
-        timestamp = now.strftime("%Y%m%d_%H%M%S")
-        final_export_dir = export_path / f"Synapsen_Export_{timestamp}"
+        # 1. 関連するキーのセットを作成 (中心ノード + リンク先 + リンク元)
+        related_keys = set()
+        related_keys.add(center_key)
+
+        # A. このノートが引用している先 (Forward Links)
+        # memo欄から [[key]] を抽出して追加
+        memo = self.current_selected_row.get('memo', '')
+        link_pattern = re.compile(r"\[\[(.*?)\]\]")
+        for match in link_pattern.finditer(memo):
+            # [[key: title]] の形式も考慮し、:の前だけを取得
+            content = match.group(1).split(':')[0].strip()
+            related_keys.add(content)
+
+        # B. このノートを引用している元 (Backlinks)
+        # 全件走査で center_key を含んでいるノートを探す
+        escaped_key = re.escape(center_key)
+        # [[key]] または [[key:title]] にマッチ
+        pattern = f"\\[\\[{escaped_key}[:\\]]"
+
+        # 高速化のため、memo列が空でない行のみ対象にする等の工夫も可能ですが、
+        # ここではシンプルに str.contains でフィルタリングします
+        backlinks = self.df[
+            self.df['memo'].str.contains(pattern, regex=True, na=False)]
+        related_keys.update(backlinks['key'].tolist())
+
+        # 2. 関連キーのみを含むDataFrameを作成
+        local_df = self.df[self.df['key'].isin(related_keys)]
+
+        if local_df.empty:
+            messagebox.showinfo("情報", "関連するノートが見つかりませんでした。")
+            return
+
+        # 3. グラフ生成 (target_df を指定して呼び出し)
+        print(f"Local Graph: {len(local_df)} notes related to {center_key}")
+        self.generate_and_show_graph(target_df=local_df)
+
+    # --- エクスポート機能 ---
+    def export_search_results(self, include_pdf=False):
+        """
+        検索結果(または選択中)のデータをエクスポートする。
+        include_pdf=True の場合、同じフォルダに統合PDFも生成する。
+        """
+        target_df = None
+        mode = "search_results"
+
+        # 対象データの決定
+        if self.selected_keys:
+            if self.df is not None:
+                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+                mode = "selected_items"
+        else:
+            target_df = self.filtered_df_cache
+
+        if target_df is None or target_df.empty:
+            messagebox.showinfo("エクスポート", "対象データがありません。", parent=self)
+            return
+
+        export_folder = filedialog.askdirectory(title="エクスポート先を選択")
+        if not export_folder:
+            return
 
         try:
-            final_export_dir.mkdir(parents=True, exist_ok=True)
-
-            # 3. メタデータ (検索クエリと日時) を保存
-            meta_path = final_export_dir / "export_meta.txt"
-            current_query = self.search_entry.get()
-
-            with open(meta_path, 'w', encoding='utf-8') as f:
-                f.write("Synapsen Nexus エクスポート\n")
-                f.write(f"エクスポート日時: {now.isoformat()}\n")
-                f.write(f"検索結果件数: {len(self.filtered_df_cache)} 件\n")
-                f.write("="*30 + "\n")
-                f.write(f"検索クエリ:\n{current_query}\n")
-
-            # CSVファイル名を変更
-            csv_path = final_export_dir / "search_results_metadata.csv"
-
-            # .drop() を使って full_text 列を明示的に削除
-            df_to_export = self.filtered_df_cache.drop(
-                columns=['full_text'], errors='ignore'
+            # ExportManager に処理を委譲
+            success, result_path = self.exporter.execute_export(
+                target_df=target_df,
+                query_text=self.search_entry.get(),
+                export_folder_path=export_folder,
+                mode=mode,
+                include_pdf=include_pdf,
+                loaded_db_path=self.loaded_db_path,
+                pdf_root_folder=self.pdf_root_folder
             )
 
-            # ( tags 列がリストの場合 ; 区切りに戻す - Nexus内では文字列のはずだが念のため )
-            if 'tags' in df_to_export.columns:
-                df_to_export['tags'] = df_to_export['tags'].apply(
-                    lambda x: ";".join(x) if isinstance(x, list) else str(x)
-                )
-
-            df_to_export.to_csv(csv_path, index=False, encoding='utf-8-sig')
-
-            # full_text を個別の .txt ファイルとして保存
-            text_export_dir = final_export_dir / "FullText_Contents"
-            text_export_dir.mkdir(exist_ok=True)
-
-            print(f"FullText を {text_export_dir} にエクスポート中...")
-
-            # 元の (full_textを含む) DataFrame を使用
-            for index, row in self.filtered_df_cache.iterrows():
-                key = row.get('key')
-                text_content = row.get('full_text', '')
-
-                if not key:
-                    # keyが無いノートはスキップ (ほぼあり得ないが念のため)
-                    continue
-
-                # ファイル名は {key}.txt (例: 20240101000000.txt)
-                text_file_path = text_export_dir / f"{key}.txt"
-
-                with open(text_file_path, 'w', encoding='utf-8') as f:
-                    f.write(text_content)
-
-            # 5. グラフ (HTML) を保存
-            graph_html_path = final_export_dir / "search_graph.html"
-            self.generate_and_show_graph(output_path=graph_html_path)
-
-            messagebox.showinfo(
-                "エクスポート完了",
-                f"検索結果を指定のフォルダに保存しました:\n\n"
-                f"・メタデータCSV (search_results_metadata.csv)\n"
-                f"・本文テキスト (FullText_Contents フォルダ)\n"
-                f"・関連グラフ (search_graph.html)\n\n"
-                f"保存先:\n{final_export_dir}",
-                parent=self
-            )
+            msg = f"エクスポート完了:\n{result_path}"
+            messagebox.showinfo("完了", msg, parent=self)
 
         except Exception as e:
-            print(f"エクスポート処理中にエラー: {e}")
-            messagebox.showerror(
-                "エクスポートエラー",
-                f"エクスポートに失敗しました:\n{e}", parent=self
-                )
-            # (もしエラーが発生したら、中途半端に作成したフォルダを削除する)
-            if final_export_dir.exists():
-                try:
-                    shutil.rmtree(final_export_dir)
-                except Exception as e_del:
-                    print(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
+            messagebox.showerror("エクスポートエラー", f"失敗しました:\n{e}", parent=self)
+
+    def merge_and_export_pdf(self):
+        """メニューから「統合PDF」単体を選んだ場合のラッパー"""
+        # 対象データの決定
+        target_df = None
+        if self.selected_keys:
+            if self.df is not None:
+                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+        else:
+            target_df = self.filtered_df_cache
+
+        if target_df is None or target_df.empty:
+            messagebox.showinfo("PDF結合", "対象データがありません。", parent=self)
+            return
+
+        time_text = datetime.datetime.now().strftime('%Y%m%d')
+        save_path = filedialog.asksaveasfilename(
+            title="統合PDFを保存",
+            defaultextension=".pdf",
+            filetypes=[("PDF Files", "*.pdf")],
+            initialfile=f"Merged_Notes_{time_text}.pdf"
+        )
+        if not save_path:
+            return
+
+        # ExportManager の merge_pdf を直接利用
+        if (
+                self.exporter.merge_pdf(
+                    target_df, Path(save_path), self.pdf_root_folder)
+        ):
+            messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
+        else:
+            messagebox.showwarning("失敗", "結合可能なPDFが見つかりませんでした。", parent=self)
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
@@ -1319,8 +1593,12 @@ class Synapsen_Nexus(ctk.CTk):
         update_note_in_db(self.loaded_db_path, key_to_update, new_data_dict)
 
         # 2. 変更をUIに反映するため、DBを再読み込み
-        print(f"ノート {key_to_update} を更新しました。DBを再読み込みします。")
-        self.load_db_from_path(self.loaded_db_path)
+        self.load_db_from_path(
+            self.loaded_db_path, key_to_redisplay=key_to_update)
+
+        # 再表示したいキーを引数に渡す
+        self.load_db_from_path(
+            self.loaded_db_path, key_to_redisplay=key_to_update)
 
     def confirm_delete_note(self):
         """

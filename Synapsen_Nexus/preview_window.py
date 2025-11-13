@@ -137,11 +137,25 @@ class NotePreviewWindow(ctk.CTkToplevel):
             )
         self._build_references_display()
 
-        # 9. 「PDFを開く」ボタン
+        # 9. ボタンエリア (PDFを開く + 編集)
+        button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        button_frame.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
+
+        # PDFを開くボタン
         pdf_button = ctk.CTkButton(
-            self, text="PDFを開く", command=self.open_pdf_action
-            )
-        pdf_button.grid(row=9, column=0, columnspan=2, padx=10, pady=10)
+            button_frame, text="PDFを開く", command=self.open_pdf_action
+        )
+        pdf_button.pack(side="left", padx=10)
+
+        # 編集ボタン
+        edit_button = ctk.CTkButton(
+            button_frame,
+            text="編集する",
+            command=self.edit_note_action,
+            fg_color="#585a9c",
+            hover_color="#494B83"
+        )
+        edit_button.pack(side="left", padx=10)
 
         # --- PDFプレビューの読み込み処理 ▼ ---
         max_preview_width = 250  # プレビュー表示の最大幅
@@ -193,6 +207,16 @@ class NotePreviewWindow(ctk.CTkToplevel):
         # メインアプリのopen_pdfメソッドを呼び出す
         self.parent_app.open_pdf(self.note_data)
         self.destroy()  # PDFを開いたらプレビューは閉じる
+
+    def edit_note_action(self):
+        """
+        編集ボタンが押されたときの処理。
+        プレビューウィンドウを閉じ、メインアプリの編集ダイアログを開く。
+        """
+        # 編集後にプレビューの内容が古くなるのを防ぐため、先にウィンドウを閉じます
+        self.destroy()
+        # メインアプリ(Synapsen_Nexus)の open_edit_dialog を呼び出します
+        self.parent_app.open_edit_dialog(self.note_data)
 
     def _build_memo_display(self):
         """
