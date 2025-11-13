@@ -3,6 +3,14 @@ from pathlib import Path
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 
+# --- 追加インポート ---
+from PIL import Image
+import io
+try:
+    from pyzbar.pyzbar import decode
+except ImportError:
+    decode = None  # ライブラリがない場合のフォールバック用
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -13,6 +21,7 @@ logger = logging.getLogger(__name__)
 def get_note_info(pdf_path: Path, key_rect: tuple):
     """
     単一のPDFファイルを解析し、ファイル名や内容から情報を抽出する。
+    優先順位: QRコード -> 指定座標のテキスト (key_rect)
     """
     try:
         commonplace_key = ""
@@ -23,7 +32,36 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             doc = fitz.open(pdf_path)
             if len(doc) > 0:
                 page = doc[0]
-                if key_rect and len(key_rect) == 4:
+
+                # --- 1. QRコードからの読み取り (優先) ---
+                if decode is not None:
+                    try:
+                        # 処理高速化のため DPI=150 程度でレンダリング
+                        pix = page.get_pixmap(dpi=150)
+                        img_data = pix.tobytes("png")
+                        pil_image = Image.open(io.BytesIO(img_data))
+
+                        decoded_objects = decode(pil_image)
+                        for obj in decoded_objects:
+                            if obj.type == 'QRCODE':
+                                qr_text = obj.data.decode('utf-8').strip()
+                                if qr_text:
+                                    commonplace_key = qr_text
+                                    logger.debug(
+                                        f"QR検出: {commonplace_key} "
+                                        f"({pdf_path.name})"
+                                    )
+                                    break
+                    except Exception as e:
+                        # 画像処理エラー等はログに出して無視し、テキスト抽出へ進む
+                        logger.debug(f"QR読み取り失敗 ({pdf_path.name}): {e}")
+                else:
+                    # pyzbar がインストールされていない場合は初回のみ警告ログを出す等の処理も可能
+                    pass
+
+                # --- 2. 指定座標からのテキスト抽出 (フォールバック) ---
+                # QRコードでキーが見つからなかった場合のみ実行
+                if not commonplace_key and key_rect and len(key_rect) == 4:
                     commonplace_key = page.get_textbox(key_rect).strip()
 
         except Exception as e:

@@ -10,6 +10,7 @@ import csv
 import shutil
 import re
 import subprocess
+import qrcode
 
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
@@ -69,24 +70,8 @@ def add_metadata_to_clip(
     sist_string_readable: str | None = None
 ) -> None:
     """
-    [Webクリップ専用]
     Playwrightで生成されたPDFに対し、
-    1ページ目に IndexKey を、最終ページ（新規追加）に コメントと書誌情報 を書き込みます。
-
-    Args:
-        pdf_path_str (str): 処理対象のPDFファイルパス (読み書きされる)。
-        font_path (str): 埋め込むフォントファイルのパス。
-        paper_width (float): 最終ページの幅 (ポイント)。
-        paper_height (float): 最終ページの高さ (ポイント)。
-        key_rect_tuple (tuple): IndexKeyを描画する座標 (x0, y0, x1, y1)。
-        index_key_to_embed (str): 描画するIndexKeyの文字列。
-        text_color (tuple | None): IndexKeyの文字色 (fitz形式)。
-        comment_to_embed (str): 描画するコメント文字列。
-        sist_string_formal (str | None): 書誌情報(SIST)。
-        sist_string_readable (str | None): 書誌情報(可読形式)。
-
-    Raises:
-        Exception: PDFの読み書きやフォント埋め込みに失敗した場合。
+    1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報 を書き込みます。
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
@@ -106,17 +91,59 @@ def add_metadata_to_clip(
         key_rect = fitz.Rect(key_rect_tuple)
         font_alias = "embed_font"
 
-        # --- 1. 1ページ目に IndexKey を描画 ---
+        # --- 1. 1ページ目に IndexKey (QR + テキスト) を描画 ---
         if index_key_to_embed:
-            page1 = doc[0]  # 既存の1ページ目（Webページ本体）を取得
+            page1 = doc[0]
             try:
                 page1.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
                 logger.warning(f"フォント埋め込み警告 (Page 1): {e}")
 
             shape1 = page1.new_shape()
+
+            # ============================================================
+            # レイアウト計算: 左端にQR、その右にテキスト
+            # ============================================================
+            # 1. QRコードの領域計算 (左端に配置)
+            qr_size = 35  # ポイント
+            qr_margin = 5
+            qr_x = key_rect.x0 + qr_margin
+            qr_y = key_rect.y0
+
+            qr_rect = fitz.Rect(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size)
+
+            # 2. テキストの領域計算 (QRコードの分だけ右にずらす)
+            text_rect = fitz.Rect(
+                qr_rect.x1 + qr_margin, key_rect.y0,
+                key_rect.x1, key_rect.y1
+            )
+
+            # ============================================================
+            # A. QRコードの生成と描画
+            # ============================================================
+            try:
+                # QRコード生成
+                qr = qrcode.QRCode(box_size=2, border=0)
+                qr.add_data(index_key_to_embed)
+                qr.make(fit=True)
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+
+                # バイト列に変換
+                img_byte_arr = io.BytesIO()
+                qr_img.save(img_byte_arr, format='PNG')
+                img_bytes = img_byte_arr.getvalue()
+
+                # ページに画像を挿入
+                page1.insert_image(qr_rect, stream=img_bytes)
+
+            except Exception as e:
+                logger.error(f"QRコード生成エラー: {e}")
+
+            # ============================================================
+            # B. テキストの描画 (ずらした位置に描画)
+            # ============================================================
             shape1.insert_textbox(
-                key_rect, index_key_to_embed, fontname=font_alias,
+                text_rect, index_key_to_embed, fontname=font_alias,
                 fontsize=10, color=text_color, align=0
             )
             shape1.commit()
@@ -141,7 +168,6 @@ def add_metadata_to_clip(
             current_y_pos = info_rect_y_start
             x0 = key_rect.x0
 
-            # 2a. 書誌情報 (SIST 02 単一行)
             if sist_string_formal:
                 sist_rect = fitz.Rect(
                     x0, current_y_pos,
@@ -155,9 +181,8 @@ def add_metadata_to_clip(
                     sist_rect.y0 + (sist_rect.height - rc_sist)
                     if rc_sist >= 0 else sist_rect.y1
                 )
-                current_y_pos = actual_sist_y1 + 10  # Y座標を更新
+                current_y_pos = actual_sist_y1 + 10
 
-            # 2b. 書誌情報 (改行形式)
             if sist_string_readable:
                 readable_rect = fitz.Rect(
                     x0, current_y_pos,
@@ -171,11 +196,10 @@ def add_metadata_to_clip(
                     readable_rect.y0 + (readable_rect.height - rc_readable)
                     if rc_readable >= 0 else readable_rect.y1
                 )
-                current_y_pos = actual_readable_y1 + 40  # Y座標を更新
+                current_y_pos = actual_readable_y1 + 40
             else:
                 current_y_pos = info_rect_y_start + 40
 
-            # 2c. コメント (D&D / WebClip 共通)
             comment_rect = fitz.Rect(
                 x0, current_y_pos,
                 page_last.rect.width - 50, info_rect_y_end
@@ -186,7 +210,6 @@ def add_metadata_to_clip(
                     fontname=font_alias, fontsize=9, align=0
                 )
 
-            # 描画内容をコミット
             shape_last.commit()
 
         # 変更を上書き保存
@@ -194,7 +217,7 @@ def add_metadata_to_clip(
 
     except Exception as e:
         logger.error(f"Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}")
-        raise  # エラーを再送出
+        raise
     finally:
         if doc:
             doc.close()
