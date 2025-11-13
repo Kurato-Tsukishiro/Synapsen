@@ -180,8 +180,6 @@ class Synapsen_Nexus(ctk.CTk):
             self.destroy()
 
     def create_widgets(self):
-        """アプリケーションのUIコンポーネントを作成し、配置する。"""
-
         # --- トップフレーム ---
         top_frame = ctk.CTkFrame(self)
         top_frame.grid(
@@ -196,15 +194,6 @@ class Synapsen_Nexus(ctk.CTk):
         ctk.CTkButton(
             left_button_frame, text="DBを開く", command=self.load_database_dialog
         ).pack(side="left", padx=(0, 5))
-
-        # エクスポートボタン
-        self.export_button = ctk.CTkButton(
-            left_button_frame,
-            text="エクスポート",
-            command=self.export_search_results,
-            width=100
-        )
-        self.export_button.pack(side="left", padx=5)
 
         # 検索バーコンテナ
         search_container = ctk.CTkFrame(top_frame, fg_color="transparent")
@@ -265,6 +254,17 @@ class Synapsen_Nexus(ctk.CTk):
             state="disabled"
         )
         self.copy_links_button.pack(side="left", padx=(5, 0))
+
+        # エクスポートボタン
+        self.export_button = ctk.CTkButton(
+            right_button_frame,
+            text="エクスポート",
+            command=self.export_search_results,
+            width=90,
+            fg_color="#17a2b8",    # シアン系 (出力・情報アクションとして区別)
+            hover_color="#138496"
+        )
+        self.export_button.pack(side="left", padx=(5, 0))
 
         # 選択解除ボタン
         self.clear_selection_button = ctk.CTkButton(
