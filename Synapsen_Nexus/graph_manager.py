@@ -7,6 +7,9 @@ from pathlib import Path
 from textwrap import dedent
 from utils import get_pdf_uri_for_note
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class GraphManager:
     @staticmethod
@@ -76,7 +79,7 @@ class GraphManager:
                         G.add_edge(source_key, target_key)
                         edge_count += 1
 
-        print(f"[GraphManager] グラフ生成: {len(df)} ノード, {edge_count} エッジ")
+        logger.info(f"[GraphManager] グラフ生成: {len(df)} ノード, {edge_count} エッジ")
 
         # 2. 視覚化設定 (Pyvis)
         nt = Network(
@@ -208,7 +211,7 @@ class GraphManager:
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(content)
         except Exception as e:
-            print(f"[GraphManager] JS注入エラー: {e}")
+            logger.error(f"[GraphManager] JS注入エラー: {e}")
 
     @staticmethod
     def open_graph(html_path):
@@ -216,4 +219,4 @@ class GraphManager:
         try:
             webbrowser.open(Path(html_path).as_uri())
         except Exception as e:
-            print(f"[GraphManager] ブラウザ起動エラー: {e}")
+            logger.error(f"[GraphManager] ブラウザ起動エラー: {e}")

@@ -2,6 +2,9 @@ import customtkinter as ctk
 from tkinter import messagebox
 import datetime
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # ==============================================================================
 # データ編集ウィンドウ
@@ -22,7 +25,7 @@ class DataEditorWindow(ctk.CTkToplevel):
                     # 親クラス(Toplevel)の iconbitmap を直接呼び出す
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error: {e}")
+                    logger.error(f"Initial icon set error: {e}")
 
         self.all_tags = all_tags
         self.temp_tags = list(self.note_data.get("tags", []))
@@ -201,7 +204,7 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error (TagSelector): {e}")
+                    logger.error(f"Initial icon set error (TagSelector): {e}")
 
         self.selection = None
         self.title("既存のタグを選択")
@@ -270,7 +273,7 @@ class DateInputDialog(ctk.CTkToplevel):
                     # 親クラス(Toplevel)の iconbitmap を直接呼び出す
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error: {e}")
+                    logger.error(f"Initial icon set error: {e}")
 
         self.title("年月を指定")
         self.geometry("300x200")
@@ -359,7 +362,10 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error (BatchTagSelector): {e}")
+                    logger.error(
+                        "Initial icon set error (BatchTagSelector): "
+                        f"{e}"
+                    )
 
         self.selection = None
         self.title("既存のタグを選択")
@@ -424,7 +430,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error: {e}")
+                    logger.error(f"Initial icon set error: {e}")
 
         self.title(f"一括編集 ({selected_count} 件)")
         self.geometry("600x700")

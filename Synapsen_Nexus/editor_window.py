@@ -1,6 +1,9 @@
 import customtkinter as ctk
 from tkinter import messagebox
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # ==============================================================================
 # データ編集ウィンドウ (書き込み可能)
@@ -31,7 +34,7 @@ class NoteEditorWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error: {e}")
+                    logger.error(f"Initial icon set error: {e}")
 
         self.title(f"ノート編集: {self.note_data['title']}")
         self.geometry("500x700")
@@ -195,7 +198,7 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    print(f"Initial icon set error (TagSelector): {e}")
+                    logger.error(f"Initial icon set error (TagSelector): {e}")
 
         self.selection = None
         self.title("既存のタグを選択")

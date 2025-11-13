@@ -8,6 +8,8 @@ import sys
 import datetime
 
 # 分割したモジュールをインポート
+import logging
+
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display, find_backlinks_df,
@@ -21,6 +23,36 @@ from editor_window import NoteEditorWindow
 from saved_search_manager import SavedSearchManager
 from graph_manager import GraphManager
 from export_manager import ExportManager
+
+
+# ==============================================================================
+# ロギング設定の初期化
+# ==============================================================================
+# 親ディレクトリ(ルート)をパスに追加して logging_setup.py をインポート可能にする
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+try:
+    from logging_setup import setup_logging
+    # アプリ名を指定して初期化
+    setup_logging("Synapsen_Normalisierer")
+    logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
+except ImportError:
+    # logging_setup.py がない場合のフォールバック（print出力）
+    print("Warning: logging_setup.py not found. Logging disabled.")
+
+    class MockLogger:
+        def info(self, msg): print(f"[INFO] {msg}")
+
+        def error(self, msg, exc_info=None):
+            print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
+
+        def warning(self, msg): print(f"[WARN] {msg}")
+
+    logger = MockLogger()
+# ==============================================================================
 
 
 class Synapsen_Nexus(ctk.CTk):
@@ -102,9 +134,9 @@ class Synapsen_Nexus(ctk.CTk):
         try:
             self.unbind("<Map>")
             self.state('zoomed')
-            print("[DEBUG] ウィンドウを最大化しました。")
+            logger.debug("ウィンドウを最大化しました。")
         except Exception as e:
-            print(f"ウィンドウの最大化に失敗しました: {e}")
+            logger.error(f"ウィンドウの最大化に失敗しました: {e}")
 
     def get_icon_path(self):
         """
@@ -125,7 +157,7 @@ class Synapsen_Nexus(ctk.CTk):
             if icon_path.is_file():
                 return icon_path
         except Exception as e:
-            print(f"Error finding icon path: {e}")
+            logger.error(f"Error finding icon path: {e}")
         return None
 
     def load_config(self):
@@ -174,7 +206,7 @@ class Synapsen_Nexus(ctk.CTk):
 
                 self.search_manager.load_saved_searches(root_path)
             except Exception as e:
-                print(f"保存済み検索の読み込みエラー: {e}")
+                logger.error(f"保存済み検索の読み込みエラー: {e}")
 
             # デフォルトDBが設定されていれば自動で読み込む
             default_db_path = config_data.get('database_path')
@@ -182,7 +214,7 @@ class Synapsen_Nexus(ctk.CTk):
                 self.load_db_from_path(default_db_path)
             else:
                 if default_db_path:
-                    print(f"デフォルトデータベースが見つかりません: {default_db_path}")
+                    logger.warning(f"デフォルトデータベースが見つかりません: {default_db_path}")
                 self.perform_search()  # 空の状態で検索を実行
 
         except FileNotFoundError as e:
@@ -217,11 +249,11 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 3. ソートしてリスト化
         self.all_unique_tags = sorted(list(tags_set))
-        # print(
-        #     "[DEBUG] タグリスト更新 "
-        #     f"(全タグ含む: {self.include_all_tags_for_autocomplete}): "
-        #     f"{len(self.all_unique_tags)} 件"
-        # )
+        logger.debug(
+            "タグリスト更新 "
+            f"(全タグ含む: {self.include_all_tags_for_autocomplete}): "
+            f"{len(self.all_unique_tags)} 件"
+        )
 
     def create_widgets(self):
         # --- トップフレーム ---
@@ -912,7 +944,7 @@ class Synapsen_Nexus(ctk.CTk):
                     )
                     filtered_df = filtered_df[final_mask]
                 except Exception as e:
-                    print(f"検索クエリ解析エラー: {e}")
+                    logger.error(f"検索クエリ解析エラー: {e}")
                     filtered_df = filtered_df.iloc[0:0]
 
             # --- 3. メインスレッドに結果を渡す ---
@@ -925,7 +957,7 @@ class Synapsen_Nexus(ctk.CTk):
                 0, lambda: self._on_search_complete(search_id, filtered_df))
 
         except Exception as e:
-            print(f"検索スレッドエラー: {e}")
+            logger.error(f"検索スレッドエラー: {e}")
             self.after(
                 0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
 
@@ -955,7 +987,7 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
         # デバッグ用出力
-        # print(f"検索完了 (ID: {search_id}): {len(result_df)} 件ヒット")
+        logger.debug(f"検索完了 (ID: {search_id}): {len(result_df)} 件ヒット")
 
     def _trigger_search_now(self):
         """
@@ -1062,7 +1094,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.show_details(random_note_row)
 
         except Exception as e:
-            print(f"ランダムノートの表示中にエラー: {e}")
+            logger.error(f"ランダムノートの表示中にエラー: {e}")
             messagebox.showerror(
                 "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self)
 
@@ -1237,7 +1269,7 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showinfo("情報", "選択されたノートのデータが見つかりません。")
             return
 
-        print(f"Selected Graph: {len(selected_df)} notes")
+        logger.info(f"Selected Graph: {len(selected_df)} notes")
         # 既存のグラフ生成メソッドを再利用
         self.generate_and_show_graph(target_df=selected_df)
 
@@ -1316,7 +1348,8 @@ class Synapsen_Nexus(ctk.CTk):
             row_data (pd.Series): 表示するノートの行データ。
         """
         if not isinstance(row_data, pd.Series):
-            print(f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}")
+            logger.error(
+                f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}")
             self.clear_details()
             return
 
@@ -1501,7 +1534,7 @@ class Synapsen_Nexus(ctk.CTk):
                 GraphManager.open_graph(generated_path)
 
         except Exception as e:
-            print(f"Graph error: {e}")
+            logger.error(f"Graph error: {e}")
             if not output_path:
                 messagebox.showerror("エラー", f"グラフ生成失敗: {e}", parent=self)
 
@@ -1554,7 +1587,8 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 3. グラフ生成 (target_df を指定して呼び出し)
-        print(f"Local Graph: {len(local_df)} notes related to {center_key}")
+        logger.info(
+            f"Local Graph: {len(local_df)} notes related to {center_key}")
         self.generate_and_show_graph(target_df=local_df)
 
     # --- エクスポート機能 ---
@@ -1714,7 +1748,7 @@ class Synapsen_Nexus(ctk.CTk):
                 delete_note_from_db(self.loaded_db_path, key_to_delete)
 
                 # 2. 変更をUIに反映するため、DBを再読み込み
-                print(f"ノート {key_to_delete} を削除しました。DBを再読み込みします。")
+                logger.info(f"ノート {key_to_delete} を削除しました。DBを再読み込みします。")
                 self.load_db_from_path(self.loaded_db_path)
 
                 messagebox.showinfo(
@@ -1732,7 +1766,7 @@ if __name__ == "__main__":
             # 'default=' を指定し、OSダイアログ(エクスプローラ等)にも適用
             app.iconbitmap(default=str(app.icon_path))
         except Exception as e:
-            print(f"Icon default setting error: {e}")
+            logger.error(f"Icon default setting error: {e}")
     else:
-        print("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
     app.mainloop()

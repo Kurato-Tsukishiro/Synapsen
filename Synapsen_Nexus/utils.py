@@ -12,6 +12,9 @@ import fitz  # PyMuPDF (PDF画像化のために追加)
 from PIL import Image  # Pillow (PDF画像化のために追加)
 import io  # (PDF画像化のために追加)
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def load_app_config(base_path):
     """
@@ -45,7 +48,7 @@ def load_app_config(base_path):
         config_path = base_path.parent / 'config.ini'
 
     config_path = config_path.resolve()  # 絶対パスに正規化
-    print(f"[DEBUG] Loading config from: {config_path}")
+    logger.debug(f"Loading config from: {config_path}")
 
     if not config_path.is_file():
         raise FileNotFoundError(f"config.iniが見つかりません: {config_path}")
@@ -130,7 +133,7 @@ def load_app_config(base_path):
 
                         config_data['predefined_tags'] = sorted(tags_list)
             except Exception as e:
-                print(f"tags.txtの読み込み中にエラー: {e}")
+                logger.error(f"tags.txtの読み込み中にエラー: {e}")
 
         # デフォルトDBパスの読み込み ([Paths] 'database_path')
         default_db_path_str = parser.get(
@@ -169,7 +172,7 @@ def load_sql_data_file(filepath: Path):
     """
     if not filepath.is_file():
         # DBファイルが存在しない場合、空のDataFrameを返す
-        print(f"データベースファイルが見つかりません: {filepath}")
+        logger.warning(f"データベースファイルが見つかりません: {filepath}")
         # 空でもカラムは定義しておく (OCR機能で追加した full_text も含む)
         cols = [
             'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
@@ -312,7 +315,7 @@ def find_backlinks_df(df, current_key):
 
         return df[backlink_mask].sort_values(by='date', ascending=False)
     except Exception as e:
-        print(f"Backlink search error: {e}")
+        logger.error(f"Backlink search error: {e}")
         return pd.DataFrame()
 
 
@@ -642,25 +645,25 @@ def get_pdf_page_image(
                 page_num_to_open = 0
 
         if not pdf_path or not pdf_path.is_file():
-            print(f"[Preview Error] 統合PDFが見つかりません: {pdf_path}")
+            logger.error(f"[Preview Error] 統合PDFが見つかりません: {pdf_path}")
             pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
 
     # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
     if pdf_path is None:
         if not pdf_root_folder or not pdf_root_folder.is_dir():
-            print("[Preview Error] pdf_root_folder が未設定または存在しません。")
+            logger.error("[Preview Error] pdf_root_folder が未設定または存在しません。")
             return None
 
         filename = row_data.get('filepath')
         if not filename:
-            print("[Preview Error] filepath がデータに含まれていません。")
+            logger.error("[Preview Error] filepath がデータに含まれていません。")
             return None
 
         pdf_path = pdf_root_folder / Path(filename).name
         page_num_to_open = 0  # 元のPDFは常に1ページ目 (index 0)
 
         if not pdf_path.is_file():
-            print(f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}")
+            logger.error(f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}")
             return None
 
     # 3. PyMuPDFでPDFを開き、ページを画像化
@@ -668,7 +671,7 @@ def get_pdf_page_image(
     try:
         doc = fitz.open(pdf_path)
         if not (0 <= page_num_to_open < len(doc)):
-            print(f"[Preview Error] 無効なページ番号: {page_num_to_open}")
+            logger.error(f"[Preview Error] 無効なページ番号: {page_num_to_open}")
             if doc:
                 doc.close()
             return None
@@ -700,7 +703,7 @@ def get_pdf_page_image(
         return pil_image
 
     except Exception as e:
-        print(f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}")
+        logger.error(f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}")
         return None
     finally:
         if doc:

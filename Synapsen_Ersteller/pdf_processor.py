@@ -3,6 +3,9 @@ from pathlib import Path
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # ==============================================================================
 # PDF情報取得関数
@@ -24,7 +27,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                     commonplace_key = page.get_textbox(key_rect).strip()
 
         except Exception as e:
-            print(f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}")
+            logger.error(f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}")
         finally:
             if doc:
                 doc.close()  # 確実に閉じる
@@ -76,7 +79,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         }
 
     except Exception as e:
-        print(f"PDF情報取得エラー ({pdf_path.name}): {e}")
+        logger.error(f"PDF情報取得エラー ({pdf_path.name}): {e}")
         return {
             "date": "読み込み失敗",
             "time": "999999",
@@ -115,7 +118,7 @@ def get_full_text(pdf_path: Path) -> str:
             full_text += page.get_text("text", sort=True) + "\n"
         return full_text.strip()
     except Exception as e:
-        print(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
+        logger.error(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
         return ""  # エラー時は空文字を返す
     finally:
         if doc:
