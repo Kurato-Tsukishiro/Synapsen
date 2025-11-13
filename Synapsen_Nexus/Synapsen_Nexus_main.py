@@ -303,17 +303,6 @@ class Synapsen_Nexus(ctk.CTk):
         )
         self.save_search_button.pack(side="left", padx=(5, 0))
 
-        # 保存済み検索管理ボタン
-        self.delete_search_button = ctk.CTkButton(
-            smart_search_frame,
-            text="管理",
-            command=self.search_manager.open_manage_searches_window,
-            width=50,
-            fg_color="#6C757D",
-            hover_color="#5A6268"
-        )
-        self.delete_search_button.pack(side="left", padx=5)
-
         # 保存済み検索呼び出しボタン
         self.saved_search_combo = ctk.CTkComboBox(
             smart_search_frame,
