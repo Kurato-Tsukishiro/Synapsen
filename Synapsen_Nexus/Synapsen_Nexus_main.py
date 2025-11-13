@@ -223,44 +223,36 @@ class Synapsen_Nexus(ctk.CTk):
         right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         right_button_frame.pack(side="right", padx=(5, 10))
 
-        # 本文検索(FTS)をトグルするチェックボックス
+        # 本文検索(FTS)
         self.fts_checkbox = ctk.CTkCheckBox(
             right_button_frame, text="本文検索"
         )
         self.fts_checkbox.pack(side="left", padx=5)
         self.fts_checkbox.configure(command=self._trigger_search_now)
 
-        # publicグラフボタン
-        self.graph_button = ctk.CTkButton(
+        # 選択数表示ラベル
+        self.selection_info_label = ctk.CTkLabel(
             right_button_frame,
-            text="グラフ表示",  # 全体/検索結果グラフ
-            command=self.generate_and_show_graph,
-            width=80
+            text="選択: 0",
+            font=("", 12, "bold"),
+            text_color="gray",
+            width=60                # 固定幅を確保してレイアウト揺れを防ぐ
         )
-        self.graph_button.pack(side="left", padx=(5, 0))
+        self.selection_info_label.pack(side="left", padx=(10, 0))
 
-        # ローカルグラフボタン
-        self.local_graph_button = ctk.CTkButton(
-            right_button_frame,
-            text="関連グラフ",  # 選択ノート中心グラフ
-            command=self.show_local_graph,
-            width=80,
-            fg_color="#3B8ED0",
-            hover_color="#36719F"
-        )
-        self.local_graph_button.pack(side="left", padx=(5, 0))
+        # グラフメニュー
+        self.graph_menu_var = ctk.StringVar(value="グラフ表示 ▼")
 
-        # 選択グラフボタン
-        self.selected_graph_button = ctk.CTkButton(
+        self.graph_menu = ctk.CTkOptionMenu(
             right_button_frame,
-            text="選択グラフ(0)",     # 初期状態
-            command=self.show_selected_graph,
-            width=90,
-            fg_color="#E0a800",
-            hover_color="#C69500",
-            state="disabled"         # 初期は無効
+            variable=self.graph_menu_var,
+            values=["全体 (Global)", "関連 (Local)", "選択 (Selected)"],
+            command=self.handle_graph_menu,
+            width=140,
+            fg_color="#585a9c",
+            button_color="#494B83"
         )
-        self.selected_graph_button.pack(side="left", padx=(5, 0))
+        self.graph_menu.pack(side="left", padx=(5, 0))
 
         # リンクコピーボタン
         self.copy_links_button = ctk.CTkButton(
@@ -483,6 +475,19 @@ class Synapsen_Nexus(ctk.CTk):
 
         # フィルターパネルの初期表示を同期
         self.sync_filter_panel_view()
+
+    # --- グラフメニューのハンドラ ---
+    def handle_graph_menu(self, choice):
+        """グラフメニューで選択された項目に応じて処理を分岐する"""
+        if choice == "全体 (Global)":
+            self.generate_and_show_graph()
+        elif choice == "関連 (Local)":
+            self.show_local_graph()
+        elif choice == "選択 (Selected)":
+            self.show_selected_graph()
+
+        # 処理後、メニューの表示を元に戻してボタンのように振る舞わせる
+        self.graph_menu.set("グラフ表示 ▼")
 
     # --- オートコンプリート関連メソッド ---
     def handle_keyrelease(self, event):
@@ -1032,15 +1037,19 @@ class Synapsen_Nexus(ctk.CTk):
             self.update_results_list(self.filtered_df_cache)
 
     def update_selection_ui_state(self):
-        """ボタンの表示（件数）と有効無効を更新"""
+        """選択数に応じてラベル表示とボタン状態を更新"""
         count = len(self.selected_keys)
-        self.selected_graph_button.configure(text=f"選択グラフ({count})")
+        self.selection_info_label.configure(text=f"選択: {count}")
 
+        # リンクコピーボタンの制御
         if count > 0:
-            self.selected_graph_button.configure(state="normal")
+            # 選択がある時は強調色（黄色/オレンジ系）にする
+            self.selection_info_label.configure(text_color="#E0a800")
             self.copy_links_button.configure(state="normal")
+            # 選択グラフも有効化されていることを視覚的に示すため、メニューは常に有効のまま
         else:
-            self.selected_graph_button.configure(state="disabled")
+            # 0件の時はグレーアウト
+            self.selection_info_label.configure(text_color="gray")
             self.copy_links_button.configure(state="disabled")
 
     def copy_selected_links(self):
@@ -1076,7 +1085,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.update()  # クリップボード更新を確定させるために必要
 
         messagebox.showinfo(
-            "コピー完了", 
+            "コピー完了",
             f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
             "新しいノートのメモ欄にペーストして、MOC（目次）として利用できます。",
             parent=self
@@ -1558,7 +1567,7 @@ class Synapsen_Nexus(ctk.CTk):
             # 6f. 変更後のHTMLをブラウザで開く
             if not output_path:
                 webbrowser.open(graph_file_path.as_uri())
-        
+
         except Exception as e:
             print(f"Graph display error: {e}")
             if not output_path:
