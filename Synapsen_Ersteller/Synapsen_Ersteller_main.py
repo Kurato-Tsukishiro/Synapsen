@@ -2,6 +2,7 @@ import os
 import tkinter
 import csv
 import sys
+import json
 from tkinter import messagebox
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter, Transformation
@@ -907,6 +908,50 @@ class Synapsen_Ersteller(ctk.CTk):
                     draft_reader
                     )
 
+            # ==================================================================
+            # 復旧用メタデータの埋め込み処理
+            # ==================================================================
+            try:
+                # 1. 埋め込むデータを辞書リストとして準備
+                # (CSVよりも構造が柔軟で復旧しやすい JSON を推奨)
+                metadata_to_embed = []
+                for note in updated_notes_info:
+                    # 必要な情報のみ抽出 (filepathなどは削除済みなので不要だが、念のため除外)
+                    clean_note = {
+                        "key": note.get("key"),
+                        "title": note.get("title"),
+                        "date": note.get("date"),
+                        "time": note.get("time"),
+                        "tags": note.get("tags"),  # リストのまま保存可能
+                        "memo": note.get("memo"),
+                        "commonplace_key": note.get("commonplace_key"),
+                        "pages": note.get("pages"),
+                        "merged_start_page": note.get("merged_start_page"),
+                        # full_text も重要なので埋め込む (サイズが大きくなる場合は除外を検討)
+                        "full_text": note.get("full_text", "")
+                    }
+                    metadata_to_embed.append(clean_note)
+
+                # 2. JSON文字列に変換 (日本語対応)
+                json_data = json.dumps(
+                    metadata_to_embed, ensure_ascii=False, indent=2)
+
+                # 3. バイトデータに変換
+                json_bytes = json_data.encode('utf-8')
+
+                # 4. PDFに添付ファイルとして追加
+                # ファイル名: "synapsen_metadata_backup.json"
+                final_writer.add_attachment(
+                    "synapsen_metadata_backup.json", json_bytes)
+
+                logger.info("復旧用メタデータをPDFに埋め込みました。")
+
+            except Exception as e:
+                logger.warning(f"メタデータの埋め込みに失敗しました: {e}")
+                # 埋め込みに失敗してもPDF生成自体は止めない
+            # ==================================================================
+
+            # ファイル保存
             with open(save_filepath, "wb") as f:
                 final_writer.write(f)
 
