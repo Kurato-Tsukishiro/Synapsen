@@ -553,6 +553,7 @@ class Synapsen_Ersteller(ctk.CTk):
     def update_note_list(self):
         """
         リストUIを再描画する。
+        未登録のIndex Keyがある場合、黄色/オレンジ色で強調表示する。
         """
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -564,6 +565,8 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             default_text_color = ("#1F1F1F", "#1F1F1F")
             warning_text_color = ("#f08300", "#FF4500")
+            # 未登録キー用の注意色 (ライトモード: 濃いオレンジ, ダークモード: 黄色)
+            unknown_key_text_color = ("#D35400", "#FFC107")
 
             for note_data in self.all_notes_info:
                 row_frame = ctk.CTkFrame(
@@ -573,7 +576,6 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 # チェックボックスの追加
                 note_key = note_data.get('key')
-                # チェックボックスの状態を self.selected_notes と同期
                 var = ctk.StringVar(
                     value='on' if note_key and note_key in self.selected_notes else 'off')
 
@@ -582,7 +584,6 @@ class Synapsen_Ersteller(ctk.CTk):
                     variable=var,
                     onvalue='on', offvalue='off',
                     width=25,
-                    # チェックボックスが押されたら toggle_selection を呼ぶ
                     command=lambda note=note_data, v=var: self.toggle_selection(note, v.get())
                 )
                 # keyがないノート (読み込み失敗など) は選択不可に
@@ -591,13 +592,19 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 checkbox.pack(side="left", padx=(0, 5))
 
-                # --- アイコン ---
+                # --- Index Key の判定 ---
                 cp_key = note_data.get('commonplace_key', '')
+
+                # config.ini に登録されているキーと一致するか確認
+                is_registered_key = cp_key in self.commonplace_key_options
+
+                # アイコン表示 (小文字化して辞書検索)
                 icon = self.key_icons.get(cp_key.lower(), '')
                 icon_color = self.key_colors.get(
                     cp_key.lower(),
                     default_text_color
                 )
+
                 if icon:
                     icon_label = ctk.CTkLabel(
                         row_frame,
@@ -605,14 +612,29 @@ class Synapsen_Ersteller(ctk.CTk):
                         )
                     icon_label.pack(side="left", padx=(0, 5))
 
-                # --- テキストラベル ---
+                # --- テキストラベルの構築 ---
                 key_display = f" [ID: {note_key}]" if note_key else ""
                 tags_display = " [タグ: " + ", ".join(sorted(note_data.get("tags", []))) + "]" if note_data.get("tags") else ""
 
+                display_text = ""
+                text_color = default_text_color
+
                 if note_data.get("is_warning"):
+                    # ファイル名解析失敗などの重大な警告
                     display_text = f"【警告】[{note_data.get('date')}] {note_data.get('title')}{key_display}{tags_display}"
                     text_color = warning_text_color
+
+                elif cp_key and not is_registered_key:
+                    # ★未登録のIndex Key (OCR誤認識など) の場合
+                    t = note_data.get('time', '')
+                    time_display = f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
+
+                    # 黄色文字で「未登録: XXX」と表示
+                    display_text = f"【未登録: {cp_key}】 日付: {note_data.get('date')} {time_display},{key_display} タイトル: {note_data.get('title')}{tags_display}"
+                    text_color = unknown_key_text_color
+
                 else:
+                    # 正常なノート
                     t = note_data.get('time', '')
                     time_display = f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
                     display_text = f"日付: {note_data.get('date')} {time_display},{key_display} タイトル: {note_data.get('title')}{tags_display}"
@@ -624,8 +646,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     )
                 text_label.pack(side="left")
 
-                # バインドの変更
-                # ラベルクリックで「個別編集」を開く
+                # クリックで編集ウィンドウを開くバインド
                 command = lambda e, note=note_data: self.open_data_editor(note)
                 text_label.bind("<Button-1>", command)
                 if 'icon_label' in locals() and icon_label.winfo_exists():

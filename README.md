@@ -33,8 +33,9 @@
     * 指定したURLを `Playwright` を使用してPDFとして保存します。
     * **PDFや画像ファイルへの直接URL**にも対応。HTML以外はファイルを直接ダウンロードして正規化します。
     * 実行時に **IndexKey**, **コメント**, **書誌情報**（著者名、サイト名など）を入力可能です。
-* **クリップ形式の統一:**
-    * 「D&D/ペースト」および「Webクリップ」で生成されるPDFは、**1ページ目にIndexKey**が埋め込まれ、**最終ページ（新規追加）にコメントと書誌情報**が挿入される形式に統一されます。
+* **クリップ形式(共通):**
+    * 「D&D/ペースト」および「Webクリップ」で生成されるPDFは、**1ページ目にIndexKeyとユニークID (`key`) を持つQRコード**が埋め込まれます。
+    * 又、**最終ページ（新規追加）にコメントと書誌情報**が挿入されます。
 * **テキスト抽出 (OCR):**
     * PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。
     * (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
@@ -47,7 +48,14 @@
     * **（重要）**
         > * この形式は `Nexus` でのリンク機能（`[[key]]`）の基盤となるユニークID（`key`）を生成するために必須です。
         > * この形式でないファイルは `key` を持たず、マスターDBへの登録やリンク対象から除外されます。
-* PDFの特定座標からIndex Keyを自動抽出（`config.ini` の `[Extraction]` で設定）。
+* **メタデータの自動抽出:**
+    * **テキスト読み取り**
+      * PDFの特定座標（`config.ini` の `[Extraction]` で設定）からIndex Keyを自動抽出します。
+      * PDFテンプレート(フォーム付き)で設定した、IndexKeyを抽出する事を目的としています。
+    * **QRコード:**
+      * `Normalisierer` が埋め込んだQRコードを `pyzbar` で読み取り、**Index Key** と **ユニークID (`key`)** を抽出します。
+      * `Normalisierer` のクリップ機能で、特定座標からの読み取りとOCRが干渉し、正常にIndex Keyが読み込まれなくなる問題の対処を目的としています。
+      * 上記に従い、特定座標からの読み込みよりも優先されます。
 * "サイドノート"（例: `..._Note.pdf`）に親ノートのIndex Keyを自動継承。
     * これは 電子ペーパー「QUADERNO（クアデルノ）」の "サイドノート" 機能を意識した物です。
 * ノートごとにタグ、メモ、Index Key（索引キー）を編集。
@@ -118,6 +126,10 @@
     * `Install.bat` により、`winget` を使用して自動インストールを試みます。
     * 導入方法は、こちらの公式ページなどを参考にしてください。<br>
         → **[Pandoc - Installing](https://pandoc.org/installing.html)**
+* **(オプション) pyzbar**
+    * `Synapsen Ersteller` でQRコード（`Normalisierer` が埋め込んだIndex Key/Key）を読み取るために使用します。
+    * このライブラリが**ない場合でも、Erstellerは座標ベースのテキスト抽出で動作します**が、QRコードによる高精度なキー読み取りが有効化されません。
+    * `Install.bat` または `pip install pyzbar` でインストールを推奨します。
 * **Pythonライブラリ**: ( `requirements.txt` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
@@ -129,6 +141,8 @@
     * [**pyvis**](https://github.com/WestHealth/pyvis) (MIT License) - インタラクティブなグラフ描画用
     * [**tkinterdnd2**](https://github.com/Eliav2/tkinterdnd2) (MIT License) - `Normalisierer` でD&D機能を実現するため
     * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップとMarkdown変換を実現するため
+    * [**qrcode**](https://github.com/lincolnloop/python-qrcode) (BSD-3-Clause License) - `Normalisierer` でメタデータQRコードを生成するため
+    * [**pyzbar**](https://github.com/NaturalHistoryMuseum/pyzbar) (MIT License) - `Ersteller` でメタデータQRコードを読み取るため
 
 ## セットアップ
 
@@ -317,6 +331,8 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
         > 「D&D/ペースト」および「Webクリップ」機能は、実行時に「入力/出力フォルダを選んで処理実行」機能（上記A）と**同一の正規化処理（フォームのテキスト化、サイズ統一、OCR処理など）を自動的に実行します。**
         >
         > そのため、これらの機能で出力されたPDFを `Normalisierer` で再度処理する必要はなく、**そのまま `Ersteller` に読み込ませて使用できます。**
+        >
+        > **(New!)** この際、`Normalisierer`は1ページ目に**IndexKeyとユニークIDを含むQRコードを自動的に埋め込みます。**
 
 ### ステップ2: 統合 (Ersteller)
 1.  `Synapsen_Ersteller_main.py` を起動します。
@@ -325,8 +341,9 @@ QUADERNOでは「フォーム付きPDF（ドキュメント）」にページを
 
 * 補遺:
   * メタデータの自動読み込みについて
-    * ファイル名 (`YYYYMMDD_hhmmss_...`) から日付とタイトルが読み込まれます。
-    * PDF内容 (`key_rect` の座標) から「Index Key」が自動で読み込まれます。
+    * **(New!)** PDFの1ページ目にある**QRコード**を最優先で読み取ります (`pyzbar` が必要です)。
+    * (フォールバック) ファイル名 (`YYYYMMDD_hhmmss_...`) から日付とタイトルが読み込まれます。
+    * (フォールバック) PDF内容 (`key_rect` の座標) から「Index Key」が自動で読み込まれます。
       * サイドノート (`..._Note.pdf`) にも親のIndex Keyが自動で継承されます。
   * `リスト保存 (CSV)` / `リスト読込 (CSV)` について
     * 現在の編集状態（メタデータのみ）を中間ファイルとして保存/読み込みできます。
@@ -415,5 +432,6 @@ PDF処理の中核を担う **PyMuPDF** と **pypdf**、<br>
 OCR機能を実現する **Pillow** と **pytesseract**、<br>
 知識グラフの可視化を実現する **NetworkX** と **Pyvis**、<br>
 D&D機能を実現する **tkinterdnd2**、<br>
+メタデータQRコードの生成と読み取りを実現する **qrcode** と **pyzbar**、<br>
 そしてWebクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc** の開発者コミュニティに心から感謝申し上げます。<br><br>
 また、このプロジェクトの設計、コード作成、リファクタリング、およびドキュメント整備は、GoogleのAIである **Gemini** の支援を受けて行われました。

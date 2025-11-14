@@ -8,3 +8,5 @@ networkx
 pyvis
 tkinterdnd2
 playwright
+qrcode
+pyzbar
