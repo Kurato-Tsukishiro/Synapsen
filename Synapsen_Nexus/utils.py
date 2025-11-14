@@ -159,7 +159,7 @@ def load_app_config(base_path):
 def load_sql_data_file(filepath: Path):
     """
     指定されたパスからSynapsenのSQLiteデータベースファイルを読み込み、DataFrameを返す。
-    必須列は文字列型(str)に変換する。
+    【FTS5対応版】 'full_text' と 'memo' を除外してメモリ消費量を削減します。
 
     Args:
         filepath (Path): 読み込むSQLiteデータベースファイルのパス。
@@ -173,7 +173,7 @@ def load_sql_data_file(filepath: Path):
     if not filepath.is_file():
         # DBファイルが存在しない場合、空のDataFrameを返す
         logger.warning(f"データベースファイルが見つかりません: {filepath}")
-        # 空でもカラムは定義しておく (OCR機能で追加した full_text も含む)
+        # 空でもカラムは定義しておく
         cols = [
             'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
             'full_text', 'time', 'pages', 'filepath',
@@ -183,26 +183,58 @@ def load_sql_data_file(filepath: Path):
 
     try:
         conn = sqlite3.connect(filepath)
-        # 'notes' テーブルから全データを読み込む
-        df = pd.read_sql_query("SELECT * FROM notes", conn)
+        cursor = conn.cursor()
+
+        # 'notes' テーブルの列情報を取得
+        try:
+            cursor.execute("PRAGMA table_info(notes)")
+            all_columns = [info[1] for info in cursor.fetchall()]
+        except sqlite3.OperationalError:
+            logger.error(f"テーブル 'notes' がDBに存在しません: {filepath}")
+            conn.close()
+            cols = ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
+                    'full_text', 'time', 'pages', 'filepath',
+                    'merged_pdf_filename', 'merged_start_page']
+            return pd.DataFrame(columns=cols)
+
+        # 'full_text' と 'memo' は除外する
+        columns_to_load = [
+            col for col in all_columns if col not in ('full_text', 'memo')
+        ]
+
+        if not columns_to_load:
+            logger.warning(f"テーブル 'notes' に読み込み可能な列がありません: {filepath}")
+            conn.close()
+            cols = ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
+                    'full_text', 'time', 'pages', 'filepath',
+                    'merged_pdf_filename', 'merged_start_page']
+            return pd.DataFrame(columns=cols)
+
+        select_query = f"SELECT {', '.join(columns_to_load)} FROM notes"
+        df = pd.read_sql_query(select_query, conn)
         conn.close()
 
         df = df.fillna('')
         df.columns = df.columns.str.strip()
 
         # 検索対象となる主要な列を文字列型(str)として明示的に変換
-        # (OCR機能で追加した 'full_text' も含む)
+        # 'full_text' 及び 'memo' は型変換リストから除外
         for col in [
-            'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
-            'full_text', 'time', 'pages', 'merged_start_page'
+            'tags', 'key', 'title', 'commonplace_key', 'date',
+            'time', 'pages', 'merged_start_page'
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
             else:
-                # 必須列がない場合は空の列を追加
+                # 読み込まなかったが必須の列を空で追加
                 df[col] = ''
 
+        # FTS検索用に 'full_text' と 'memo' を空で定義しておく
+        df['full_text'] = ''
+        df['memo'] = ''
+
         return df
+
     except Exception as e:
         # エラーをラップして呼び出し元 (main.py) で処理する
         raise Exception(f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}")

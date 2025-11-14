@@ -1,8 +1,8 @@
 import pandas as pd
-import re  # 正規表現ライブラリをインポート
+import re
 
 import logging
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)  # <--- ロガーを取得
 
 
 def split_respecting_parens(query, operator):
@@ -47,7 +47,7 @@ def split_respecting_parens(query, operator):
     return [p for p in parts if p]  # 空の文字列を除外
 
 
-def evaluate_simple_term(df, term, include_full_text=False):
+def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
     """
     プレフィックス検索、またはグローバル検索を実行する。
 
@@ -55,20 +55,25 @@ def evaluate_simple_term(df, term, include_full_text=False):
     グローバル検索を処理し、該当する行のboolマスク (pd.Series) を返す。
     ['date'] プレフィックスの日時範囲検索 (>=, <=, YYYYMMDD-YYYYMMDD) にも対応。
 
+    'full_text' または 'memo' を対象とする検索は、db_conn を使用して
+    FTS MATCH ではなく 'LIKE' でDBを直接検索する。
+
     Args:
         df (pd.DataFrame): 検索対象のDataFrame。
         term (str): 単純な検索語 (例: 'Python', 'title:Python', 'date:>=20240101')。
-        include_full_text (bool): グローバル検索時に本文も対象にするか。
+        include_full_text (bool, optional): 本文及びメモ検索が有効かどうか。デフォルトは False。
+        db_conn (sqlite3.Connection, optional): SQLiteのデータベース接続オブジェクト。
+                                                デフォルトは None。
 
     Returns:
-        pd.Series: 検索条件に一致した行がTrueとなるboolマスク。
+        pd.Series: クエリに一致した行がTrueとなるboolマスク。
     """
     search_fields_map = {
             'title': 'title',
             'key': 'key',
             'date': 'date',
             'tag': 'tags',
-            'tags': 'tags',  # 'tag'でも'tags'でも検索可
+            'tags': 'tags',             # 'tag'でも'tags'でも検索可
             'memo': 'memo',
             'cpkey': 'commonplace_key',
             'indexkey': 'commonplace_key',
@@ -96,7 +101,91 @@ def evaluate_simple_term(df, term, include_full_text=False):
 
     term_condition = pd.Series([False] * len(df), index=df.index)
 
-    # 日付検索ロジック
+    # --- 【FTS検索判定 (LIKEフォールバック)】 ---
+    # 検索語がDB検索(LIKE)の対象か？
+    # 1. 'fulltext:', 'text:', 'memo:' プレフィックス ('本文・メモ検索'の状態によらない)
+    is_db_column = (target_column in ('full_text', 'memo'))
+
+    # 2. プレフィックスがなく (global) + '本文・メモ検索' ON
+    is_db_global = (target_column is None and include_full_text)
+
+    if (is_db_column or is_db_global) and db_conn:
+        # DBを 'LIKE' で検索 (低速だが確実)
+        try:
+            # LIKE検索用の検索語 ( %query% )
+            like_query_term = f'%{search_value}%'
+
+            logger.warning(
+                f"[FTS DEBUG] DB 'LIKE'検索を実行中... (Term: {like_query_term}, "
+                f"is_db_column: {is_db_column}, is_db_global: {is_db_global})"
+            )
+
+            # どの列を検索するか
+            if target_column == 'full_text':
+                # 'fulltext:query' -> notes.full_text 列のみ検索
+                sql = "SELECT key FROM notes WHERE full_text LIKE ?"
+                params = (like_query_term,)
+
+            elif target_column == 'memo':
+                # 'memo:query' -> notes.memo 列のみ検索
+                sql = "SELECT key FROM notes WHERE memo LIKE ?"
+                params = (like_query_term,)
+
+            else:  # is_db_global の場合
+                # 'query' -> メモリ(df)が持つ列 + DBが持つ列 を検索
+
+                # 1. まずDB側 (memo, full_text) を検索
+                sql = "SELECT key FROM notes WHERE memo LIKE ? OR full_text LIKE ?"
+                params = (like_query_term, like_query_term)
+
+                cursor = db_conn.cursor()
+                cursor.execute(sql, params)
+                matching_keys = {row[0] for row in cursor.fetchall()}
+
+                # 2. メモリ側 (df) の列も検索
+                pandas_mask = (
+                    df['title'].str.contains(search_value, case=False, na=False) |
+                    df['tags'].str.contains(search_value, case=False, na=False) |
+                    df['key'].str.contains(search_value, case=False, na=False) |
+                    df['commonplace_key'].str.contains(search_value, case=False) |
+                    df['date'].str.contains(search_value, case=False, na=False)
+                )
+
+                # 3. DBの結果(key)とメモリの結果(mask)を OR で結合
+                term_condition = df['key'].isin(matching_keys) | pandas_mask
+
+                logger.warning(
+                    "[FTS] DB LIKE検索結果: "
+                    f"{len(matching_keys)} 件の Key がヒット。"
+                )
+                return term_condition
+
+            # (is_fts_column の場合、以下が実行される)
+            cursor = db_conn.cursor()
+            cursor.execute(sql, params)
+            matching_keys = {row[0] for row in cursor.fetchall()}
+            
+            logger.warning(
+                f"[FTS] DB LIKE検索結果: {len(matching_keys)} 件の Key がヒット。"
+            )
+
+            # FTS結果とpandasの 'key' を比較し、boolマスクを返す
+            term_condition = df['key'].isin(matching_keys)
+            return term_condition
+
+        except Exception as e:
+            logger.warning(f"[FTS DEBUG] DB 'LIKE'検索エラー: {e}", exc_info=True)
+            return pd.Series([False] * len(df), index=df.index)
+
+    # --- FTS(LIKE)検索が実行されなかった場合 (Pandas検索) ---
+
+    if term == search_value:  # グローバル検索かプレフィックス検索かを判定
+        logger.warning(
+            f"[FTS DEBUG] Pandas検索 (FTSスキップ) (Term: {term}, "
+            f"is_db_col: {is_db_column}, is_db_global: {is_db_global}, "
+            f"db_conn: {db_conn is not None})"
+        )
+
     if target_column == 'date':
         try:
             # YYYYMMDD-YYYYMMDD (範囲)
@@ -136,41 +225,27 @@ def evaluate_simple_term(df, term, include_full_text=False):
 
     elif target_column:
         # --- プレフィックス検索 (日付以外): 指定された列のみ検索 ---
+        # (target_column == 'memo' や 'full_text' は上で処理済み)
         if target_column in df.columns:
             # .str.contains() を使用して部分一致検索
             term_condition = df[target_column].str.contains(
                 search_value, case=False, na=False, regex=False
             )
-        # (もし target_column が 'full_text' であっても、
-        #  df['full_text'] が検索されるだけで、include_full_text フラグは不要)
-
     else:
-        # --- グローバル検索: 主要な列を検索 ---
+        # --- グローバル検索 (FTSが無効 or 本文検索OFF) ---
         term_condition = (
-            df['title'].str.contains(
-                search_value, case=False, na=False, regex=False) |
-            df['tags'].str.contains(
-                search_value, case=False, na=False, regex=False) |
-            df['key'].str.contains(
-                search_value, case=False, na=False, regex=False) |
-            df['memo'].str.contains(
-                search_value, case=False, na=False, regex=False) |
-            df['commonplace_key'].str.contains(
-                search_value, case=False, na=False, regex=False) |
-            df['date'].str.contains(
-                search_value, case=False, na=False, regex=False)
+            df['title'].str.contains(search_value, case=False, na=False) |
+            df['tags'].str.contains(search_value, case=False, na=False) |
+            df['key'].str.contains(search_value, case=False, na=False) |
+            # (memo はFTS(LIKE)で検索されるため除外)
+            df['commonplace_key'].str.contains(search_value, case=False) |
+            df['date'].str.contains(search_value, case=False, na=False)
         )
-
-        # 「本文検索」が有効な場合、full_text カラムも検索対象に加える
-        if include_full_text and 'full_text' in df.columns:
-            term_condition |= df['full_text'].str.contains(
-                search_value, case=False, na=False, regex=False
-            )
 
     return term_condition
 
 
-def parse_term(df, query, include_full_text=False):
+def parse_term(df, query, include_full_text=False, db_conn=None):
     """
     括弧、NOT(ハイフン)、または単純な検索語を処理する。
 
@@ -190,15 +265,15 @@ def parse_term(df, query, include_full_text=False):
 
     if query.startswith('(') and query.endswith(')'):
         # 括弧の中身を評価するため、最上位のOR関数にフラグを渡して再帰呼び出し
-        mask = parse_or_expression(df, query[1:-1], include_full_text)
+        mask = parse_or_expression(df, query[1:-1], include_full_text, db_conn)
     else:
         # 最終的な検索実行関数にフラグを渡す
-        mask = evaluate_simple_term(df, query, include_full_text)
+        mask = evaluate_simple_term(df, query, include_full_text, db_conn)
 
     return ~mask if is_not else mask
 
 
-def parse_and_expression(df, query, include_full_text=False):
+def parse_and_expression(df, query, include_full_text=False, db_conn=None):
     """
     AND 演算子で式を結合する。
 
@@ -218,11 +293,11 @@ def parse_and_expression(df, query, include_full_text=False):
     mask = pd.Series([True] * len(df), index=df.index)
 
     for part in and_parts:
-        mask &= parse_term(df, part, include_full_text)
+        mask &= parse_term(df, part, include_full_text, db_conn)
     return mask
 
 
-def parse_or_expression(df, query, include_full_text=False):
+def parse_or_expression(df, query, include_full_text=False, db_conn=None):
     """
     OR 演算子で式を結合する (最上位の演算)。
 
@@ -242,5 +317,5 @@ def parse_or_expression(df, query, include_full_text=False):
 
     for part in or_parts:
         # 各パーツを AND 式として評価 (ANDが優先されるため)
-        mask |= parse_and_expression(df, part, include_full_text)
+        mask |= parse_and_expression(df, part, include_full_text, db_conn)
     return mask

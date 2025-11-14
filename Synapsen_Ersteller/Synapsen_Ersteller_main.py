@@ -3,6 +3,7 @@ import tkinter
 import csv
 import sys
 import json
+from textwrap import dedent
 import db_recovery_tool
 from tkinter import messagebox
 from pathlib import Path
@@ -412,8 +413,64 @@ class Synapsen_Ersteller(ctk.CTk):
                 lambda tags: ";".join(sorted(tags)) if isinstance(tags, list) else ''
             )
 
-        conn = sqlite3.connect(master_db_path)
+        conn = sqlite3.connect(self.default_db_path)
+        cursor = conn.cursor()
         try:
+            # --- FTS5テーブルとトリガーの作成 ---
+            #    (db_recovery_tool.py と全く同じSQL)
+            create_table_sql = """
+            CREATE TABLE IF NOT EXISTS notes (
+                "date" TEXT, "time" TEXT, "title" TEXT, "pages" INTEGER,
+                "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
+                "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
+                "merged_pdf_filename" TEXT, "merged_start_page" TEXT
+            )
+            """
+            cursor.execute(create_table_sql)
+
+            create_fts_sql = """
+            CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+                key, title, memo, tags, full_text,
+                content='notes', content_rowid='key'
+            );
+            """
+            cursor.execute(create_fts_sql)
+
+            trigger_sql = dedent("""
+            CREATE TRIGGER IF NOT EXISTS trg_notes_after_insert
+                AFTER INSERT ON notes
+            BEGIN
+                INSERT INTO notes_fts(rowid, key, title,
+                                      memo, tags, full_text)
+                VALUES (new.key, new.key, new.title,
+                        new.memo, new.tags, new.full_text);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_notes_after_delete
+                AFTER DELETE ON notes
+            BEGIN
+                INSERT INTO notes_fts(notes_fts, rowid, key, title,
+                                      memo, tags, full_text)
+                VALUES ('delete', old.key, old.key, old.title,
+                        old.memo, old.tags, old.full_text);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS trg_notes_after_update
+                AFTER UPDATE ON notes
+            BEGIN
+                INSERT INTO notes_fts(notes_fts, rowid, key, title,
+                                      memo, tags, full_text)
+                VALUES ('delete', old.key, old.key, old.title,
+                        old.memo, old.tags, old.full_text);
+                INSERT INTO notes_fts(rowid, key, title,
+                                      memo, tags, full_text)
+                VALUES (new.key, new.key, new.title,
+                        new.memo, new.tags, new.full_text);
+            END;
+        """)
+            cursor.executescript(trigger_sql)
+            conn.commit()
+
             # 2. 既存のキーをDBから取得
             existing_keys = set()
             try:
@@ -430,7 +487,6 @@ class Synapsen_Ersteller(ctk.CTk):
 
             if df_to_append.empty:
                 logger.info("DBに追記する新規ノートはありません（すべて重複）。")
-                conn.close()
                 return
 
             # 4. 新規ノートのみをDBに追記

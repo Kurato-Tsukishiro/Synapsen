@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import sys
 import datetime
+import sqlite3
 
 # 分割したモジュールをインポート
 import logging
@@ -78,6 +79,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.df = None                      # ノートデータを保持するDataFrame
         self.pdf_root_folder = None         # config.iniから読み込むPDFのルートパス
         self.loaded_db_path = None          # 現在開いているDBのパス
+        self.db_conn = None                 # SQLiteのDB接続オブジェクト
 
         self.key_icons = {}                 # IndexKeyごとのアイコン
         self.key_colors = {}                # IndexKeyごとの色
@@ -161,6 +163,10 @@ class Synapsen_Nexus(ctk.CTk):
 
             except Exception as e:
                 print(f"DBバックアップ失敗: {e}")
+
+        # DB接続を閉じる
+        if self.db_conn:
+            self.db_conn.close()
 
         self.destroy()
 
@@ -314,9 +320,9 @@ class Synapsen_Nexus(ctk.CTk):
         right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         right_button_frame.pack(side="right", padx=(5, 10))
 
-        # 本文検索(FTS)
+        # 本文・メモ検索(FTS)
         self.fts_checkbox = ctk.CTkCheckBox(
-            right_button_frame, text="本文検索"
+            right_button_frame, text="本文・メモ検索"
         )
         self.fts_checkbox.pack(side="left", padx=5)
         self.fts_checkbox.configure(command=self._trigger_search_now)
@@ -832,9 +838,16 @@ class Synapsen_Nexus(ctk.CTk):
                 Noneの場合は詳細ペインをクリアする。
         """
         try:
-            # utilsの関数でDataFrameを読み込む
-            self.df = load_sql_data_file(filepath)
+            if self.db_conn:
+                self.db_conn.close()
+                self.db_conn = None
+
+            self.df = load_sql_data_file(filepath)  # utils (full_textなし)
             self.loaded_db_path = filepath
+
+            # 読み取り専用のDB接続を保持
+            self.db_conn = sqlite3.connect(
+                f"file:{filepath}?mode=ro", uri=True)
 
             # データを読み込んだらタグリストを更新
             self.refresh_unique_tags()
@@ -860,8 +873,16 @@ class Synapsen_Nexus(ctk.CTk):
             self.filter_panel_expanded = False
             self.sync_filter_panel_view()
 
+        except sqlite3.OperationalError as e:
+            messagebox.showerror(
+                "データベース読み込みエラー",
+                f"DB接続に失敗しました (読み取り専用モード): {e}"
+            )
         except Exception as e:
-            messagebox.showerror("データベース読み込みエラー", str(e))
+            messagebox.showerror(
+                "データベース読み込みエラー",
+                str(e)
+            )
 
     def populate_key_filters(self):
         for widget in self.key_filter_frame.winfo_children():
@@ -933,7 +954,8 @@ class Synapsen_Nexus(ctk.CTk):
             args=(
                 search_id,
                 query_text, include_full_text,
-                selected_filter_keys
+                selected_filter_keys,
+                self.loaded_db_path
             ),
             daemon=True
         )
@@ -943,47 +965,80 @@ class Synapsen_Nexus(ctk.CTk):
             self,
             search_id,
             query_text, include_full_text,
-            selected_filter_keys
+            selected_filter_keys,
+            db_path
     ):
         """
-        【新規】
         バックグラウンドスレッドで実行される検索ロジック。
-        重い処理（Pandasの計算）はここで行います。
+        Args:
+            search_id (int): この検索の一意なID。
+            query_text (str): 検索クエリ文字列。
+            include_full_text (bool): 本文・メモ検索を含めるか。
+            selected_filter_keys (list): 選択されたIndexKeyフィルターのリスト。
+            db_path (Path): FTS用のDBファイルパス。
         """
         try:
-            # データのコピーを作成（スレッドセーフのため）
-            # ※ self.df が非常に大きい場合は copy() のコストも考慮が必要ですが、
-            #    参照読み込みだけであれば copy なしでも多くの場合は動作します。
-            #    念のためフィルタリング前のベースデータとして扱います。
-            filtered_df = self.df.copy()
+            # (A) ベースDF (メモリ上のメタデータ)
+            base_df = self.df
 
-            # --- 1. IndexKey フィルター ---
+            # (B) --- 1. IndexKey フィルター (Pandas) ---
+            key_filter_mask = (
+                pd.Series([True] * len(base_df), index=base_df.index)
+            )
             if selected_filter_keys:
-                filtered_df = filtered_df[
-                    filtered_df['commonplace_key'].isin(selected_filter_keys)]
+                key_filter_mask = (
+                    base_df['commonplace_key'].isin(selected_filter_keys)
+                )
 
-            # --- 2. クエリ検索 (重い処理) ---
+            # (C) FTS用のDB接続(conn)準備
+            conn = None
+
+            # '本文・メモ検索' (include_full_text) が有効 又は
+            # 'memo:'/'fulltext:'/'text:' プレフィックスがクエリに含まれる場合に
+            # DB接続(conn)を準備する
+            query_lower = query_text.lower()
+            needs_db_search = (
+                include_full_text or
+                'memo:' in query_lower or
+                'fulltext:' in query_lower or
+                'text:' in query_lower
+            )
+
+            if needs_db_search and query_text:  # (query_text が空でないことも確認)
+                try:
+                    # スレッドごとに読み取り専用接続を作成
+                    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+                except Exception as e:
+                    logger.error(f"FTS用DB接続エラー: {e}")
+                    # conn は None のまま
+
+            # (D) --- 2. 検索クエリ (search_parser.py) ---
+            query_mask = pd.Series([True] * len(base_df), index=base_df.index)
             if query_text:
                 try:
-                    final_mask = parse_or_expression(
-                        filtered_df, query_text, include_full_text
+                    query_mask = parse_or_expression(
+                        base_df, query_text, include_full_text, conn
                     )
-                    filtered_df = filtered_df[final_mask]
                 except Exception as e:
                     logger.error(f"検索クエリ解析エラー: {e}")
-                    filtered_df = filtered_df.iloc[0:0]
+                    query_mask = (
+                        pd.Series([False] * len(base_df), index=base_df.index)
+                    )
 
-            # --- 3. メインスレッドに結果を渡す ---
-            # CustomTkinter/TkinterのUI更新は必ずメインスレッドで行う必要があるため、
-            # after メソッドを使用しません。代わりに、コールバック用のメソッドを
-            # メインスレッドで実行するようにスケジュールします。
+            # --- 3. クリーンアップ (変更なし) ---
+            if conn:
+                conn.close()
 
-            # 結果のDataFrameのみを渡す
+            # --- 4. 【重要】最終的な絞り込み ---
+            final_mask = key_filter_mask & query_mask
+            filtered_df = base_df[final_mask]
+
+            # --- 5. メインスレッドに結果を渡す ---
             self.after(
                 0, lambda: self._on_search_complete(search_id, filtered_df))
 
         except Exception as e:
-            logger.error(f"検索スレッドエラー: {e}")
+            logger.error(f"検索スレッドエラー: {e}", exc_info=True)
             self.after(
                 0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
 
@@ -1350,25 +1405,43 @@ class Synapsen_Nexus(ctk.CTk):
         Args:
             key (str): 表示するノートの 'key' (ID)。
         """
-        if self.df is None:
+        if self.df is None or self.db_conn is None:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
             return
 
+        # 1. メタデータを self.df から取得 (高速)
         target_note_row = self.df[self.df['key'] == key]
 
         if target_note_row.empty:
             messagebox.showwarning("ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。")
             return
 
-        note_data = target_note_row.iloc[0]
+        # 2. memo と full_text を DB から取得 (低速だが1件のみ)
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "SELECT memo, full_text FROM notes WHERE key = ?", (key,)
+            )
+            db_data = cursor.fetchone()
 
-        # プレビューウィンドウ (読み取り専用) のインスタンスを作成
+            # pandas.Series にDBのデータをマージ
+            note_data = target_note_row.iloc[0].copy()
+            if db_data:
+                note_data['memo'] = db_data[0]
+                note_data['full_text'] = db_data[1]  # プレビューでは使わないが念のため
+
+        except Exception as e:
+            logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
+            note_data = target_note_row.iloc[0]  # メタデータのみで続行
+
+        # 3. プレビューウィンドウ (読み取り専用) のインスタンスを作成
         preview_win = NotePreviewWindow(self, note_data)
         preview_win.focus()  # ウィンドウにフォーカスを当てる
 
     def show_details(self, row_data):
         """
         選択されたノートの詳細を右ペインに表示する。
+        (FTS5対応版: メタデータはrow_dataから、memoはDBから取得)
 
         Args:
             row_data (pd.Series): 表示するノートの行データ。
@@ -1440,33 +1513,60 @@ class Synapsen_Nexus(ctk.CTk):
             row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
 
-        # メモ表示（リンク構築）
-        # (row=6, column=1 の memo_display_frame を使用)
-        for widget in self.memo_display_frame.winfo_children():
-            widget.destroy()
-
-        memo_text = str(row.get('memo', ''))
-        frame_width = 450  # 詳細ペインのメモ欄の幅
-
-        build_memo_display(
-            self.memo_display_frame,
-            memo_text,
-            self.df,
-            self.open_preview_window,  # リンククリック時のコールバック
-            frame_width
-        )
-
-        # 引用元の検索と表示
-        # (row=8, column=1 の references_display_frame を使用)
+        # --- メモと引用元の表示 ---
         current_key = row.get('key', '')
 
-        # 引用元DFを取得
-        backlinks_df = find_backlinks_df(self.df, current_key)
+        # 【FTS5対応】 memo と 引用元検索(self.dfのmemo) のためにDBから最新データを取得
+        memo_text = ""
+        backlinks_df = pd.DataFrame()  # 空で初期化
+
+        try:
+            # 1. このノートの 'memo' を取得 (DBから)
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "SELECT memo FROM notes WHERE key = ?", (current_key,)
+            )
+            memo_data = cursor.fetchone()
+            if memo_data:
+                memo_text = str(memo_data[0])
+
+            # 2. 引用元 (Backlinks) を self.df の 'memo' (メモリ上) で検索
+
+            # FTS5 で 'memo' 列を検索
+            fts_query_term = f'"{current_key}"'  # FTSは [[ や : を無視する可能性がある
+            sql = "SELECT rowid FROM notes_fts WHERE memo MATCH ?"
+            cursor.execute(sql, (fts_query_term,))
+
+            matching_keys = {row[0] for row in cursor.fetchall()}
+
+            # FTSの結果をメモリ上の self.df でフィルタリング
+            if matching_keys:
+                backlinks_df = self.df[self.df['key'].isin(matching_keys)]
+            else:
+                backlinks_df = pd.DataFrame()
+
+        except Exception as e:
+            logger.error(f"詳細表示のためのDBアクセスエラー: {e}", exc_info=True)
+            # エラー時は self.df の古い 'memo' を使う (空文字になる)
+            memo_text = str(row.get('memo', ''))
+            backlinks_df = find_backlinks_df(self.df, current_key)  # 空のDFが返る
+
+        # メモ表示（リンク構築）
+        for widget in self.memo_display_frame.winfo_children():
+            widget.destroy()
+        frame_width = 450
+        build_memo_display(
+            self.memo_display_frame,
+            memo_text,  # DBから取得した最新のメモ
+            self.df,    # リンク先のタイトル検索用 (metaデータのみ)
+            self.open_preview_window,
+            frame_width
+        )
 
         # 引用元UIを構築
         build_references_display(
             self.references_display_frame,
-            backlinks_df,
+            backlinks_df,  # DBからFTS検索した引用元
             self.open_preview_window,
             self.key_icons,
             self.key_colors
@@ -1732,16 +1832,20 @@ class Synapsen_Nexus(ctk.CTk):
         if not key_to_update:
             raise Exception("更新対象のKeyが不明です。")
 
-        # 1. utilsのDB更新関数を呼び出す
-        update_note_in_db(self.loaded_db_path, key_to_update, new_data_dict)
+        try:
+            # 1. utilsのDB更新関数を呼び出す
+            update_note_in_db(
+                self.loaded_db_path, key_to_update, new_data_dict)
 
-        # 2. 変更をUIに反映するため、DBを再読み込み
-        self.load_db_from_path(
-            self.loaded_db_path, key_to_redisplay=key_to_update)
+            # 2. 変更をUIに反映するため、DBを再読み込み
+            #    (load_db_from_path が self.db_conn も再生成する)
+            self.load_db_from_path(
+                self.loaded_db_path, key_to_redisplay=key_to_update)
 
-        # 再表示したいキーを引数に渡す
-        self.load_db_from_path(
-            self.loaded_db_path, key_to_redisplay=key_to_update)
+        except Exception as e:
+            # (エラーハンドリングはそのまま)
+            messagebox.showerror(
+                "保存エラー", f"データベースの更新に失敗しました:\n{e}", parent=self)
 
     def confirm_delete_note(self):
         """
