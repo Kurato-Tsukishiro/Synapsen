@@ -299,8 +299,20 @@ class Synapsen_Nexus(ctk.CTk):
         left_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         left_button_frame.pack(side="left", padx=5)
 
+        # "DBを開く" ボタン (小型化)
         ctk.CTkButton(
-            left_button_frame, text="DBを開く", command=self.load_database_dialog
+            left_button_frame,
+            text="DB",
+            command=self.load_database_dialog,
+            width=50
+        ).pack(side="left", padx=(0, 5))
+
+        # 検索ヘルプボタン (新規追加)
+        ctk.CTkButton(
+            left_button_frame,
+            text="？",
+            command=self.show_search_help,
+            width=30
         ).pack(side="left", padx=(0, 5))
 
         # 検索バーコンテナ
@@ -574,6 +586,18 @@ class Synapsen_Nexus(ctk.CTk):
 
         # フィルターパネルの初期表示を同期
         self.sync_filter_panel_view()
+
+    def show_search_help(self):
+        """検索プレフィックスのヘルプウィンドウを表示する。"""
+
+        # 既にウィンドウが開いている場合は、それをフォーカスする
+        if hasattr(self, "help_window") and self.help_window.winfo_exists():
+            self.help_window.focus()
+            self.help_window.grab_set()
+            return
+
+        # カスタムクラス (SearchHelpWindow) をインスタンス化する
+        self.help_window = SearchHelpWindow(self)
 
     # --- グラフメニューのハンドラ ---
     def handle_graph_menu(self, choice):
@@ -1887,6 +1911,128 @@ class Synapsen_Nexus(ctk.CTk):
             except Exception as e:
                 messagebox.showerror(
                     "削除エラー", f"データベースからの削除に失敗しました:\n{e}", parent=self)
+
+
+# ==============================================================================
+# 検索ヘルプウィンドウ
+# ==============================================================================
+class SearchHelpWindow(ctk.CTkToplevel):
+    """
+    検索ヘルプ専用のToplevelウィンドウ。
+    メインアイコンを強制的に継承するため、iconbitmapメソッドをオーバーライドする。
+    """
+    def __init__(self, parent_app):
+        super().__init__(parent_app)
+        self._custom_icon_path = None  # 強制設定するアイコンパス
+
+        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+            self._custom_icon_path = str(parent_app.icon_path)
+            # --- 初期アイコンをすぐに設定 ---
+            if self._custom_icon_path:
+                try:
+                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
+                    super().iconbitmap(self._custom_icon_path)
+                except Exception as e:
+                    logger.error(f"Initial icon set error: {e}")
+
+        self.title("検索ヘルプ")
+        self.geometry("550x500")
+        self.transient(parent_app)
+        self.grab_set()
+
+        # (ヘルプテキストは変更なし)
+        help_text = """
+Synapsen Nexus 検索クエリ リファレンス
+
+■ 基本
+- 検索語をスペースで区切ると `AND` 検索になります。
+  (例: `Python ノート術`)
+- `OR` を使用すると `OR` 検索ができます。
+  (例: `Python OR C#`)
+- `()` でグループ化できます。
+  (例: `(Python OR C#) AND (ikey:学習 OR ikey:タスク)`)
+- `-` (ハイフン) を検索語の前に付けると `NOT` 検索になります。
+  (例: `Python -memo:古い`)
+
+---
+■ プレフィックス (コロン `:` を使用)
+
+`title: (キーワード)`
+- ノートのタイトルを検索します。
+
+`key: (ID)`
+- ノートのユニークID (例: 20240101090000) を検索します。
+
+`tag: (キーワード)` (エイリアス: `tags:`)
+- タグを検索します。入力補完 (`tag:`) が利用可能です。
+
+`ikey: (キーワード)` (エイリアス: `cpkey:`, `indexkey:`)
+- Index Key (コモンプレイスキー) を検索します。
+
+`memo: (キーワード)`
+- メモ欄を検索します (「本文・メモ検索」OFFでも強制検索)。
+
+`fulltext: (キーワード)` (エイリアス: `text:`)
+- PDF本文を検索します (「本文・メモ検索」OFFでも強制検索)。
+
+---
+■ 特殊なプレフィックス
+
+`date: (日付指定)`
+- 日付で検索します。以下の書式に対応しています。
+
+1. 部分一致 (例: `date:202401`)
+   2024年1月のノートを検索します。
+
+2. 以降 (例: `date:>=20240101`)
+   2024年1月1日以降のノートを検索します。
+
+3. 以前 (例: `date:<=20240131`)
+   2024年1月31日以前のノートを検索します。
+
+4. 期間 (例: `date:20240101-20240131`)
+   2024年1月1日から1月31日までのノートを検索します。
+
+---
+■ グローバル検索 (プレフィックスなし)
+(例: `Python`)
+
+「本文・メモ検索」チェックボックスが...
+- **OFF (デフォルト)**: `title:`, `tag:`, `key:`, `ikey:`, `date:` を対象に検索します。
+- **ON (低速)**: 上記に加え、`memo:` と `fulltext:` も対象に含めて検索します。
+"""
+
+        textbox = ctk.CTkTextbox(self, wrap="word")
+        textbox.pack(fill="both", expand=True, padx=10, pady=(10, 5))
+        textbox.insert("1.0", help_text)
+        textbox.configure(state="disabled")
+
+        close_button = ctk.CTkButton(
+            self,
+            text="閉じる",
+            command=self.destroy
+        )
+        close_button.pack(pady=(0, 10), padx=10)
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+        CustomTkinterが内部でアイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
