@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 from pypdf import PdfReader
 import fitz  # PyMuPDF
+import unicodedata
 
 # --- 追加インポート ---
 from PIL import Image
@@ -15,6 +16,39 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _normalize_key_text(raw_text: str) -> str:
+    """
+    Index Keyとして読み取ったテキストから不要文字を除去し、正規化する。
+    """
+    if not raw_text:
+        return ""
+
+    # 1. 日本語(ひらがな,カタカナ,漢字), 英数字(\w), 記号(/・),
+    #    半角スペース以外のすべての文字(制御文字, ゼロ幅スペース等)を除去
+    #    (\w は英数字とアンダースコアにマッチします)
+    pattern_to_remove = (
+        r'[^\w\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF/\s・]'
+    )
+    cleaned_text = re.sub(
+        pattern_to_remove,
+        '',
+        raw_text
+    )
+
+    # 2. 改行や連続する空白を単一のスペースに正規化
+    normalized_text = (
+        " ".join(cleaned_text.split())
+        .strip()
+    )
+
+    # 3. Unicode正規化 (NFKC)
+    #    互換文字 (例: '識' U+F9BC) を 標準文字 (例: '識' U+8B58) に変換
+    final_text = unicodedata.normalize(
+        'NFKC', normalized_text)
+
+    return final_text
+
+
 # ==============================================================================
 # PDF情報取得関数
 # ==============================================================================
@@ -22,13 +56,13 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
     """
     単一のPDFファイルを解析し、ファイル名や内容から情報を抽出する。
     優先順位: QRコード -> 指定座標のテキスト (key_rect)
+    抽出した文字列は Unicode 正規化(NFKC) されます。
     """
     try:
         commonplace_key = ""
-        full_text = ""  # full_text は空で初期化 (抽出しない)
+        full_text = ""
         doc = None
         try:
-            # PyMuPDF を使って Index Key のみ取得
             doc = fitz.open(pdf_path)
             if len(doc) > 0:
                 page = doc[0]
@@ -36,7 +70,6 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                 # --- 1. QRコードからの読み取り (優先) ---
                 if decode is not None:
                     try:
-                        # 処理高速化のため DPI=150 程度でレンダリング
                         pix = page.get_pixmap(dpi=150)
                         img_data = pix.tobytes("png")
                         pil_image = Image.open(io.BytesIO(img_data))
@@ -46,29 +79,27 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                             if obj.type == 'QRCODE':
                                 qr_text = obj.data.decode('utf-8').strip()
                                 if qr_text:
-                                    commonplace_key = qr_text
-                                    logger.debug(
-                                        f"QR検出: {commonplace_key} "
-                                        f"({pdf_path.name})"
+                                    # QRコードのテキストにも正規化を適用
+                                    commonplace_key = unicodedata.normalize(
+                                        'NFKC', qr_text
                                     )
                                     break
                     except Exception as e:
                         # 画像処理エラー等はログに出して無視し、テキスト抽出へ進む
                         logger.debug(f"QR読み取り失敗 ({pdf_path.name}): {e}")
-                else:
-                    # pyzbar がインストールされていない場合は初回のみ警告ログを出す等の処理も可能
-                    pass
 
                 # --- 2. 指定座標からのテキスト抽出 (フォールバック) ---
-                # QRコードでキーが見つからなかった場合のみ実行
+                # QRコードでキーが見つからなかった場合 実行
                 if not commonplace_key and key_rect and len(key_rect) == 4:
-                    commonplace_key = page.get_textbox(key_rect).strip()
+                    raw_text = page.get_textbox(key_rect)
+                    # ヘルパー関数を使って正規化
+                    commonplace_key = _normalize_key_text(raw_text)
 
         except Exception as e:
             logger.error(f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}")
         finally:
             if doc:
-                doc.close()  # 確実に閉じる
+                doc.close()
 
         # PyPDF でページ数を取得
         page_count = len(PdfReader(pdf_path).pages)
@@ -82,8 +113,6 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         auto_generated_key = ""
         if match:
             date_str, time_val, _ = match.groups()
-            # YYYYMMDDhhmmss形式のユニークIDを生成
-            # timeがファイル名にない場合は '000000' で補完
             time_str = time_val.ljust(6, '0') if time_val else "999999"
             key_time = time_str if time_str != "999999" else "000000"
             auto_generated_key = date_str + key_time
@@ -95,7 +124,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "memo": "",
             "commonplace_key": commonplace_key,
             "filepath": filepath,
-            "full_text": full_text  # <-- ここでは空文字が設定される
+            "full_text": full_text
         }
         if not match:
             return {
@@ -151,13 +180,20 @@ def get_full_text(pdf_path: Path) -> str:
     doc = None
     try:
         doc = fitz.open(pdf_path)
-        # 全ページのテキストを抽出 (埋め込まれたOCRテキストを含む)
+        # 全ページのテキストを抽出
         for page in doc:
             full_text += page.get_text("text", sort=True) + "\n"
-        return full_text.strip()
+
+        # 抽出したfull_text全体も正規化する
+        if full_text:
+            normalized_text = unicodedata.normalize('NFKC', full_text)
+            return normalized_text.strip()
+        else:
+            return ""
+
     except Exception as e:
         logger.error(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
-        return ""  # エラー時は空文字を返す
+        return ""
     finally:
         if doc:
-            doc.close()  # 確実に閉じる
+            doc.close()

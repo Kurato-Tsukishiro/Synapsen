@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from pypdf import PdfReader
 import fitz  # PyMuPDF (テキスト抽出用)
+import unicodedata
 
 import logging
 logger = logging.getLogger(__name__)
@@ -162,7 +163,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
     def execute_restore(self):
         """メモリ上のデータをDBにINSERTする"""
         db_path = self.db_path_entry.get()
-        pdf_path = self.pdf_path_entry.get()  # PDFパスを取得
+        pdf_path = self.pdf_path_entry.get()
 
         if not db_path:
             messagebox.showerror("エラー", "復旧先のデータベースパスを指定してください。")
@@ -210,13 +211,18 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                     lambda x: ";".join(sorted(x)) if isinstance(x, list) else x
                 )
 
-            # ==========================================================
-            # 統合PDFから本文テキスト(full_text)を再抽出する処理
-            # ==========================================================
             self.log("PDFから本文テキストを再抽出しています...")
             self.update_idletasks()
 
             def extract_text_from_range(row):
+                """統合PDFから本文テキスト(full_text)を再抽出する
+
+                Args:
+                    row (pd.Series): DataFrameの行データ (ノート情報)
+
+                Returns:
+                    str: 抽出されたテキスト
+                """
                 try:
                     # ページ情報の取得
                     start_page_1based = int(row.get('merged_start_page', 0))
@@ -235,27 +241,36 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
                     # 指定範囲のページからテキストを結合
                     full_text = ""
+
                     # end_idx は len(doc) を超えないように制限
                     actual_end = min(end_idx, len(doc))
 
                     for i in range(start_idx, actual_end):
                         full_text += doc[i].get_text() + "\n"
 
-                    return full_text.strip()
+                    # Unicode正規化 (NFKC) を実行
+                    if full_text:
+                        normalized_text = (
+                            unicodedata.normalize('NFKC', full_text)
+                        )
+                        return normalized_text.strip()
+
+                    return ""
 
                 except Exception as e:
-                    print(f"Text extraction error for {row.get('key')}: {e}")
+                    logger.error(
+                        f"Text extraction error for {row.get('key')}: {e}"
+                    )
                     return ""
 
             # 各行に対してテキスト抽出を実行
             # (tqdmなどが使えないのでGUIが固まらないよう簡易的に処理)
             df['full_text'] = df.apply(extract_text_from_range, axis=1)
-            # ==========================================================
 
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
-            # テーブル作成 (既存コードと同じ)
+            # テーブル作成、重複チェック
             create_table_sql = """
             CREATE TABLE IF NOT EXISTS notes (
                 "date" TEXT,
@@ -275,7 +290,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             cursor.execute(create_table_sql)
             conn.commit()
 
-            # 重複チェックとインサート (既存コードと同じ)
+            # 重複チェックとインサート
             existing_keys = set()
             try:
                 existing = pd.read_sql("SELECT key FROM notes", conn)
@@ -301,7 +316,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             conn.close()
             doc.close()  # ドキュメントを閉じる
 
-            messagebox.showinfo("完了", "データベースの復元が完了しました。\n(本文テキストも再抽出されました)")
+            messagebox.showinfo(
+                "完了", "データベースの復元が完了しました。\n(本文テキストもunicode正規化されました)")
             self.destroy()
 
         except Exception as e:
