@@ -3,6 +3,7 @@ from pathlib import Path
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 import unicodedata
+import json
 
 # --- 追加インポート ---
 from PIL import Image
@@ -55,44 +56,117 @@ def _normalize_key_text(raw_text: str) -> str:
 def get_note_info(pdf_path: Path, key_rect: tuple):
     """
     単一のPDFファイルを解析し、ファイル名や内容から情報を抽出する。
-    優先順位: QRコード -> 指定座標のテキスト (key_rect)
-    抽出した文字列は Unicode 正規化(NFKC) されます。
+    優先順位: JSON QRコード -> key_rect テキスト -> ファイル名
     """
     try:
+        # --- 1. まずファイル名を解析 (フォールバック用) ---
+        match = re.match(
+            r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf",
+            pdf_path.name,
+            re.IGNORECASE)
+
+        if match:
+            date_str, time_val, title = match.groups()
+            time_str = time_val.ljust(6, '0') if time_val else "999999"
+            key_time = time_str if time_str != "999999" else "000000"
+            auto_generated_key = date_str + key_time
+            is_warning = False
+        else:
+            date_str = "日付不明"
+            time_str = "999999"
+            title = pdf_path.stem
+            auto_generated_key = ""
+            is_warning = True
+
+        # --- 2. PDFからメタデータを抽出 (QR/テキスト) ---
         commonplace_key = ""
-        full_text = ""
         doc = None
         try:
             doc = fitz.open(pdf_path)
             if len(doc) > 0:
                 page = doc[0]
+                qr_found = False
 
-                # --- 1. QRコードからの読み取り (優先) ---
+                # --- 2A. QRコードからの読み取り (優先) ---
+                # Normalisierer のクリップ機能で埋め込まれたQRコードを想定
+                # clipperのOCRが、埋め込んだIndex Keyと干渉する事があるため、QRコードを付与している
                 if decode is not None:
                     try:
-                        pix = page.get_pixmap(dpi=150)
+                        pix = page.get_pixmap(dpi=200)
                         img_data = pix.tobytes("png")
                         pil_image = Image.open(io.BytesIO(img_data))
 
                         decoded_objects = decode(pil_image)
+
+                        if not decoded_objects:
+                            logger.warning(
+                                f"QR: pyzbarは起動しましたが、QRを検出できませんでした "
+                                f"({pdf_path.name})"
+                            )
+
                         for obj in decoded_objects:
                             if obj.type == 'QRCODE':
                                 qr_text = obj.data.decode('utf-8').strip()
                                 if qr_text:
-                                    # QRコードのテキストにも正規化を適用
-                                    commonplace_key = unicodedata.normalize(
-                                        'NFKC', qr_text
-                                    )
+                                    try:
+                                        # 【JSONパース試行】
+                                        qr_data = json.loads(qr_text)
+                                        # cpk (IndexKey) の取得
+                                        if "cpk" in qr_data:
+                                            commonplace_key = (
+                                                unicodedata.normalize(
+                                                    'NFKC',
+                                                    qr_data.get("cpk", "")
+                                                )
+                                            )
+
+                                        # key (ユニークID) の取得
+                                        if "key" in qr_data:
+                                            auto_generated_key = qr_data["key"]
+                                            # key がQRから取得できたら、
+                                            # ファイル名が正規表現にマッチしなくても警告解除
+                                            is_warning = False
+
+                                        qr_found = True
+                                        logger.info(
+                                            f"QR(JSON)読み取り成功: "
+                                            f"cpk={commonplace_key}, "
+                                            f"key={auto_generated_key} "
+                                            f"({pdf_path.name})"
+                                        )
+
+                                    except json.JSONDecodeError:
+                                        # 【フォールバック: 文字列のみ】
+                                        commonplace_key = (
+                                            unicodedata.normalize(
+                                                'NFKC',
+                                                qr_text
+                                            )
+                                        )
+                                        qr_found = True
+                                        logger.info(
+                                            "QR(非JSON)読み取り成功: "
+                                            f"{commonplace_key} "
+                                            f"({pdf_path.name})"
+                                        )
+
                                     break
                     except Exception as e:
-                        # 画像処理エラー等はログに出して無視し、テキスト抽出へ進む
-                        logger.debug(f"QR読み取り失敗 ({pdf_path.name}): {e}")
+                        logger.warning(
+                            f"QR読み取り失敗 ({pdf_path.name}): {e}"
+                        )
+                else:
+                    logger.warning(
+                        "QRデバッグ: pyzbarがインポートされていない (decode is None)"
+                    )
 
-                # --- 2. 指定座標からのテキスト抽出 (フォールバック) ---
-                # QRコードでキーが見つからなかった場合 実行
-                if not commonplace_key and key_rect and len(key_rect) == 4:
+                # --- 2B. 指定座標からのテキスト抽出 (基本処理) ---
+                if not qr_found and key_rect and len(key_rect) == 4:
+                    logger.warning(
+                        f"QRデバッグ: QRが見つからなかったため、key_rectを検索します "
+                        f"({pdf_path.name})"
+                    )
                     raw_text = page.get_textbox(key_rect)
-                    # ヘルパー関数を使って正規化
                     commonplace_key = _normalize_key_text(raw_text)
 
         except Exception as e:
@@ -101,48 +175,21 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             if doc:
                 doc.close()
 
-        # PyPDF でページ数を取得
+        # --- 3. ページ数取得と辞書作成 ---
         page_count = len(PdfReader(pdf_path).pages)
         filepath = str(pdf_path)
-
-        match = re.match(
-            r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf",
-            pdf_path.name,
-            re.IGNORECASE)
-
-        auto_generated_key = ""
-        if match:
-            date_str, time_val, _ = match.groups()
-            time_str = time_val.ljust(6, '0') if time_val else "999999"
-            key_time = time_str if time_str != "999999" else "000000"
-            auto_generated_key = date_str + key_time
-
-        common_data = {
+        return {
+            "date": date_str,
+            "time": time_str,
+            "title": title,
             "pages": page_count,
             "tags": [],
             "key": auto_generated_key,
             "memo": "",
             "commonplace_key": commonplace_key,
             "filepath": filepath,
-            "full_text": full_text
-        }
-        if not match:
-            return {
-                "date": "日付不明",
-                "time": "999999",
-                "title": pdf_path.stem,
-                **common_data,
-                "is_warning": True
-                }
-
-        date_str, time_val, title = match.groups()
-        time_str = time_val.ljust(6, '0') if time_val else "999999"
-        return {
-            "date": date_str,
-            "time": time_str,
-            "title": title,
-            **common_data,
-            "is_warning": False
+            "full_text": "",
+            "is_warning": is_warning
         }
 
     except Exception as e:

@@ -11,6 +11,7 @@ import shutil
 import re
 import subprocess
 import qrcode
+import json
 
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
@@ -67,7 +68,8 @@ def add_metadata_to_clip(
     text_color: tuple | None,
     comment_to_embed: str,
     sist_string_formal: str | None = None,
-    sist_string_readable: str | None = None
+    sist_string_readable: str | None = None,
+    base_name: str | None = None
 ) -> None:
     """
     Playwrightで生成されたPDFに対し、
@@ -92,7 +94,7 @@ def add_metadata_to_clip(
         font_alias = "embed_font"
 
         # --- 1. 1ページ目に IndexKey (QR + テキスト) を描画 ---
-        if index_key_to_embed:
+        if index_key_to_embed or base_name:
             page1 = doc[0]
             try:
                 page1.insert_font(fontname=font_alias, fontfile=font_path)
@@ -122,9 +124,38 @@ def add_metadata_to_clip(
             # A. QRコードの生成と描画
             # ============================================================
             try:
-                # QRコード生成
+                # --- QRコードに埋め込むJSONデータを構築 (cpk と key のみ) ---
+                qr_data = {"cpk": index_key_to_embed}
+                auto_generated_key = ""
+
+                if base_name:
+                    # base_name をパースして Ersteller と同じ "key" のみ生成
+                    match = re.match(
+                        r"(\d{8})_(?:(\d{4,6})_)?(.+)",
+                        base_name,
+                        re.IGNORECASE)
+
+                    if match:
+                        date_str, time_val, _ = match.groups()
+
+                        if time_val:
+                            time_str = time_val.ljust(6, '0')
+                        else:
+                            time_str = "999999"
+                        if time_str != "999999":
+                            key_time = time_str
+                        else:
+                            key_time = "000000"
+                        auto_generated_key = date_str + key_time
+
+                        qr_data["key"] = auto_generated_key
+
+                # JSON文字列に変換
+                qr_data_str = json.dumps(qr_data, ensure_ascii=False)
+                # --- 構築完了 ---
+
                 qr = qrcode.QRCode(box_size=2, border=0)
-                qr.add_data(index_key_to_embed)
+                qr.add_data(qr_data_str)
                 qr.make(fit=True)
                 qr_img = qr.make_image(fill_color="black", back_color="white")
 
@@ -140,12 +171,15 @@ def add_metadata_to_clip(
                 logger.error(f"QRコード生成エラー: {e}")
 
             # ============================================================
-            # B. テキストの描画 (ずらした位置に描画)
+            # B. テキストの描画 (Index Key がある場合のみ)
             # ============================================================
-            shape1.insert_textbox(
-                text_rect, index_key_to_embed, fontname=font_alias,
-                fontsize=10, color=text_color, align=0
-            )
+            # Index Key がある場合のみテキストを描画
+            if index_key_to_embed:
+                shape1.insert_textbox(
+                    text_rect, index_key_to_embed, fontname=font_alias,
+                    fontsize=10, color=text_color, align=0
+                )
+
             shape1.commit()
 
         # --- 2. 最終ページに コメントと書誌情報 を描画 ---
@@ -682,7 +716,7 @@ def convert_markdown_to_pdf(
     pandoc_cmd = [
         "pandoc",
         "--from", input_format,
-        str(temp_modified_md_path),  # [変更] 置換後の一時MDファイルを使用
+        str(temp_modified_md_path),  # 置換後の一時MDファイルを使用
         "-s",                        # スタンドアロン (HTMLヘッダ等を含む)
         "--embed-resources",         # 画像などをHTMLに埋め込む
         "--mathml",                  # 数式をMathML (HTML互換) に変換
@@ -758,7 +792,7 @@ def convert_markdown_to_pdf(
         if pw_instance:
             pw_instance.stop()
 
-        # [変更] 一時HTMLファイル と 一時MDファイル の両方を削除
+        # 一時HTMLファイル と 一時MDファイル の両方を削除
         if temp_html_path.is_file():
             try:
                 temp_html_path.unlink()

@@ -789,7 +789,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text_color,
                 comment_to_embed,
                 sist_string_formal,
-                sist_string_readable
+                sist_string_readable,
+                base_name=base_name
             )
 
         messagebox.showinfo(
@@ -943,7 +944,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             text_color,
             comment_to_embed,
             sist_string_formal,
-            sist_string_readable
+            sist_string_readable,
+            base_name=base_name
         )
 
         messagebox.showinfo(
