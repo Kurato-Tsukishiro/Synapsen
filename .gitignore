@@ -57,6 +57,7 @@ Synapsen_Nexus/synapsen_graph.html
 *.pot
 
 # Django stuff:
+/logs/
 *.log
 local_settings.py
 db.sqlite3
