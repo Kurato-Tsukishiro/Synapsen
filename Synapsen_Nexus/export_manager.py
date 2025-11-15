@@ -1,6 +1,8 @@
 import shutil
 import datetime
 import io
+import re
+import sqlite3
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF (プレースホルダー生成用に追加)
@@ -50,7 +52,9 @@ class ExportManager:
             self._save_csv(final_export_dir, target_df)
 
             # 3. 本文テキスト (個別TXT)
-            self._save_full_text(final_export_dir, target_df)
+            self._save_full_text(
+                final_export_dir, target_df, loaded_db_path
+            )
 
             # 4. グラフ (HTML)
             graph_path = final_export_dir / "relation_graph.html"
@@ -282,12 +286,66 @@ class ExportManager:
             )
         df_export.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
-    def _save_full_text(self, dir_path, df):
+    def _save_full_text(self, dir_path, df, loaded_db_path):
+        """
+        対象DataFrameのキーに基づき、DBからfull_textを取得して保存する。
+        """
         text_dir = dir_path / "FullText_Contents"
         text_dir.mkdir(exist_ok=True)
+
+        # 1. DBから full_text を取得するための準備
+        keys_to_fetch = list(df['key'].dropna().unique())
+        full_text_map = {}
+
+        if keys_to_fetch and loaded_db_path:
+            conn = None
+            try:
+                # 読み取り専用で接続
+                conn = sqlite3.connect(
+                    f"file:{loaded_db_path}?mode=ro", uri=True
+                )
+                cursor = conn.cursor()
+
+                # プレースホルダを作成
+                placeholders = ','.join('?' for _ in keys_to_fetch)
+                sql = (
+                    f"SELECT key, full_text FROM notes "
+                    f"WHERE key IN ({placeholders})"
+                )
+
+                cursor.execute(sql, keys_to_fetch)
+
+                # key -> full_text の辞書を作成
+                for key, text in cursor.fetchall():
+                    full_text_map[key] = text if text else ""
+
+            except Exception as e:
+                logger.error(f"[ExportManager] full_text の一括取得に失敗: {e}")
+            finally:
+                if conn:
+                    conn.close()
+
+        # 2. ファイルへの書き出し
         for _, row in df.iterrows():
             key = row.get('key')
             if key:
-                text = row.get('full_text', '')
-                with open(text_dir / f"{key}.txt", 'w', encoding='utf-8') as f:
+                text = full_text_map.get(key, '')
+
+                # --- ここから整形処理 ---
+                if text:
+                    # 1. 文末記号の直後に改行を挿入
+                    #    句点、疑問符などはそのまま改行 ([。？！」])
+                    #    半角の疑問符と感嘆符及びピリオドが連続している場合、最後の記号の直後のみ改行 (\.+(?!\.))
+                    text = re.sub(r'([。？！」]|\.+(?!\.))\n*', r'\1\n', text)
+
+                    # 2. 連続する空白やタブを単一スペースに置換
+                    text = re.sub(r'[ \t]+', ' ', text)
+
+                    # 3. 連続する改行を2つまでに制限
+                    text = re.sub(r'\n{3,}', '\n\n', text)
+                # --- 整形処理ここまで ---
+
+                with open(
+                    text_dir / f"{key}.txt", 'w', encoding='utf-8'
+                ) as f:
                     f.write(text)
