@@ -1,11 +1,11 @@
 import networkx as nx
 from pyvis.network import Network
-import re
 import sys
 import webbrowser
 from pathlib import Path
 from textwrap import dedent
 from utils import get_pdf_uri_for_note
+import sqlite3
 
 import logging
 logger = logging.getLogger(__name__)
@@ -19,7 +19,8 @@ class GraphManager:
         key_colors,
         loaded_db_path,
         pdf_root_folder,
-        output_path=None
+        output_path=None,
+        db_conn=None  # NexusからDB接続を受け取る
     ):
         """
         DataFrameからネットワークグラフを生成し、HTMLファイルとして保存する。
@@ -27,10 +28,49 @@ class GraphManager:
         Returns:
             Path: 保存されたHTMLファイルのパス。
         """
-        # 1. グラフ構築 (NetworkX)
+        # グラフ構築 (NetworkX)
         G = nx.DiGraph()
-        notes_in_graph = set(df['key'])
-        link_pattern = re.compile(r"\[\[(.*?)\]\]")
+        keys_in_graph = set(df['key'])
+
+        # グラフ化対象のリンク(edge)をDBから一括取得
+        edges_data = []
+        if (db_conn or loaded_db_path) and keys_in_graph:
+            conn_to_use = None
+            created_conn = False
+            try:
+                if db_conn:
+                    # Nexusから渡された読み取り専用接続を使用
+                    conn_to_use = db_conn
+                else:
+                    # (ExportManagerなどから呼ばれた場合) 自分で接続を作成
+                    conn_to_use = sqlite3.connect(
+                        f"file:{loaded_db_path}?mode=ro", uri=True)
+                    created_conn = True
+
+                cursor = conn_to_use.cursor()
+
+                # プレースホルダ (?) をキーの数だけ生成
+                placeholders = ','.join('?' for _ in keys_in_graph)
+
+                # リンク元(source)がグラフ対象に含まれるリンクのみ取得
+                sql = (
+                    f"SELECT source_key, target_key FROM note_links WHERE "
+                    f"source_key IN ({placeholders})"
+                )
+
+                cursor.execute(sql, tuple(keys_in_graph))
+                edges_data = cursor.fetchall()
+
+                logger.info(
+                    f"[GraphManager] DBから {len(edges_data)} 件のリンク(エッジ)を取得しました。"
+                )
+
+            except Exception as e:
+                logger.error(f"[GraphManager] DBからのリンク取得に失敗: {e}")
+            finally:
+                # 自分で作成した接続のみ閉じる
+                if created_conn and conn_to_use:
+                    conn_to_use.close()
 
         # ノードを追加
         for index, row in df.iterrows():
@@ -66,18 +106,14 @@ class GraphManager:
 
         # エッジを追加
         edge_count = 0
-        for index, row in df.iterrows():
-            source_key = row.get('key')
-            memo = row.get('memo', '')
 
-            for match in link_pattern.finditer(memo):
-                full_match_content = match.group(1).strip()
-                target_key = full_match_content.split(':')[0].strip()
-
-                if target_key in notes_in_graph:
-                    if source_key != target_key:
-                        G.add_edge(source_key, target_key)
-                        edge_count += 1
+        # DBから取得した edges_data をイテレート
+        for source_key, target_key in edges_data:
+            # リンク先(target)もグラフ描画対象(keys_in_graph)に含まれるか確認
+            if target_key in keys_in_graph:
+                if source_key != target_key:
+                    G.add_edge(source_key, target_key)
+                    edge_count += 1
 
         logger.info(f"[GraphManager] グラフ生成: {len(df)} ノード, {edge_count} エッジ")
 

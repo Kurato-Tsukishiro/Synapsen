@@ -1,26 +1,37 @@
+# === 1. 標準ライブラリ ===
 import os
+import sys
+from pathlib import Path
 import tkinter
 import csv
-import sys
 import json
 from textwrap import dedent
-import db_recovery_tool
-from tkinter import messagebox
-from pathlib import Path
-from pypdf import PdfReader, PdfWriter, Transformation
-import customtkinter as ctk
 import subprocess
 import shutil
 import tempfile
 import configparser
 import sqlite3
-import pandas as pd
-
 import logging
-import PDFMargeHelper as Helper
-import pdf_processor as Process
-import latex_generator as Generator
-import gui_dialogs as Dialogs
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+# === 3. プロジェクト内モジュールとサードパーティ ===
+import db_recovery_tool               # noqa: E402
+from tkinter import messagebox        # noqa: E402 (tkinterグループ)
+import customtkinter as ctk           # noqa: E402
+import pandas as pd                   # noqa: E402
+import PDFMargeHelper as Helper       # noqa: E402
+import pdf_processor as Process       # noqa: E402
+import latex_generator as Generator   # noqa: E402
+import gui_dialogs as Dialogs         # noqa: E402
+from pypdf import PdfReader, PdfWriter, Transformation  # noqa: E402
+from Synapsen_Nexus import utils as NexusUtils          # noqa: E402
+from logging_setup import setup_logging                 # noqa: E402
+
 
 # ==============================================================================
 # ロギング設定の初期化
@@ -32,7 +43,6 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 try:
-    from logging_setup import setup_logging
     # アプリ名を指定して初期化
     setup_logging("Synapsen_Normalisierer")
     logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
@@ -396,10 +406,7 @@ class Synapsen_Ersteller(ctk.CTk):
         if not notes_to_append:
             return
 
-        # 1. 追記するノートをDataFrameに変換
         df_new_notes = pd.DataFrame(notes_to_append)
-
-        # 'key' (ユニークID) がないノートは追記しない (以前の会話で実装した仕様)
         df_new_notes = df_new_notes[
             df_new_notes['key'].notna() & (df_new_notes['key'] != '')
         ]
@@ -409,8 +416,16 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # タグリストを ';' 区切りの文字列に変換
         if 'tags' in df_new_notes.columns:
-            df_new_notes['tags'] = df_new_notes['tags'].apply(
-                lambda tags: ";".join(sorted(tags)) if isinstance(tags, list) else ''
+
+            # タグをソートし、';'区切りの文字列に変換する関数を定義
+            def format_tags_for_db(tags):
+                if isinstance(tags, list):
+                    return ";".join(sorted(tags))
+                return ''  # リストでない場合は空文字を返す
+
+            # apply に定義した関数を渡す
+            df_new_notes['tags'] = (
+                df_new_notes['tags'].apply(format_tags_for_db)
             )
 
         conn = sqlite3.connect(self.default_db_path)
@@ -469,6 +484,21 @@ class Synapsen_Ersteller(ctk.CTk):
             END;
         """)
             cursor.executescript(trigger_sql)
+
+            # --- リンクテーブル作成 ▼▼▼ ---
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS note_links (
+                source_key TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                PRIMARY KEY (source_key, target_key)
+            )
+            """)
+
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_target_key
+                ON note_links (target_key)
+            """)
+
             conn.commit()
 
             # 2. 既存のキーをDBから取得
@@ -511,11 +541,28 @@ class Synapsen_Ersteller(ctk.CTk):
                 if_exists='append',
                 index=False
             )
+
+            # 5. 追記したノートのリンク情報を解析して note_links に書き込む
+            #    (Nexusのutils.pyにあるヘルパーを流用)
+            logger.info(f"{len(df_to_append)} 件の新規ノートのリンクを解析・登録します...")
+
+            for _, row in df_to_append.iterrows():
+                source_key = row.get("key")
+                memo_text = row.get("memo", "")
+                if source_key and memo_text:
+                    # (utils._update_note_links は DELETE & INSERT を行う)
+                    NexusUtils._update_note_links(
+                        cursor, source_key, memo_text
+                    )
+
+            conn.commit()  # リンクテーブルの変更をコミット
+
             logger.info(
-                f"{len(df_final_append)} 件の新規ノートを " +
+                f"{len(df_to_append)} 件の新規ノートを " +
                 f"{master_db_path.name} に追記しました。")
 
         except Exception as e:
+            conn.rollback()
             raise Exception(f"マスターDBへの追記に失敗しました: {e}")
         finally:
             conn.close()

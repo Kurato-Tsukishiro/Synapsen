@@ -1,15 +1,26 @@
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-import pandas as pd
-import sqlite3
-import json
+# === 1. 標準ライブラリ ===
+import sys
 from pathlib import Path
-from pypdf import PdfReader
-import fitz  # PyMuPDF (テキスト抽出用)
+import json
 import unicodedata
 from textwrap import dedent
-
 import logging
+
+# === 2. プロジェクトルートをパスに追加 (ここからE402の原因) ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+# === 3. プロジェクト内モジュールとサードパーティ (E402を抑制) ===
+import customtkinter as ctk                     # noqa: E402
+from tkinter import filedialog, messagebox      # noqa: E402
+import pandas as pd                             # noqa: E402
+import sqlite3                                  # noqa: E402
+from pypdf import PdfReader                     # noqa: E402
+import fitz                                     # noqa: E402
+from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 
@@ -173,7 +184,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
         if not self.extracted_data:
             return
 
-        # 確認ダイアログ (省略なしで既存通り)
+        # 確認ダイアログ
         ans = messagebox.askyesno(
             "実行確認",
             f"{len(self.extracted_data)} 件のデータを以下のDBに復元します。\n\n"
@@ -193,20 +204,22 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
         # 統合PDFから本文テキスト(full_text)を再抽出するためのPDFドキュメントを開く
         doc = None
+        conn = None  # 1. conn を None で初期化
+
         try:
             doc = fitz.open(pdf_path)
         except Exception as e:
             self.log(f"[エラー] テキスト抽出のためにPDFを開けませんでした: {e}")
-            return
+            return  # doc が None のまま finally に進み、安全に終了
 
         try:
             # DataFrameに変換
             df = pd.DataFrame(self.extracted_data)
 
-            # 1. 統合PDFファイル名の上書き
+            # 統合PDFファイル名の上書き
             df['merged_pdf_filename'] = current_pdf_name
 
-            # 2. タグリストを文字列(;)に戻す
+            # タグリストを文字列(;)に戻す
             if 'tags' in df.columns:
                 df['tags'] = df['tags'].apply(
                     lambda x: ";".join(sorted(x)) if isinstance(x, list) else x
@@ -265,10 +278,13 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                     return ""
 
             # 各行に対してテキスト抽出を実行
-            # (tqdmなどが使えないのでGUIが固まらないよう簡易的に処理)
             df['full_text'] = df.apply(extract_text_from_range, axis=1)
 
-            conn = sqlite3.connect(db_path)
+            # 復元データ (JSON) が 'memo' を持っていることを確認
+            if 'memo' not in df.columns:
+                df['memo'] = ""  # 万が一ない場合は空文字で埋める
+
+            conn = sqlite3.connect(db_path)  # 2. conn に代入
             cursor = conn.cursor()
 
             # 1. 'notes' テーブル
@@ -333,6 +349,18 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             END;
         """)
             cursor.executescript(trigger_sql)
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS note_links (
+                source_key TEXT NOT NULL,
+                target_key TEXT NOT NULL,
+                PRIMARY KEY (source_key, target_key)
+            )
+            """)
+            cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_target_key
+                ON note_links (target_key)
+            """)
+
             conn.commit()
 
             # 重複チェックとインサート
@@ -351,6 +379,18 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             if insert_count > 0:
                 df_to_insert.to_sql(
                     'notes', conn, if_exists='append', index=False)
+
+                # リンクテーブル書き込み
+                logger.info(f"{len(df_to_insert)} 件の復元ノートのリンクを解析・登録します...")
+                for _, row in df_to_insert.iterrows():
+                    source_key = row.get("key")
+                    memo_text = row.get("memo", "")  # 復元データ(JSON)のmemoを使用
+                    if source_key and memo_text:
+                        NexusUtils._update_note_links(
+                            cursor, source_key, memo_text
+                        )
+
+                conn.commit()  # リンクテーブルの変更をコミット
                 self.log(f"[完了] {insert_count} 件を追記しました。")
             else:
                 self.log("[完了] 新規データはありませんでした (すべて重複)。")
@@ -358,15 +398,19 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             if skipped_count > 0:
                 self.log(f"(重複のためスキップ: {skipped_count} 件)")
 
-            conn.close()
-            doc.close()  # ドキュメントを閉じる
-
             messagebox.showinfo(
                 "完了", "データベースの復元が完了しました。\n(本文テキストもunicode正規化されました)")
             self.destroy()
 
         except Exception as e:
-            if doc:
-                doc.close()
+            if conn:
+                conn.rollback()
             self.log(f"[エラー] DB書き込み中にエラー: {e}")
             messagebox.showerror("エラー", f"復元に失敗しました:\n{e}")
+
+        finally:
+            # doc と conn を両方ともここで閉じる
+            if doc:
+                doc.close()
+            if conn:
+                conn.close()

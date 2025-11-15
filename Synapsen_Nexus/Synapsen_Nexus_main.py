@@ -14,7 +14,7 @@ import logging
 
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
-    build_memo_display, build_references_display, find_backlinks_df,
+    build_memo_display, build_references_display,
     update_note_in_db, delete_note_from_db,
     get_pdf_page_image
 )
@@ -862,6 +862,7 @@ class Synapsen_Nexus(ctk.CTk):
                 Noneの場合は詳細ペインをクリアする。
         """
         try:
+            # --- 1. 読み取り専用接続 (db_conn) のクローズ/再生成 ---
             if self.db_conn:
                 self.db_conn.close()
                 self.db_conn = None
@@ -869,14 +870,43 @@ class Synapsen_Nexus(ctk.CTk):
             self.df = load_sql_data_file(filepath)  # utils (full_textなし)
             self.loaded_db_path = filepath
 
-            # 読み取り専用のDB接続を保持
+            # 読み取り専用のDB接続を保持 (メインのUI用)
             self.db_conn = sqlite3.connect(
                 f"file:{filepath}?mode=ro", uri=True)
 
-            # データを読み込んだらタグリストを更新
-            self.refresh_unique_tags()
+            # --- 2. テーブル構造の確認 (書き込み接続) ---
+            # アプリ起動時/DB読込時に note_links テーブルが存在するか確認し、なければ作成
+            conn_write = None
+            try:
+                conn_write = sqlite3.connect(filepath)  # 書き込みモードで接続
+                cursor = conn_write.cursor()
 
-            # UIをリセット・更新
+                # リンクテーブルの作成
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS note_links (
+                    source_key TEXT NOT NULL,
+                    target_key TEXT NOT NULL,
+                    PRIMARY KEY (source_key, target_key)
+                )
+                """)
+                # 引用元検索(target_key)を高速化するインデックス
+                cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_target_key
+                    ON note_links (target_key)
+                """)
+                conn_write.commit()
+                logger.info("'note_links' テーブルの存在を確認・作成しました。")
+
+            except Exception as e_tbl:
+                logger.error(f"'note_links' テーブルの作成に失敗: {e_tbl}")
+                if conn_write:
+                    conn_write.rollback()
+            finally:
+                if conn_write:
+                    conn_write.close()
+
+            # --- 3. UIリセット ---
+            self.refresh_unique_tags()
             self.perform_search()
 
             # 変更したノートを再表示するロジック
@@ -1465,7 +1495,6 @@ class Synapsen_Nexus(ctk.CTk):
     def show_details(self, row_data):
         """
         選択されたノートの詳細を右ペインに表示する。
-        (FTS5対応版: メタデータはrow_dataから、memoはDBから取得)
 
         Args:
             row_data (pd.Series): 表示するノートの行データ。
@@ -1496,9 +1525,7 @@ class Synapsen_Nexus(ctk.CTk):
         # 既存のプレビューラベルを破棄
         if hasattr(self, 'pdf_preview_label'):
             self.pdf_preview_label.destroy()
-
-        max_preview_width = 225  # プレビュー表示の最大幅
-
+        max_preview_width = 225
         pil_image = get_pdf_page_image(
             row_data,
             self.loaded_db_path,
@@ -1529,7 +1556,7 @@ class Synapsen_Nexus(ctk.CTk):
                 image=None,
                 text="プレビューの読み込みに失敗しました",
                 fg_color="gray20",
-                text_color="#D9534F"  # 赤色
+                text_color="#D9534F"
             )
 
         # 新しく作成したラベルをグリッドに配置
@@ -1537,16 +1564,18 @@ class Synapsen_Nexus(ctk.CTk):
             row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
 
-        # --- メモと引用元の表示 ---
+        # --- メモと引用元の取得 ---
+
         current_key = row.get('key', '')
 
-        # 【FTS5対応】 memo と 引用元検索(self.dfのmemo) のためにDBから最新データを取得
         memo_text = ""
         backlinks_df = pd.DataFrame()  # 空で初期化
 
         try:
-            # 1. このノートの 'memo' を取得 (DBから)
+            # (db_conn は読み取り専用接続)
             cursor = self.db_conn.cursor()
+
+            # 1. このノートの 'memo' を取得
             cursor.execute(
                 "SELECT memo FROM notes WHERE key = ?", (current_key,)
             )
@@ -1554,26 +1583,30 @@ class Synapsen_Nexus(ctk.CTk):
             if memo_data:
                 memo_text = str(memo_data[0])
 
-            # 2. 引用元 (Backlinks) を self.df の 'memo' (メモリ上) で検索
+            # 2. 引用元 (Backlinks) を 'note_links' テーブルから取得
 
-            # FTS5 で 'memo' 列を検索
-            fts_query_term = f'"{current_key}"'  # FTSは [[ や : を無視する可能性がある
-            sql = "SELECT rowid FROM notes_fts WHERE memo MATCH ?"
-            cursor.execute(sql, (fts_query_term,))
+            # リンクテーブルを検索
+            sql = "SELECT source_key FROM note_links WHERE target_key = ?"
+
+            cursor.execute(sql, (current_key,))
 
             matching_keys = {row[0] for row in cursor.fetchall()}
 
-            # FTSの結果をメモリ上の self.df でフィルタリング
             if matching_keys:
+                logger.debug(
+                    f"[show_details] リンクテーブル検索ヒット: {len(matching_keys)} 件 "
+                    f"(Key: {current_key})"
+                )
                 backlinks_df = self.df[self.df['key'].isin(matching_keys)]
             else:
-                backlinks_df = pd.DataFrame()
+                logger.debug(
+                    f"[show_details] リンクテーブル検索 0件 "
+                    f"(Key: {current_key})"
+                )
 
         except Exception as e:
             logger.error(f"詳細表示のためのDBアクセスエラー: {e}", exc_info=True)
-            # エラー時は self.df の古い 'memo' を使う (空文字になる)
-            memo_text = str(row.get('memo', ''))
-            backlinks_df = find_backlinks_df(self.df, current_key)  # 空のDFが返る
+            pass  # 失敗時は空のまま
 
         # メモ表示（リンク構築）
         for widget in self.memo_display_frame.winfo_children():
@@ -1581,16 +1614,15 @@ class Synapsen_Nexus(ctk.CTk):
         frame_width = 450
         build_memo_display(
             self.memo_display_frame,
-            memo_text,  # DBから取得した最新のメモ
-            self.df,    # リンク先のタイトル検索用 (metaデータのみ)
+            memo_text,
+            self.df,
             self.open_preview_window,
             frame_width
         )
-
         # 引用元UIを構築
         build_references_display(
             self.references_display_frame,
-            backlinks_df,  # DBからFTS検索した引用元
+            backlinks_df,
             self.open_preview_window,
             self.key_icons,
             self.key_colors
@@ -1676,7 +1708,8 @@ class Synapsen_Nexus(ctk.CTk):
                 self.key_colors,
                 self.loaded_db_path,
                 self.pdf_root_folder,
-                output_path=output_path
+                output_path=output_path,
+                db_conn=self.db_conn
             )
 
             # 4. ブラウザで表示 (ファイル保存モードでない場合)
@@ -1696,38 +1729,39 @@ class Synapsen_Nexus(ctk.CTk):
         if self.current_selected_row is None:
             messagebox.showinfo("情報", "ローカルグラフを表示するノートを選択してください。")
             return
-
-        if self.df is None:
+        if self.df is None or self.db_conn is None:
             return
 
         center_key = self.current_selected_row.get('key')
         if not center_key:
             return
 
-        # 1. 関連するキーのセットを作成 (中心ノード + リンク先 + リンク元)
         related_keys = set()
         related_keys.add(center_key)
 
-        # A. このノートが引用している先 (Forward Links)
-        # memo欄から [[key]] を抽出して追加
-        memo = self.current_selected_row.get('memo', '')
-        link_pattern = re.compile(r"\[\[(.*?)\]\]")
-        for match in link_pattern.finditer(memo):
-            # [[key: title]] の形式も考慮し、:の前だけを取得
-            content = match.group(1).split(':')[0].strip()
-            related_keys.add(content)
+        try:
+            # (db_conn は読み取り専用接続)
+            cursor = self.db_conn.cursor()
 
-        # B. このノートを引用している元 (Backlinks)
-        # 全件走査で center_key を含んでいるノートを探す
-        escaped_key = re.escape(center_key)
-        # [[key]] または [[key:title]] にマッチ
-        pattern = f"\\[\\[{escaped_key}[:\\]]"
+            # A. このノートが引用している先 (Forward Links)
+            cursor.execute(
+                "SELECT target_key FROM note_links WHERE source_key = ?",
+                (center_key,)
+            )
+            for row in cursor.fetchall():
+                related_keys.add(row[0])
 
-        # 高速化のため、memo列が空でない行のみ対象にする等の工夫も可能ですが、
-        # ここではシンプルに str.contains でフィルタリングします
-        backlinks = self.df[
-            self.df['memo'].str.contains(pattern, regex=True, na=False)]
-        related_keys.update(backlinks['key'].tolist())
+            # B. このノートを引用している元 (Backlinks)
+            cursor.execute(
+                "SELECT source_key FROM note_links WHERE target_key = ?",
+                (center_key,)
+            )
+            for row in cursor.fetchall():
+                related_keys.add(row[0])
+
+        except Exception as e:
+            logger.error(f"ローカルグラフのリンク取得エラー: {e}")
+            # エラーが発生しても、中心ノードのみでグラフ生成を試みる
 
         # 2. 関連キーのみを含むDataFrameを作成
         local_df = self.df[self.df['key'].isin(related_keys)]
@@ -1828,19 +1862,38 @@ class Synapsen_Nexus(ctk.CTk):
                 return
             note_data = self.current_selected_row
 
-        if self.df is None:
+        if self.df is None or self.db_conn is None:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
             return
+
+        key_to_edit = note_data.get("key")
+
+        # --- DBから最新の 'memo' を取得 ---
+        # NoteEditorWindowに渡す note_data (pd.Series) をコピーして更新する
+        note_data_with_memo = note_data.copy()
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "SELECT memo FROM notes WHERE key = ?", (key_to_edit,)
+            )
+            memo_data = cursor.fetchone()
+            if memo_data:
+                note_data_with_memo['memo'] = str(memo_data[0])
+            else:
+                note_data_with_memo['memo'] = ""  # DBにメモがない場合
+        except Exception as e:
+            logger.error(f"編集ウィンドウ用のメモ取得エラー: {e}")
+            note_data_with_memo['memo'] = ""  # 失敗時は空メモ
 
         # 編集ウィンドウ (書き込み可能) のインスタンスを作成
         editor_win = NoteEditorWindow(
             self,
-            note_data,
+            note_data_with_memo,   # 最新メモ入りのデータを渡す
             self.commonplace_keys_options,
-            self.predefined_tags,
+            self.all_unique_tags,  # 全タグを渡す
             self.save_edit_callback
         )
-        editor_win.focus()  # ウィンドウにフォーカスを当てる
+        editor_win.focus()
 
     def save_edit_callback(self, new_data_dict):
         """
@@ -1856,20 +1909,29 @@ class Synapsen_Nexus(ctk.CTk):
         if not key_to_update:
             raise Exception("更新対象のKeyが不明です。")
 
+        conn = None
         try:
-            # 1. utilsのDB更新関数を呼び出す
-            update_note_in_db(
-                self.loaded_db_path, key_to_update, new_data_dict)
+            # 1. 書き込み用のDB接続を開始
+            conn = sqlite3.connect(self.loaded_db_path)
 
-            # 2. 変更をUIに反映するため、DBを再読み込み
-            #    (load_db_from_path が self.db_conn も再生成する)
+            # 2. utilsのDB更新関数を呼び出す (connを渡す)
+            update_note_in_db(conn, key_to_update, new_data_dict)
+
+            # 3. トランザクションをコミット
+            conn.commit()
+
+            # 4. 変更をUIに反映するため、DBを再読み込み
             self.load_db_from_path(
                 self.loaded_db_path, key_to_redisplay=key_to_update)
 
         except Exception as e:
-            # (エラーハンドリングはそのまま)
+            if conn:
+                conn.rollback()
             messagebox.showerror(
                 "保存エラー", f"データベースの更新に失敗しました:\n{e}", parent=self)
+        finally:
+            if conn:
+                conn.close()
 
     def confirm_delete_note(self):
         """
@@ -1896,12 +1958,19 @@ class Synapsen_Nexus(ctk.CTk):
             parent=self
         )
 
-        if answer:  # Yesが押されたら
+        if answer:
+            conn = None
             try:
-                # 1. utilsのDB削除関数を呼び出す
-                delete_note_from_db(self.loaded_db_path, key_to_delete)
+                # 1. 書き込み用のDB接続を開始
+                conn = sqlite3.connect(self.loaded_db_path)
 
-                # 2. 変更をUIに反映するため、DBを再読み込み
+                # 2. utilsのDB削除関数を呼び出す (connを渡す)
+                delete_note_from_db(conn, key_to_delete)
+
+                # 3. トランザクションをコミット
+                conn.commit()
+
+                # 4. 変更をUIに反映するため、DBを再読み込み
                 logger.info(f"ノート {key_to_delete} を削除しました。DBを再読み込みします。")
                 self.load_db_from_path(self.loaded_db_path)
 
@@ -1909,8 +1978,13 @@ class Synapsen_Nexus(ctk.CTk):
                     "削除完了", f"ノート {key_to_delete} を削除しました。", parent=self)
 
             except Exception as e:
+                if conn:
+                    conn.rollback()
                 messagebox.showerror(
                     "削除エラー", f"データベースからの削除に失敗しました:\n{e}", parent=self)
+            finally:
+                if conn:
+                    conn.close()
 
 
 # ==============================================================================

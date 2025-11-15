@@ -1,8 +1,9 @@
 import customtkinter as ctk
+import pandas as pd
 
 # utilsからメモ欄構築関数をインポート
 from utils import (
-    build_memo_display, find_backlinks_df, build_references_display,
+    build_memo_display, build_references_display,
     get_pdf_page_image
 )
 
@@ -243,16 +244,45 @@ class NotePreviewWindow(ctk.CTkToplevel):
         """
         current_key = self.note_data.get('key', '')
 
-        # メインアプリのDataFrameと設定を使って検索
-        backlinks_df = find_backlinks_df(
-            self.parent_app.df, current_key
-        )
+        backlinks_df = pd.DataFrame()  # 空で初期化
+        # メインアプリ (parent_app) からDB接続を取得
+        db_conn = self.parent_app.db_conn
+
+        if db_conn and current_key:
+            try:
+                # メインウィンドウの show_details と同じ LIKE 検索を実行
+                # リンクテーブルを検索
+                sql = "SELECT source_key FROM note_links WHERE target_key = ?"
+
+                cursor = db_conn.cursor()
+                cursor.execute(sql, (current_key,))
+
+                matching_keys = {row[0] for row in cursor.fetchall()}
+
+                if matching_keys:
+                    logger.debug(
+                        f"[Preview] リンクテーブル検索ヒット: {len(matching_keys)} 件 "
+                        f"(Key: {current_key})"
+                    )
+                    backlinks_df = (
+                        self.parent_app.df[
+                            self.parent_app.df['key'].isin(matching_keys)
+                        ]
+                    )
+                else:
+                    logger.debug(
+                        f"[Preview] リンクテーブル検索 0件 (Key: {current_key})"
+                    )
+
+            except Exception as e:
+                logger.error(f"[Preview] 引用元のDB検索エラー: {e}", exc_info=True)
+                pass  # 失敗時は空のまま
 
         # utilsの関数を使って引用元UIを構築
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            self.parent_app.open_preview_window,  # Callback to main app
+            self.parent_app.open_preview_window,
             self.parent_app.key_icons,
             self.parent_app.key_colors
         )
