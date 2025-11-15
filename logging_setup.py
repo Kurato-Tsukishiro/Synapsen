@@ -34,6 +34,7 @@ def setup_logging(app_name: str, log_folder_name: str = "logs"):
     log_dir.mkdir(exist_ok=True)
 
     # ログファイルパス (例: logs/Synapsen_Nexus.log)
+    # ★ ベースとなるファイル名を指定 (日付はハンドラが自動付与)
     log_file_path = log_dir / f"{app_name}.log"
 
     # 2. ルートロガーの設定
@@ -53,11 +54,18 @@ def setup_logging(app_name: str, log_folder_name: str = "logs"):
 
     # 4. ハンドラの設定
 
-    # A. ファイルハンドラ (RotatingFileHandler)
-    # 最大 1MB, 5世代までバックアップを残す
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file_path, maxBytes=1*1024*1024, backupCount=5, encoding='utf-8'
+    # A. ファイルハンドラ
+    # 毎日深夜0時にローテーションし、古いログを5世代までバックアップ
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        log_file_path,
+        when='midnight',  # 毎日深夜 (日付が変わった瞬間)
+        interval=1,       # 1日ごと
+        backupCount=5,    # 5日分のバックアップを保持 (古いものは自動削除)
+        encoding='utf-8'
     )
+    # ローテーション後のファイル名 (例: Synapsen_Nexus.log.2025-11-16)
+    file_handler.suffix = "%Y-%m-%d"
+
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
