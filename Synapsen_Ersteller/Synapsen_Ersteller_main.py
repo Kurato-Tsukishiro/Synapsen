@@ -786,7 +786,10 @@ class Synapsen_Ersteller(ctk.CTk):
                                 self.clipboard_clear()
                                 self.clipboard_append(text_to_copy)  # 変更後の文字列
                                 self.update()  # クリップボードを確定
-                                logger.info(f"リンクをクリップボードにコピーしました: {text_to_copy}")
+                                logger.info(
+                                    f"リンクをクリップボードにコピーしました: {text_to_copy}",
+                                    extra={'sensitive': True}
+                                )
 
                                 # (フィードバック)
                                 self.label.configure(
