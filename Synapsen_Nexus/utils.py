@@ -317,38 +317,68 @@ def build_memo_display(
         label.pack(fill="x", padx=2, pady=0)
 
 
-def find_backlinks_df(df, current_key):
+def _extract_links(memo_text: str) -> set:
     """
-    DataFrame全体を検索し、指定されたkeyにリンクしている
-    ノート（引用元）のDataFrameを返す。
+    メモテキストから [[key]] または [[key:title]] 形式のリンクを抽出し、
+    key のセットを返す。
 
     Args:
-        df (pd.DataFrame): 検索対象のDataFrame。
-        current_key (str): 検索対象のノートのキー。
+        memo_text (str): 解析対象のメモテキスト。
 
     Returns:
-        pd.DataFrame: 引用元ノートを含むDataFrame。
+        set: 抽出されたユニークな 'key' のセット。
     """
-    if df is None or 'memo' not in df.columns or not current_key:
-        return pd.DataFrame()
+    if not memo_text:
+        return set()
 
-    # [[key]] または [[key:title...]] にマッチする正規表現
-    # ( \[\[ で [[ をエスケープ, r'[:\]]' で : または ] が続くものにマッチ )
-    pattern = r'\[\[' + re.escape(current_key) + r'[:\]]'
+    link_pattern = re.compile(r"\[\[(.*?)\]\]")
+    found_keys = set()
 
-    try:
-        backlink_mask = df['memo'].str.contains(
-            pattern, case=False, na=False, regex=True
+    for match in link_pattern.finditer(memo_text):
+        full_match_content = match.group(1).strip()
+        # 'key' または 'key: title' の 'key' の部分を取得
+        link_key = full_match_content.split(':')[0].strip()
+        if link_key:
+            found_keys.add(link_key)
+
+    return found_keys
+
+
+def _update_note_links(
+        cursor: sqlite3.Cursor,
+        source_key: str,
+        new_memo_text: str
+):
+    """
+    note_links テーブルを更新する。(DELETE & INSERT)
+
+    Args:
+        cursor (sqlite3.Cursor): トランザクション実行中のカーソル。
+        source_key (str): リンク元ノートのKey。
+        new_memo_text (str): 新しいメモ本文。
+    """
+    # 1. 新しいリンク先をメモから解析
+    target_keys = _extract_links(new_memo_text)
+
+    # 2. 古いリンクを削除
+    cursor.execute(
+        "DELETE FROM note_links WHERE source_key = ?",
+        (source_key,)
+    )
+
+    # 3. 新しいリンクを挿入
+    if target_keys:
+        links_data = [
+            (source_key, target_key) for target_key in target_keys
+        ]
+        sql_insert_links = (
+            "INSERT OR IGNORE INTO note_links (source_key, target_key) "
+            "VALUES (?, ?)"
         )
-        # 自分自身へのリンクは除外
-        if 'key' in df.columns:
-            self_mask = df['key'] == current_key
-            backlink_mask = backlink_mask & ~self_mask
-
-        return df[backlink_mask].sort_values(by='date', ascending=False)
-    except Exception as e:
-        logger.error(f"Backlink search error: {e}")
-        return pd.DataFrame()
+        cursor.executemany(
+            sql_insert_links,
+            links_data
+        )
 
 
 def build_references_display(
@@ -523,33 +553,35 @@ def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
         return None
 
 
-def update_note_in_db(db_path: Path, key: str, new_data: dict):
+def update_note_in_db(
+        conn: sqlite3.Connection,
+        key: str,
+        new_data: dict
+):
     """
-    SQLiteデータベース内の指定されたノートを更新する。
+    SQLiteデータベース内の指定されたノートを更新し、リンクテーブルも更新する。
+    ★注意: この関数は呼び出し元でトランザクション(commit/rollback)を管理する必要がある。
 
     Args:
-        db_path (Path): データベースのパス。
+        conn (sqlite3.Connection): データベース接続オブジェクト。
         key (str): 更新するノートのユニークID。
         new_data (dict): 更新するデータ ('memo', 'tags', 'commonplace_key')。
 
     Raises:
         Exception: データベースの更新に失敗した場合。
     """
-    if not db_path or not db_path.is_file():
-        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
-
     # タグをリストから ';' 区切りの文字列に変換
     if 'tags' in new_data and isinstance(new_data['tags'], list):
         tags_str = ";".join(sorted(new_data['tags']))
     else:
         tags_str = new_data.get('tags', '')
 
-    conn = None
+    new_memo = new_data.get('memo', '')
+
     try:
-        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # SQL UPDATE文
+        # 1. 'notes' テーブル本体を更新
         cursor.execute(
             """
             UPDATE notes
@@ -557,53 +589,46 @@ def update_note_in_db(db_path: Path, key: str, new_data: dict):
             WHERE key = ?
             """,
             (
-                new_data.get('memo', ''),
+                new_memo,
                 tags_str,
                 new_data.get('commonplace_key', ''),
                 key
             )
         )
-        conn.commit()
+
+        # 2. 'note_links' テーブルを更新
+        _update_note_links(cursor, key, new_memo)
 
     except Exception as e:
-        if conn:
-            conn.rollback()
-        raise Exception(f"データベースの更新に失敗しました: {e}")
-    finally:
-        if conn:
-            conn.close()
+        # ロールバックは呼び出し元で行う
+        raise Exception(f"DB更新関数(update_note_in_db)でエラー: {e}")
 
 
-def delete_note_from_db(db_path: Path, key: str):
+def delete_note_from_db(conn: sqlite3.Connection, key: str):
     """
-    SQLiteデータベースから指定されたノートを削除する。
+    SQLiteデータベースから指定されたノートを削除し、関連リンクも削除する。
+    ★注意: この関数は呼び出し元でトランザクション(commit/rollback)を管理する必要がある。
 
     Args:
-        db_path (Path): データベースのパス。
+        conn (sqlite3.Connection): データベース接続オブジェクト。
         key (str): 削除するノートのユニークID。
 
     Raises:
         Exception: データベースからの削除に失敗した場合。
     """
-    if not db_path or not db_path.is_file():
-        raise FileNotFoundError(f"データベースファイルが見つかりません: {db_path}")
-
-    conn = None
     try:
-        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # SQL DELETE文
+        # 1. 'notes' テーブルから削除 (FTSトリガーが自動でFTS側も削除)
         cursor.execute("DELETE FROM notes WHERE key = ?", (key,))
-        conn.commit()
+
+        # 2. 'note_links' から関連リンクを削除 (リンク元として、リンク先として)
+        cursor.execute("DELETE FROM note_links WHERE source_key = ?", (key,))
+        cursor.execute("DELETE FROM note_links WHERE target_key = ?", (key,))
 
     except Exception as e:
-        if conn:
-            conn.rollback()
-        raise Exception(f"データベースからの削除に失敗しました: {e}")
-    finally:
-        if conn:
-            conn.close()
+        # ロールバックは呼び出し元で行う
+        raise Exception(f"DB削除関数(delete_note_from_db)でエラー: {e}")
 
 
 def _open_original_pdf(row_data, pdf_root_folder):
