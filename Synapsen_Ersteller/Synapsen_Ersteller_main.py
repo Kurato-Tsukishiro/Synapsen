@@ -149,6 +149,16 @@ class Synapsen_Ersteller(ctk.CTk):
         )
         self.deselect_all_button.pack(side="left", padx=5)
 
+        self.copy_links_button = ctk.CTkButton(
+            batch_button_frame,
+            text="リンクコピー (0)",
+            command=self.copy_selected_links,
+            state="disabled",
+            fg_color="#28a745",
+            hover_color="#218838"
+        )
+        self.copy_links_button.pack(side="left", padx=5)
+
         self.scrollable_frame = ctk.CTkScrollableFrame(
             self, label_text="読み込み結果"
             )
@@ -1225,11 +1235,17 @@ class Synapsen_Ersteller(ctk.CTk):
                 text=f"一括編集 ({count})", state="normal"
                 )
             self.deselect_all_button.configure(state="normal")
+            self.copy_links_button.configure(
+                text=f"リンクコピー ({count})", state="normal"
+            )
         else:
             self.batch_edit_button.configure(
                 text="一括編集 (0)", state="disabled"
                 )
             self.deselect_all_button.configure(state="disabled")
+            self.copy_links_button.configure(
+                text="リンクコピー (0)", state="disabled"
+            )
 
     def deselect_all(self):
         """
@@ -1312,6 +1328,66 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 変更をUIに反映
         self.deselect_all()  # 選択解除 (UI再描画も含まれる)
+
+    def copy_selected_links(self):
+        """
+        [新規]
+        選択されたノートのリンク文字列（[[Key: Title]]）を生成し、
+        クリップボードにコピーする。
+        (Synapsen_Nexus_main.py の同名メソッドを Ersteller 用に移植)
+        """
+        if not self.selected_notes:
+            self.label.configure(text="コピー対象のノートが選択されていません。")
+            return
+
+        if not self.all_notes_info:
+            return
+
+        # 1. 選択されたノートの辞書を抽出
+        selected_notes_data = []
+        for note in self.all_notes_info:
+            key = note.get('key')
+            if key and key in self.selected_notes:
+                selected_notes_data.append(note)
+
+        if not selected_notes_data:
+            return
+
+        # 2. 日付・時刻順にソート (Erstellerのデフォルト順)
+        selected_notes_data.sort(key=lambda note: (note['date'], note['time']))
+
+        # 3. リンク文字列を生成
+        link_texts = []
+        for note in selected_notes_data:
+            key = note['key']
+            title = note['title']
+            # Synapsenのリンク形式: [[Key: Title]]
+            link_texts.append(f"[[{key}: {title}]]")
+
+        # 4. 改行区切りで結合
+        clipboard_text = "\n".join(link_texts)
+
+        # 5. クリップボードへコピー
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_text)
+            self.update()  # クリップボード更新を確定
+
+            messagebox.showinfo(
+                "コピー完了",
+                f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
+                "ノートのメモ欄にペーストして利用できます。",
+                parent=self
+            )
+            self.label.configure(
+                text=f"{len(link_texts)}件のリンクをコピーしました。")
+
+        except Exception as e:
+            logger.error(f"リンクのコピーに失敗: {e}")
+            messagebox.showerror(
+                "コピー失敗", f"クリップボードへのコピーに失敗しました:\n{e}",
+                parent=self
+            )
 
     def open_recovery_tool(self):
         """DB復旧ツールウィンドウを開く"""
