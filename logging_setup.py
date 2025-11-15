@@ -14,6 +14,37 @@ from pathlib import Path
 #        処理が失敗したこと（例外発生など）。
 
 
+class SensitiveDataFilter(logging.Filter):
+    """
+    機密情報フラグ(extra={'sensitive': True})を持つログをフィルタリングする。
+
+    ロガーのレベルが INFO (またはそれ以上) に設定されている場合、
+    機密ログの内容をマスクしたメッセージに置き換える。
+    ロガーのレベルが DEBUG に設定されている場合のみ、元のメッセージを通過させる。
+    """
+    def filter(self, record):
+        # 'sensitive' フラグが付いているログかチェック
+        if getattr(record, 'sensitive', False):
+
+            # ルートロガーの有効レベルを取得
+            # (注: record.levelno ではなく、ロガー全体の *設定* を見る)
+            effective_level = logging.getLogger().getEffectiveLevel()
+
+            # もしロガー設定が DEBUG レベル「より上」(INFO, WARNING等) なら...
+            if effective_level > logging.DEBUG:
+                # ログメッセージをマスクした内容に上書きする
+                record.msg = (
+                    f"[SENSITIVE LOG: {record.levelname}] "
+                    f"機密情報を含むログが {record.name}.py (L{record.lineno}) "
+                    "で発生しました。"
+                )
+                # メッセージフォーマット(%sなど)を使っている場合に備え、引数を空にする
+                record.args = ()
+
+        # ログを通過させる
+        return True
+
+
 def setup_logging(app_name: str, log_folder_name: str = "logs"):
     """
     アプリケーションのロギング設定を初期化する。
@@ -52,6 +83,9 @@ def setup_logging(app_name: str, log_folder_name: str = "logs"):
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
+    # フィルターのインスタンスを作成
+    sensitive_filter = SensitiveDataFilter()
+
     # 4. ハンドラの設定
 
     # A. ファイルハンドラ
@@ -68,12 +102,14 @@ def setup_logging(app_name: str, log_folder_name: str = "logs"):
 
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)
+    file_handler.addFilter(sensitive_filter)  # フィルターをアタッチ
     logger.addHandler(file_handler)
 
     # B. コンソールハンドラ (標準出力)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
     console_handler.setLevel(logging.INFO)
+    console_handler.addFilter(sensitive_filter)  # フィルターをアタッチ
     logger.addHandler(console_handler)
 
     # 5. 未処理例外のフック (重要)
