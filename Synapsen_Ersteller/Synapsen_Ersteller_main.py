@@ -149,6 +149,16 @@ class Synapsen_Ersteller(ctk.CTk):
         )
         self.deselect_all_button.pack(side="left", padx=5)
 
+        self.copy_links_button = ctk.CTkButton(
+            batch_button_frame,
+            text="リンクコピー (0)",
+            command=self.copy_selected_links,
+            state="disabled",
+            fg_color="#28a745",
+            hover_color="#218838"
+        )
+        self.copy_links_button.pack(side="left", padx=5)
+
         self.scrollable_frame = ctk.CTkScrollableFrame(
             self, label_text="読み込み結果"
             )
@@ -657,6 +667,7 @@ class Synapsen_Ersteller(ctk.CTk):
         """
         リストUIを再描画する。
         未登録のIndex Keyがある場合、黄色/オレンジ色で強調表示する。
+        [改善] 左クリックで行編集、右クリックで [[Key: Title]] リンクをコピーする。
         """
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -708,6 +719,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     default_text_color
                 )
 
+                icon_label = None  # icon_labelを初期化
                 if icon:
                     icon_label = ctk.CTkLabel(
                         row_frame,
@@ -749,11 +761,50 @@ class Synapsen_Ersteller(ctk.CTk):
                     )
                 text_label.pack(side="left")
 
-                # クリックで編集ウィンドウを開くバインド
-                command = lambda e, note=note_data: self.open_data_editor(note)
-                text_label.bind("<Button-1>", command)
-                if 'icon_label' in locals() and icon_label.winfo_exists():
-                    icon_label.bind("<Button-1>", command)
+                # --- イベントバインド ---
+
+                # 1. 左クリック (編集ウィンドウを開く)
+                edit_command = lambda e, note=note_data: self.open_data_editor(note)
+                row_frame.bind("<Button-1>", edit_command)  # フレーム全体
+                text_label.bind("<Button-1>", edit_command)
+                if icon_label:
+                    icon_label.bind("<Button-1>", edit_command)
+
+                # 2. 右クリック ([[Key: Title]] リンクをコピー)
+                if note_key:
+                    # [変更] クロージャで note_data 全体をキャプチャ
+                    def create_copy_key_handler(note_to_copy):
+                        def handler(event):
+                            try:
+                                # [変更] KeyとTitleを取得
+                                key = note_to_copy.get('key', '')
+                                title = note_to_copy.get('title', '')
+
+                                # [変更] [[Key: Title]] 形式の文字列を生成
+                                text_to_copy = f"[[{key}: {title}]]"
+
+                                self.clipboard_clear()
+                                self.clipboard_append(text_to_copy)  # 変更後の文字列
+                                self.update()  # クリップボードを確定
+                                logger.info(f"リンクをクリップボードにコピーしました: {text_to_copy}")
+
+                                # (フィードバック)
+                                self.label.configure(
+                                    text=f"コピーしました: {text_to_copy}")
+                                self.after(
+                                    2000,
+                                    lambda: self.label.configure(text="")
+                                )
+                            except Exception as e:
+                                logger.error(f"リンクのコピーに失敗: {e}")
+                        return handler
+
+                    # [変更] note_key ではなく note_data を渡す
+                    copy_command = create_copy_key_handler(note_data)
+                    row_frame.bind("<Button-3>", copy_command)
+                    text_label.bind("<Button-3>", copy_command)
+                    if icon_label:
+                        icon_label.bind("<Button-3>", copy_command)
 
                 row_frame.pack(fill="x", padx=5, pady=2)
 
@@ -1225,11 +1276,17 @@ class Synapsen_Ersteller(ctk.CTk):
                 text=f"一括編集 ({count})", state="normal"
                 )
             self.deselect_all_button.configure(state="normal")
+            self.copy_links_button.configure(
+                text=f"リンクコピー ({count})", state="normal"
+            )
         else:
             self.batch_edit_button.configure(
                 text="一括編集 (0)", state="disabled"
                 )
             self.deselect_all_button.configure(state="disabled")
+            self.copy_links_button.configure(
+                text="リンクコピー (0)", state="disabled"
+            )
 
     def deselect_all(self):
         """
@@ -1312,6 +1369,66 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 変更をUIに反映
         self.deselect_all()  # 選択解除 (UI再描画も含まれる)
+
+    def copy_selected_links(self):
+        """
+        [新規]
+        選択されたノートのリンク文字列（[[Key: Title]]）を生成し、
+        クリップボードにコピーする。
+        (Synapsen_Nexus_main.py の同名メソッドを Ersteller 用に移植)
+        """
+        if not self.selected_notes:
+            self.label.configure(text="コピー対象のノートが選択されていません。")
+            return
+
+        if not self.all_notes_info:
+            return
+
+        # 1. 選択されたノートの辞書を抽出
+        selected_notes_data = []
+        for note in self.all_notes_info:
+            key = note.get('key')
+            if key and key in self.selected_notes:
+                selected_notes_data.append(note)
+
+        if not selected_notes_data:
+            return
+
+        # 2. 日付・時刻順にソート (Erstellerのデフォルト順)
+        selected_notes_data.sort(key=lambda note: (note['date'], note['time']))
+
+        # 3. リンク文字列を生成
+        link_texts = []
+        for note in selected_notes_data:
+            key = note['key']
+            title = note['title']
+            # Synapsenのリンク形式: [[Key: Title]]
+            link_texts.append(f"[[{key}: {title}]]")
+
+        # 4. 改行区切りで結合
+        clipboard_text = "\n".join(link_texts)
+
+        # 5. クリップボードへコピー
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_text)
+            self.update()  # クリップボード更新を確定
+
+            messagebox.showinfo(
+                "コピー完了",
+                f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
+                "ノートのメモ欄にペーストして利用できます。",
+                parent=self
+            )
+            self.label.configure(
+                text=f"{len(link_texts)}件のリンクをコピーしました。")
+
+        except Exception as e:
+            logger.error(f"リンクのコピーに失敗: {e}")
+            messagebox.showerror(
+                "コピー失敗", f"クリップボードへのコピーに失敗しました:\n{e}",
+                parent=self
+            )
 
     def open_recovery_tool(self):
         """DB復旧ツールウィンドウを開く"""
