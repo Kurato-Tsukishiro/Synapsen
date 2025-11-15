@@ -632,13 +632,27 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # 4. 処理対象リストを作成
         items_to_process = []
+
+        # ファイル名に使用できない文字を置換する正規表現
+        invalid_chars_pattern = re.compile(r'[\\/:\*\?"<>\|]')
+
         for item in self.staged_items:
-            base_name = item["base_name_var"].get().strip()
+            # 元のファイル名を取得
+            base_name_raw = item["base_name_var"].get().strip()
+
+            # サニタイズ処理を実行
+            base_name = invalid_chars_pattern.sub('_', base_name_raw)
+
             if not base_name:
                 messagebox.showerror(
                     "ファイル名エラー", f"ファイル名が空です (元の名前: {item['original_name']})",
                     parent=self)
                 return
+
+            # もし置換が発生したら、UIの表示 (StringVar) にも反映する
+            if base_name != base_name_raw:
+                item["base_name_var"].set(base_name)
+
             items_to_process.append(
                 (item['data'], base_name, type(item['data']))
             )

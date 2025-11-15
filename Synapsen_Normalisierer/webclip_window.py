@@ -1,3 +1,4 @@
+import re
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -426,9 +427,17 @@ class WebClipWindow(ctk.CTkToplevel):
         その後、共通の正規化処理とメタデータ埋め込みを行います。
         """
         url = self.url_entry.get().strip()
-        base_name = self.filename_var.get().strip()
 
         # --- 1. 入力バリデーション ---
+        # base_name の取得とサニタイズ
+        base_name_raw = self.filename_var.get().strip()
+        invalid_chars_pattern = re.compile(r'[\\/:\*\?"<>\|]')
+        base_name = invalid_chars_pattern.sub('_', base_name_raw)
+
+        # もし置換が発生したら、UI (StringVar) にも反映する
+        if base_name != base_name_raw:
+            self.filename_var.set(base_name)
+
         if not url.startswith("http://") and not url.startswith("https://"):
             messagebox.showerror(
                 "入力エラー", "有効なURL (https://...) を入力してください。", parent=self)
@@ -437,6 +446,7 @@ class WebClipWindow(ctk.CTkToplevel):
             messagebox.showerror(
                 "入力エラー", "ファイル名を入力してください。", parent=self)
             return
+
         font_path = self.parent_app.font_path
         if (not font_path or not Path(font_path).is_file()):
             self.parent_app.status_label.configure(
