@@ -84,7 +84,10 @@ class ExportManager:
                 try:
                     shutil.rmtree(final_export_dir)
                 except Exception as e_del:
-                    logger.error(f"エラー後のエクスポートフォルダ削除に失敗: {e_del}")
+                    logger.error(
+                        f"エラー後のエクスポートフォルダ削除に失敗: {e_del}",
+                        extra={'sensitive': True}
+                    )
                     pass
             raise e
 
@@ -163,7 +166,8 @@ class ExportManager:
                 except Exception as e:
                     logger.error(
                         "[ExportManager] PDF read error "
-                        f"({pdf_source_path.name}): {e}"
+                        f"({pdf_source_path.name}): {e}",
+                        extra={'sensitive': True}
                     )
                     reader = None
 
@@ -171,7 +175,8 @@ class ExportManager:
             if reader is None:
                 logger.info(
                     "[ExportManager] Creating fallback page for: "
-                    f"{note_title}"
+                    f"{note_title}",
+                    extra={'sensitive': True}
                 )
                 reader = self._create_fallback_page_reader(
                     note_title, fmt_date, note_key)

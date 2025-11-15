@@ -101,7 +101,8 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         if not decoded_objects:
                             logger.warning(
                                 f"QR: pyzbarは起動しましたが、QRを検出できませんでした "
-                                f"({pdf_path.name})"
+                                f"({pdf_path.name})",
+                                extra={'sensitive': True}
                             )
 
                         for obj in decoded_objects:
@@ -132,7 +133,8 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                             f"QR(JSON)読み取り成功: "
                                             f"cpk={commonplace_key}, "
                                             f"key={auto_generated_key} "
-                                            f"({pdf_path.name})"
+                                            f"({pdf_path.name})",
+                                            extra={'sensitive': True}
                                         )
 
                                     except json.JSONDecodeError:
@@ -147,13 +149,15 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                         logger.info(
                                             "QR(非JSON)読み取り成功: "
                                             f"{commonplace_key} "
-                                            f"({pdf_path.name})"
+                                            f"({pdf_path.name})",
+                                            extra={'sensitive': True}
                                         )
 
                                     break
                     except Exception as e:
                         logger.warning(
-                            f"QR読み取り失敗 ({pdf_path.name}): {e}"
+                            f"QR読み取り失敗 ({pdf_path.name}): {e}",
+                            extra={'sensitive': True}
                         )
                 else:
                     logger.warning(
@@ -164,13 +168,17 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                 if not qr_found and key_rect and len(key_rect) == 4:
                     logger.warning(
                         f"QRデバッグ: QRが見つからなかったため、key_rectを検索します "
-                        f"({pdf_path.name})"
+                        f"({pdf_path.name})",
+                        extra={'sensitive': True}
                     )
                     raw_text = page.get_textbox(key_rect)
                     commonplace_key = _normalize_key_text(raw_text)
 
         except Exception as e:
-            logger.error(f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}")
+            logger.error(
+                f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}",
+                extra={'sensitive': True}
+            )
         finally:
             if doc:
                 doc.close()
@@ -193,7 +201,10 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         }
 
     except Exception as e:
-        logger.error(f"PDF情報取得エラー ({pdf_path.name}): {e}")
+        logger.error(
+            f"PDF情報取得エラー ({pdf_path.name}): {e}",
+            extra={'sensitive': True}
+        )
         return {
             "date": "読み込み失敗",
             "time": "999999",
@@ -239,7 +250,10 @@ def get_full_text(pdf_path: Path) -> str:
             return ""
 
     except Exception as e:
-        logger.error(f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}")
+        logger.error(
+            f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}",
+            extra={'sensitive': True}
+        )
         return ""
     finally:
         if doc:

@@ -172,7 +172,10 @@ def load_sql_data_file(filepath: Path):
     """
     if not filepath.is_file():
         # DBファイルが存在しない場合、空のDataFrameを返す
-        logger.warning(f"データベースファイルが見つかりません: {filepath}")
+        logger.warning(
+            f"データベースファイルが見つかりません: {filepath}",
+            extra={'sensitive': True}
+        )
         # 空でもカラムは定義しておく
         cols = [
             'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
@@ -190,7 +193,10 @@ def load_sql_data_file(filepath: Path):
             cursor.execute("PRAGMA table_info(notes)")
             all_columns = [info[1] for info in cursor.fetchall()]
         except sqlite3.OperationalError:
-            logger.error(f"テーブル 'notes' がDBに存在しません: {filepath}")
+            logger.error(
+                f"テーブル 'notes' がDBに存在しません: {filepath}",
+                extra={'sensitive': True}
+            )
             conn.close()
             cols = ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
                     'full_text', 'time', 'pages', 'filepath',
@@ -702,7 +708,10 @@ def get_pdf_page_image(
                 page_num_to_open = 0
 
         if not pdf_path or not pdf_path.is_file():
-            logger.error(f"[Preview Error] 統合PDFが見つかりません: {pdf_path}")
+            logger.error(
+                f"[Preview Error] 統合PDFが見つかりません: {pdf_path}",
+                extra={'sensitive': True}
+            )
             pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
 
     # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
@@ -720,7 +729,10 @@ def get_pdf_page_image(
         page_num_to_open = 0  # 元のPDFは常に1ページ目 (index 0)
 
         if not pdf_path.is_file():
-            logger.error(f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}")
+            logger.error(
+                f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}",
+                extra={'sensitive': True}
+            )
             return None
 
     # 3. PyMuPDFでPDFを開き、ページを画像化
@@ -760,7 +772,10 @@ def get_pdf_page_image(
         return pil_image
 
     except Exception as e:
-        logger.error(f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}")
+        logger.error(
+            f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}",
+            extra={'sensitive': True}
+        )
         return None
     finally:
         if doc:

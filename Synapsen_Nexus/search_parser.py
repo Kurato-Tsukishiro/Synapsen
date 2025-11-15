@@ -117,7 +117,8 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
 
             logger.warning(
                 f"[FTS DEBUG] DB 'LIKE'検索を実行中... (Term: {like_query_term}, "
-                f"is_db_column: {is_db_column}, is_db_global: {is_db_global})"
+                f"is_db_column: {is_db_column}, is_db_global: {is_db_global})",
+                extra={'sensitive': True}
             )
 
             # どの列を検索するか
@@ -135,7 +136,10 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
                 # 'query' -> メモリ(df)が持つ列 + DBが持つ列 を検索
 
                 # 1. まずDB側 (memo, full_text) を検索
-                sql = "SELECT key FROM notes WHERE memo LIKE ? OR full_text LIKE ?"
+                sql = (
+                    "SELECT key FROM notes "
+                    "WHERE memo LIKE ? OR full_text LIKE ?"
+                )
                 params = (like_query_term, like_query_term)
 
                 cursor = db_conn.cursor()
@@ -144,11 +148,16 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
 
                 # 2. メモリ側 (df) の列も検索
                 pandas_mask = (
-                    df['title'].str.contains(search_value, case=False, na=False) |
-                    df['tags'].str.contains(search_value, case=False, na=False) |
-                    df['key'].str.contains(search_value, case=False, na=False) |
-                    df['commonplace_key'].str.contains(search_value, case=False) |
-                    df['date'].str.contains(search_value, case=False, na=False)
+                    df['title'].str.contains(
+                        search_value, case=False, na=False) |
+                    df['tags'].str.contains(
+                        search_value, case=False, na=False) |
+                    df['key'].str.contains(
+                        search_value, case=False, na=False) |
+                    df['commonplace_key'].str.contains(
+                        search_value, case=False) |
+                    df['date'].str.contains(
+                        search_value, case=False, na=False)
                 )
 
                 # 3. DBの結果(key)とメモリの結果(mask)を OR で結合
@@ -156,7 +165,8 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
 
                 logger.warning(
                     "[FTS] DB LIKE検索結果: "
-                    f"{len(matching_keys)} 件の Key がヒット。"
+                    f"{len(matching_keys)} 件の Key がヒット。",
+                    extra={'sensitive': True}
                 )
                 return term_condition
 
@@ -164,9 +174,10 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
             cursor = db_conn.cursor()
             cursor.execute(sql, params)
             matching_keys = {row[0] for row in cursor.fetchall()}
-            
+
             logger.warning(
-                f"[FTS] DB LIKE検索結果: {len(matching_keys)} 件の Key がヒット。"
+                f"[FTS] DB LIKE検索結果: {len(matching_keys)} 件の Key がヒット。",
+                extra={'sensitive': True}
             )
 
             # FTS結果とpandasの 'key' を比較し、boolマスクを返す
@@ -183,7 +194,8 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
         logger.warning(
             f"[FTS DEBUG] Pandas検索 (FTSスキップ) (Term: {term}, "
             f"is_db_col: {is_db_column}, is_db_global: {is_db_global}, "
-            f"db_conn: {db_conn is not None})"
+            f"db_conn: {db_conn is not None})",
+            extra={'sensitive': True}
         )
 
     if target_column == 'date':
