@@ -667,6 +667,7 @@ class Synapsen_Ersteller(ctk.CTk):
         """
         リストUIを再描画する。
         未登録のIndex Keyがある場合、黄色/オレンジ色で強調表示する。
+        [改善] 左クリックで行編集、右クリックで [[Key: Title]] リンクをコピーする。
         """
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
@@ -718,6 +719,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     default_text_color
                 )
 
+                icon_label = None  # icon_labelを初期化
                 if icon:
                     icon_label = ctk.CTkLabel(
                         row_frame,
@@ -759,11 +761,50 @@ class Synapsen_Ersteller(ctk.CTk):
                     )
                 text_label.pack(side="left")
 
-                # クリックで編集ウィンドウを開くバインド
-                command = lambda e, note=note_data: self.open_data_editor(note)
-                text_label.bind("<Button-1>", command)
-                if 'icon_label' in locals() and icon_label.winfo_exists():
-                    icon_label.bind("<Button-1>", command)
+                # --- イベントバインド ---
+
+                # 1. 左クリック (編集ウィンドウを開く)
+                edit_command = lambda e, note=note_data: self.open_data_editor(note)
+                row_frame.bind("<Button-1>", edit_command)  # フレーム全体
+                text_label.bind("<Button-1>", edit_command)
+                if icon_label:
+                    icon_label.bind("<Button-1>", edit_command)
+
+                # 2. 右クリック ([[Key: Title]] リンクをコピー)
+                if note_key:
+                    # [変更] クロージャで note_data 全体をキャプチャ
+                    def create_copy_key_handler(note_to_copy):
+                        def handler(event):
+                            try:
+                                # [変更] KeyとTitleを取得
+                                key = note_to_copy.get('key', '')
+                                title = note_to_copy.get('title', '')
+
+                                # [変更] [[Key: Title]] 形式の文字列を生成
+                                text_to_copy = f"[[{key}: {title}]]"
+
+                                self.clipboard_clear()
+                                self.clipboard_append(text_to_copy)  # 変更後の文字列
+                                self.update()  # クリップボードを確定
+                                logger.info(f"リンクをクリップボードにコピーしました: {text_to_copy}")
+
+                                # (フィードバック)
+                                self.label.configure(
+                                    text=f"コピーしました: {text_to_copy}")
+                                self.after(
+                                    2000,
+                                    lambda: self.label.configure(text="")
+                                )
+                            except Exception as e:
+                                logger.error(f"リンクのコピーに失敗: {e}")
+                        return handler
+
+                    # [変更] note_key ではなく note_data を渡す
+                    copy_command = create_copy_key_handler(note_data)
+                    row_frame.bind("<Button-3>", copy_command)
+                    text_label.bind("<Button-3>", copy_command)
+                    if icon_label:
+                        icon_label.bind("<Button-3>", copy_command)
 
                 row_frame.pack(fill="x", padx=5, pady=2)
 
