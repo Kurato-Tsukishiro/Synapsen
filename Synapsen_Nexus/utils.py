@@ -71,6 +71,18 @@ def load_app_config(base_path):
         else:
             config_data['pdf_root_folder'] = None
 
+        # [browser_path]
+        browser_path_str = parser.get('Paths', 'browser_path', fallback='')
+        if browser_path_str and browser_path_str.lower() != 'Default':
+            # 環境変数を展開
+            browser_path = Path(os.path.expandvars(browser_path_str))
+            # (ブラウザパスは絶対パスであることを期待するが、念のため)
+            if not browser_path.is_absolute():
+                browser_path = config_path.parent / browser_path
+            config_data['browser_path'] = str(browser_path.resolve())
+        else:
+            config_data['browser_path'] = None  # 未設定またはDefault
+
         # [KeyIcons]
         if parser.has_section('KeyIcons'):
             config_data['key_icons'] = {
@@ -460,17 +472,79 @@ def build_references_display(
             text_label.bind("<Button-1>", preview_command)
 
 
-def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
+def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
+    """
+    PDF URIを config.ini で指定されたブラウザ (優先)
+    またはデフォルトブラウザで開くヘルパー関数
+    Args:
+        file_uri (str): 開きたいPDFのURI
+        browser_path (str | None, optional): PDFを開きたいブラウザの(絶対)パス
+    """
+    # 1. config.ini でパスが指定されていない場合 (None)
+    if not browser_path:
+        try:
+            # OSのデフォルト設定で開く
+            webbrowser.open(file_uri)
+        except Exception as e:
+            messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
+        return
+
+    # 2. config.ini でパスが指定されている場合
+    try:
+        # 2a. ユーザ指定のパスでブラウザを 'synapsen_browser' として登録
+        #     (register は同じ名前で上書き可能)
+        webbrowser.register(
+            'synapsen_browser', None,
+            webbrowser.BackgroundBrowser(browser_path)
+        )
+        # 2b. 登録した 'synapsen_browser' を取得して開く
+        browser = webbrowser.get('synapsen_browser')
+        browser.open(file_uri)
+
+    # 3. エラー時のフォールバック処理
+    except FileNotFoundError:
+        # 3a. 指定されたパスが見つからない
+        logger.warning(f"指定されたブラウザパスが見つかりません: {browser_path}")
+        messagebox.showwarning(
+            "ブラウザエラー",
+            f"config.ini で指定されたパスにブラウザが見つかりません:\n"
+            f"{browser_path}\n\n"
+            f"OSのデフォルトブラウザで開きます。"
+        )
+        try:
+            webbrowser.open(file_uri)
+        except Exception as e:
+            messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
+    except webbrowser.Error as e:
+        # 3b. 登録/取得に失敗 (パスは合っているが実行権限がない等)
+        logger.warning(f"ブラウザの登録/取得エラー: {e}")
+        messagebox.showwarning(
+            "ブラウザエラー",
+            f"ブラウザの起動に失敗しました:\n{e}\n\n"
+            f"OSのデフォルトブラウザで開きます。"
+        )
+        try:
+            webbrowser.open(file_uri)
+        except Exception as e_inner:
+            messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e_inner}")
+
+
+def open_pdf_viewer(
+        row_data, loaded_db_path, pdf_root_folder,
+        browser_path: str | None = None
+):
     """
     ノートデータに基づき、統合PDFまたは元のPDFを開く。
 
     Args:
         row_data (pd.Series):
             PDFを開く対象のノートデータ（DataFrameの1行）。
-        loaded_db_path (str or Path):  # <-- 'loaded_csv_path' から変更
+        loaded_db_path (str or Path):
             現在読み込まれているデータベースのパス (統合PDFの基準パスとして使用)。
         pdf_root_folder (str or Path):
             config.iniで指定された元のPDFのルートフォルダパス。
+        browser_path (str | None, optional):
+            config.iniで指定されたPDFを開くブラウザの(絶対)パス
     """
     merged_pdf_filename = row_data.get('merged_pdf_filename')
     start_page = row_data.get('merged_start_page')
@@ -486,21 +560,23 @@ def open_pdf_viewer(row_data, loaded_db_path, pdf_root_folder):
         pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
 
         if not pdf_path.is_file():
-            messagebox.showerror("ファイルエラー", f"統合PDFファイルが見つかりません: {pdf_path}")
+            messagebox.showerror("ファイルエラー", f"統合PDFが見つかりません: {pdf_path}")
             return
         try:
             page_number = int(start_page)
             # PDFをページ指定で開くURI
             file_uri = f"{pdf_path.as_uri()}#page={page_number}"
-            webbrowser.open(file_uri)
+            _open_pdf_in_browser(file_uri, browser_path)
         except (ValueError, TypeError):
             messagebox.showerror("データエラー", "ページ番号が無効です。")
         except Exception as e:
+            # (エラーは _open_pdf_in_browser 内で処理される)
             messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
+            pass
 
     # 2. 統合PDFがない場合、元のPDF (original_pdf) を試みる
     else:
-        _open_original_pdf(row_data, pdf_root_folder)
+        _open_original_pdf(row_data, pdf_root_folder, browser_path)
 
 
 def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
@@ -665,9 +741,11 @@ def _open_original_pdf(row_data, pdf_root_folder):
         messagebox.showerror("ファイルエラー", f"元のPDFファイルが見つかりません: {pdf_path}")
         return
     try:
-        webbrowser.open(pdf_path.as_uri())
+        _open_pdf_in_browser(pdf_path.as_uri())
     except Exception as e:
+        # (エラーは _open_pdf_in_browser 内で処理される)
         messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
+        pass
 
 
 def get_pdf_page_image(

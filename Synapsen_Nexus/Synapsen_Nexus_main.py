@@ -81,6 +81,8 @@ class Synapsen_Nexus(ctk.CTk):
         self.loaded_db_path = None          # 現在開いているDBのパス
         self.db_conn = None                 # SQLiteのDB接続オブジェクト
 
+        self.browser_path = None            # configから読み込むブラウザパス
+
         self.key_icons = {}                 # IndexKeyごとのアイコン
         self.key_colors = {}                # IndexKeyごとの色
         self.commonplace_keys_options = []  # IndexKeyの全オプション
@@ -212,6 +214,7 @@ class Synapsen_Nexus(ctk.CTk):
 
             # 読み込んだ設定をクラス属性にセット
             self.pdf_root_folder = config_data.get('pdf_root_folder', Path(''))
+            self.browser_path = config_data.get('browser_path', None)
             self.key_icons = config_data.get('key_icons', {})
             self.key_colors = config_data.get('key_colors', {})
             self.commonplace_keys_options = config_data.get(
@@ -1707,7 +1710,8 @@ class Synapsen_Nexus(ctk.CTk):
         open_pdf_viewer(
             row_data,
             self.loaded_db_path,
-            self.pdf_root_folder
+            self.pdf_root_folder,
+            self.browser_path
         )
 
     # --- グラフ生成メソッド ---
