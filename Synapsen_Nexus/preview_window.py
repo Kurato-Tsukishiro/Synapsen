@@ -6,7 +6,8 @@ import fitz
 from utils import (
     build_memo_display, build_references_display,
     get_pdf_document_for_note,
-    get_pdf_page_image_from_doc
+    get_pdf_page_image_from_doc,
+    _extract_links
 )
 
 import logging
@@ -226,6 +227,16 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.graph_button.pack(side="left", padx=5)
 
+        # 13. 引用先コピーボタン
+        self.copy_links_button = ctk.CTkButton(
+            self.button_frame,
+            text="引用先コピー",
+            command=self.copy_forward_links_action,
+            fg_color="#28a745",
+            hover_color="#218838"
+        )
+        self.copy_links_button.pack(side="left", padx=5)
+
         # --- PDFプレビューの読み込み処理 ---
         (
             self.current_pdf_doc,
@@ -327,6 +338,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.edit_button.configure(text="編集", width=70)
             self.toggle_view_button.configure(text="拡大", width=70)
             self.graph_button.configure(text="グラフ", width=70)
+            self.copy_links_button.configure(text="引用", width=70)
 
             self._build_memo_display(frame_width=400)
             self.update_pdf_preview_image(max_width_override=400)
@@ -358,6 +370,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.edit_button.configure(text="編集する", width=140)
             self.toggle_view_button.configure(text="縮小表示", width=140)
             self.graph_button.configure(text="関連グラフ", width=140)
+            self.copy_links_button.configure(text="引用先コピー", width=140)
 
             self._build_memo_display(frame_width=800)
             self.update_pdf_preview_image(max_width_override=400)
@@ -386,17 +399,71 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.on_close()
         self.parent_app.open_edit_dialog(self.note_data)
 
+    def copy_forward_links_action(self):
+        """「引用先コピー」ボタンが押されたときの処理"""
+        if not self.forward_links:
+            messagebox.showinfo(
+                "情報", "このノートのメモ欄には引用先リンク ([[...]]) がありません。",
+                parent=self)
+            return
+
+        # リンク先のDFを取得
+        df = self.parent_app.df
+        if df is None:
+            messagebox.showerror("エラー", "メインのDataFrameが見つかりません。", parent=self)
+            return
+
+        selected_df = df[df['key'].isin(self.forward_links)]
+        if selected_df.empty:
+            messagebox.showwarning(
+                "情報", "引用先リンクのノート情報が見つかりませんでした。", parent=self)
+            return
+
+        # key順にソート
+        selected_df = selected_df.sort_values(by='key')
+        link_texts = []
+        for _, row in selected_df.iterrows():
+            key = row['key']
+            title = row['title']
+            link_texts.append(f"[[{key}: {title}]]")
+
+        clipboard_text = "\n".join(link_texts)
+
+        # クリップボードへコピー
+        self.clipboard_clear()
+        self.clipboard_append(clipboard_text)
+        self.update()
+
+        messagebox.showinfo(
+            "コピー完了",
+            f"{len(link_texts)}件の引用先リンクをクリップボードにコピーしました。",
+            parent=self
+        )
+
     def _build_memo_display(self, frame_width=400):
         """
-        メモ欄にクリック可能なリンク付きラベルを生成する。
+        メモ欄にクリック可能なリンク付きラベルを生成し
+        引用先キー(self.forward_links)を抽出する。
         """
         memo_text = str(self.note_data.get('memo', ''))
+
+        # メモを解析して引用先キーのセットを更新
+        # メモはすでに取得済みの為、わざわざ"note_links" テーブルから取得しない
+        self.forward_links = _extract_links(memo_text)
+
+        # (ボタンの状態を更新 - リンクがなければ無効化)
+        if self.copy_links_button:
+            if self.forward_links:
+                self.copy_links_button.configure(state="normal")
+            else:
+                self.copy_links_button.configure(state="disabled")
 
         build_memo_display(
             self.memo_display_frame,
             memo_text,
             self.parent_app.df,
-            self.parent_app.open_preview_window,
+            lambda key: self.parent_app.open_preview_window(
+                key, default_view_mode='compact'),
             frame_width
         )
 
@@ -434,7 +501,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            self.parent_app.open_preview_window,
+            lambda key: self.parent_app.open_preview_window(
+                key, default_view_mode='compact'),
             self.parent_app.key_icons,
             self.parent_app.key_colors
         )
