@@ -466,20 +466,27 @@ class NotePreviewWindow(ctk.CTkToplevel):
     def copy_own_key_action(self):
         """「Keyコピー」ボタンが押されたときの処理"""
         key_to_copy = self.note_data.get("key")
+        title_to_copy = self.note_data.get("title")  # ★ Titleも取得
 
         if not key_to_copy:
             messagebox.showwarning(
                 "キー不明", "このノートのKeyが不明です。", parent=self)
             return
 
+        if not title_to_copy:
+            title_to_copy = ""  # タイトルがなくてもKeyがあれば続行
+
+        # ★ リンク形式の文字列を生成
+        clipboard_text = f"[[{key_to_copy}: {title_to_copy}]]"
+
         # クリップボードへコピー
         self.clipboard_clear()
-        self.clipboard_append(key_to_copy)
+        self.clipboard_append(clipboard_text)
         self.update()
 
         messagebox.showinfo(
             "コピー完了",
-            f"Keyをクリップボードにコピーしました:\n{key_to_copy}",
+            f"リンク形式でコピーしました:\n{clipboard_text}",
             parent=self
         )
 
