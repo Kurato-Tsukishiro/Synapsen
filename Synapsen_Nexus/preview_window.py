@@ -227,15 +227,18 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.graph_button.pack(side="left", padx=5)
 
-        # 13. 引用先コピーボタン
-        self.copy_links_button = ctk.CTkButton(
+        # 13. 本体Key/引用先コピーボタン
+        self.copy_menu_var = ctk.StringVar(value="コピー...")
+        self.copy_menu = ctk.CTkOptionMenu(
             self.button_frame,
-            text="引用先コピー",
-            command=self.copy_forward_links_action,
-            fg_color="#28a745",
-            hover_color="#218838"
+            variable=self.copy_menu_var,
+            values=["本体のKeyをコピー", "引用先をコピー"],
+            command=self.handle_copy_menu,
+            fg_color="#28a745",           # ボタン色 (緑)
+            button_color="#218838",       # ドロップダウン矢印の色
+            button_hover_color="#1E7E34"  # ドロップダウン矢印のホバー色
         )
-        self.copy_links_button.pack(side="left", padx=5)
+        self.copy_menu.pack(side="left", padx=5)
 
         # --- PDFプレビューの読み込み処理 ---
         (
@@ -338,7 +341,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.edit_button.configure(text="編集", width=70)
             self.toggle_view_button.configure(text="拡大", width=70)
             self.graph_button.configure(text="グラフ", width=70)
-            self.copy_links_button.configure(text="引用", width=70)
+            self.copy_menu_var.set("コピー")
+            self.copy_menu.configure(width=70)
 
             self._build_memo_display(frame_width=400)
             self.update_pdf_preview_image(max_width_override=400)
@@ -370,7 +374,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.edit_button.configure(text="編集する", width=140)
             self.toggle_view_button.configure(text="縮小表示", width=140)
             self.graph_button.configure(text="関連グラフ", width=140)
-            self.copy_links_button.configure(text="引用先コピー", width=140)
+            self.copy_menu_var.set("コピー...")
+            self.copy_menu.configure(width=140)
 
             self._build_memo_display(frame_width=800)
             self.update_pdf_preview_image(max_width_override=400)
@@ -403,6 +408,19 @@ class NotePreviewWindow(ctk.CTkToplevel):
         """
         self.on_close()
         self.parent_app.open_edit_dialog(self.note_data)
+
+    def handle_copy_menu(self, choice: str):
+        """OptionMenuで項目が選択されたときの処理"""
+        if choice == "本体のKeyをコピー":
+            self.copy_own_key_action()
+        elif choice == "引用先をコピー":
+            self.copy_forward_links_action()
+
+        # 選択後にメニューの表示を元に戻す
+        if self.is_compact_view:
+            self.copy_menu_var.set("コピー")
+        else:
+            self.copy_menu_var.set("コピー...")
 
     def copy_forward_links_action(self):
         """「引用先コピー」ボタンが押されたときの処理"""
@@ -445,6 +463,26 @@ class NotePreviewWindow(ctk.CTkToplevel):
             parent=self
         )
 
+    def copy_own_key_action(self):
+        """「Keyコピー」ボタンが押されたときの処理"""
+        key_to_copy = self.note_data.get("key")
+
+        if not key_to_copy:
+            messagebox.showwarning(
+                "キー不明", "このノートのKeyが不明です。", parent=self)
+            return
+
+        # クリップボードへコピー
+        self.clipboard_clear()
+        self.clipboard_append(key_to_copy)
+        self.update()
+
+        messagebox.showinfo(
+            "コピー完了",
+            f"Keyをクリップボードにコピーしました:\n{key_to_copy}",
+            parent=self
+        )
+
     def _build_memo_display(self, frame_width=400):
         """
         メモ欄にクリック可能なリンク付きラベルを生成し
@@ -455,13 +493,6 @@ class NotePreviewWindow(ctk.CTkToplevel):
         # メモを解析して引用先キーのセットを更新
         # メモはすでに取得済みの為、わざわざ"note_links" テーブルから取得しない
         self.forward_links = _extract_links(memo_text)
-
-        # (ボタンの状態を更新 - リンクがなければ無効化)
-        if self.copy_links_button:
-            if self.forward_links:
-                self.copy_links_button.configure(state="normal")
-            else:
-                self.copy_links_button.configure(state="disabled")
 
         build_memo_display(
             self.memo_display_frame,
