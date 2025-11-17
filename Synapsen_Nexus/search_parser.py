@@ -68,6 +68,15 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
     Returns:
         pd.Series: クエリに一致した行がTrueとなるboolマスク。
     """
+    # [[Key]] 形式のリンクを検出
+    # (例: [[20241117000000]] や [[20241117000000: Title]] )
+    # この形式は「完全一致」検索として扱う
+    link_pattern = re.match(r'^\[\[(\d{14,})(?::.*)?\]\]$', term.strip())
+    if link_pattern:
+        extracted_key = link_pattern.group(1)
+        # Key検索は「完全一致」
+        return df['key'] == extracted_key
+
     search_fields_map = {
             'title': 'title',
             'key': 'key',
