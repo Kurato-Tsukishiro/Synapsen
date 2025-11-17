@@ -639,8 +639,19 @@ class Synapsen_Nexus(ctk.CTk):
     # --- オートコンプリート関連メソッド ---
     def handle_keyrelease(self, event):
         """検索バーでのキー入力（リリース）イベントを処理する。"""
-        if event.keysym in ("Up", "Down", "Return", "Escape"):
+
+        # ナビゲーションキーのリスト
+        navigation_keys = (
+            "Return", "Escape",
+            "Left", "Up", "Down", "Right",
+            "Home", "End"
+        )
+
+        if event.keysym in navigation_keys:
             return
+
+        # 上記以外のキー (文字入力、Delete, BackSpaceなど) の場合のみ
+        # 予測変換と検索をスケジュールする
         self.schedule_suggestions()
         self.schedule_search()
 
