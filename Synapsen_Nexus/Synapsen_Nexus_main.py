@@ -299,7 +299,7 @@ class Synapsen_Nexus(ctk.CTk):
         left_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         left_button_frame.pack(side="left", padx=5)
 
-        # "DBを開く" ボタン (小型化)
+        # "DBを開く" ボタン
         ctk.CTkButton(
             left_button_frame,
             text="DB",
@@ -307,7 +307,7 @@ class Synapsen_Nexus(ctk.CTk):
             width=50
         ).pack(side="left", padx=(0, 5))
 
-        # 検索ヘルプボタン (新規追加)
+        # 検索ヘルプボタン
         ctk.CTkButton(
             left_button_frame,
             text="？",
@@ -616,7 +616,7 @@ class Synapsen_Nexus(ctk.CTk):
         if choice == "全体 (Global)":
             self.generate_and_show_graph()
         elif choice == "関連 (Local)":
-            self.show_local_graph()
+            self.show_local_graph_from_main_panel()
         elif choice == "選択 (Selected)":
             self.show_selected_graph()
 
@@ -1473,7 +1473,7 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showwarning(
                 "ノート未選択", "詳細プレビューを開くノートが選択されていません。")
             return
-        
+
         key_to_open = self.current_selected_row.get("key")
         if key_to_open:
             self.open_preview_window(key_to_open, default_view_mode='full')
@@ -1745,19 +1745,27 @@ class Synapsen_Nexus(ctk.CTk):
             if not output_path:
                 messagebox.showerror("エラー", f"グラフ生成失敗: {e}", parent=self)
 
-    def show_local_graph(self):
+    def show_local_graph_from_main_panel(self):
         """
-        現在詳細ペインで選択されているノートと、
-        そのノートに「リンクしている」または「リンクされている」ノートのみでグラフを表示する。
+        メインパネルの「関連グラフ」メニューから呼ばれるラッパー。
         """
         if self.current_selected_row is None:
             messagebox.showinfo("情報", "ローカルグラフを表示するノートを選択してください。")
             return
-        if self.df is None or self.db_conn is None:
-            return
 
         center_key = self.current_selected_row.get('key')
+        if center_key:
+            self.show_local_graph(center_key)
+
+    def show_local_graph(self, center_key: str):
+        """
+        現在詳細ペインで選択されているノートと、
+        そのノートに「リンクしている」または「リンクされている」ノートのみでグラフを表示する。
+        """
         if not center_key:
+            messagebox.showinfo("情報", "グラフの中心となるノートのKeyがありません。")
+            return
+        if self.df is None or self.db_conn is None:
             return
 
         related_keys = set()

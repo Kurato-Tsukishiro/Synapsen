@@ -1,3 +1,4 @@
+from tkinter import messagebox
 import customtkinter as ctk
 import pandas as pd
 import fitz
@@ -190,28 +191,40 @@ class NotePreviewWindow(ctk.CTkToplevel):
         # --- [Row 1] ボタンエリア ---
         self.button_frame = ctk.CTkFrame(self, fg_color="transparent")
 
-        # PDFを開くボタン
-        pdf_button = ctk.CTkButton(
-            self.button_frame, text="PDFを開く", command=self.open_pdf_action
+        # 9. PDFを開くボタン
+        self.pdf_button = ctk.CTkButton(
+            self.button_frame, text="PDFを開く", command=self.open_pdf_action,
+            width=50
         )
-        pdf_button.pack(side="left", padx=10)
+        self.pdf_button.pack(side="left", padx=5)
 
-        # 編集ボタン
-        edit_button = ctk.CTkButton(
+        # 10. 編集ボタン
+        self.edit_button = ctk.CTkButton(
             self.button_frame,
             text="編集する",
             command=self.edit_note_action,
             fg_color="#585a9c",
             hover_color="#494B83"
         )
-        edit_button.pack(side="left", padx=10)
+        self.edit_button.pack(side="left", padx=5)
 
+        # 11. ウィンドウサイズ切り替えボタン
         self.toggle_view_button = ctk.CTkButton(
             self.button_frame,
             text="表示切替",  # テキストは update_layout で設定
             command=self.toggle_view_mode
         )
-        self.toggle_view_button.pack(side="left", padx=10)
+        self.toggle_view_button.pack(side="left", padx=5)
+
+        # 12. 関連グラフボタン
+        self.graph_button = ctk.CTkButton(
+            self.button_frame,
+            text="関連グラフ",
+            command=self.show_local_graph_action,
+            fg_color="#585a9c",
+            hover_color="#494B83"
+        )
+        self.graph_button.pack(side="left", padx=5)
 
         # --- PDFプレビューの読み込み処理 ---
         (
@@ -229,6 +242,15 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         # レイアウトを適用
         self.update_layout()
+
+    def show_local_graph_action(self):
+        """「関連グラフ」ボタンが押されたときの処理"""
+        key_to_show = self.note_data.get("key")
+        if key_to_show:
+            self.parent_app.show_local_graph(key_to_show)
+        else:
+            messagebox.showwarning(
+                "キー不明", "ノートKeyが不明なためグラフを表示できません。", parent=self)
 
     def iconbitmap(self, *args, **kwargs):
         """
@@ -301,21 +323,22 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
             self.toggle_view_button.configure(text="拡大表示")
 
-            # メモ欄の幅を 400 に設定して再構築
+            self.pdf_button.configure(text="PDF", width=70)
+            self.edit_button.configure(text="編集", width=70)
+            self.toggle_view_button.configure(text="拡大", width=70)
+            self.graph_button.configure(text="グラフ", width=70)
+
             self._build_memo_display(frame_width=400)
-
-            # PDFプレビューの幅を 250 に設定して更新
             self.update_pdf_preview_image(max_width_override=400)
-
         else:
             # --- 水平レイアウト (詳細プレビュー) ---
             self.geometry(self.full_geometry)
 
             # グリッド (2列 x 2行)
-            self.grid_columnconfigure(0, weight=1) # PDF
-            self.grid_columnconfigure(1, weight=2) # Info
-            self.grid_rowconfigure(0, weight=1) # Main
-            self.grid_rowconfigure(1, weight=0) # Buttons
+            self.grid_columnconfigure(0, weight=1)  # PDF
+            self.grid_columnconfigure(1, weight=2)  # Info
+            self.grid_rowconfigure(0, weight=1)     # Main
+            self.grid_rowconfigure(1, weight=0)     # Buttons
 
             # ウィジェット配置
             self.pdf_preview_container.grid(
@@ -330,10 +353,13 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
             self.toggle_view_button.configure(text="縮小表示")
 
-            # メモ欄の幅を 800 に設定して再構築
-            self._build_memo_display(frame_width=800)
+            # ★ ボタンのテキストを元に戻す
+            self.pdf_button.configure(text="PDFを開く", width=140)
+            self.edit_button.configure(text="編集する", width=140)
+            self.toggle_view_button.configure(text="縮小表示", width=140)
+            self.graph_button.configure(text="関連グラフ", width=140)
 
-            # PDFプレビューの幅を 400 に設定して更新
+            self._build_memo_display(frame_width=800)
             self.update_pdf_preview_image(max_width_override=400)
 
     def on_close(self):
