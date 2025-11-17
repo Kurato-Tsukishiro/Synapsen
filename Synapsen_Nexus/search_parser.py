@@ -81,6 +81,7 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
             'title': 'title',
             'key': 'key',
             'date': 'date',
+            'time': 'time',
             'tag': 'tags',
             'tags': 'tags',             # 'tag'でも'tags'でも検索可
             'memo': 'memo',
@@ -162,6 +163,8 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
                     df['tags'].str.contains(
                         search_value, case=False, na=False) |
                     df['key'].str.contains(
+                        search_value, case=False, na=False) |
+                    df['time'].str.contains(
                         search_value, case=False, na=False) |
                     df['commonplace_key'].str.contains(
                         search_value, case=False) |
@@ -247,7 +250,34 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
     elif target_column:
         # --- プレフィックス検索 (日付以外): 指定された列のみ検索 ---
         # (target_column == 'memo' や 'full_text' は上で処理済み)
-        if target_column in df.columns:
+        if target_column == 'time':
+            try:
+                # 1. アンダースコア '_' を '.' (任意の一文字) に置換
+                regex_pattern = search_value.replace('_', '.')
+
+                # 2. 6桁未満の場合は、右側を '.' で6桁になるまで埋める
+                if len(regex_pattern) < 6:
+                    regex_pattern = regex_pattern.ljust(6, '.')
+
+                # 3. 6桁を超える場合は、6桁に切り詰める
+                elif len(regex_pattern) > 6:
+                    regex_pattern = regex_pattern[:6]
+
+                # 4. 完全一致の正規表現 ( ^...$ ) を作成
+                final_regex = f"^{regex_pattern}$"
+                logger.debug(f"[time: ] {final_regex} で検索")
+
+                # 5. 正規表現検索を実行
+                term_condition = df[target_column].str.contains(
+                    final_regex,
+                    case=False,  # (時刻なので case=False は不要だが念のため)
+                    na=False,
+                    regex=True   # ★ regex=True に設定
+                )
+            except Exception as e:
+                logger.error(f"Time (Regex) 検索エラー: {e}")
+                term_condition = pd.Series([False] * len(df), index=df.index)
+        elif target_column in df.columns:
             # .str.contains() を使用して部分一致検索
             term_condition = df[target_column].str.contains(
                 search_value, case=False, na=False, regex=False
@@ -258,6 +288,7 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
             df['title'].str.contains(search_value, case=False, na=False) |
             df['tags'].str.contains(search_value, case=False, na=False) |
             df['key'].str.contains(search_value, case=False, na=False) |
+            df['time'].str.contains(search_value, case=False, na=False) |
             # (memo はFTS(LIKE)で検索されるため除外)
             df['commonplace_key'].str.contains(search_value, case=False) |
             df['date'].str.contains(search_value, case=False, na=False)
