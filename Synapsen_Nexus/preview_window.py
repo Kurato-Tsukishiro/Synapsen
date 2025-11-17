@@ -390,7 +390,12 @@ class NotePreviewWindow(ctk.CTkToplevel):
     def open_pdf_action(self):
         """「PDFを開く」ボタンが押されたときの処理。"""
         self.parent_app.open_pdf(self.note_data)
-        self.on_close()
+
+        # 現在が「拡大表示」モード (is_compact_view == False) だったら
+        if not self.is_compact_view:
+            # 状態を「縮小表示」モード (True) に設定
+            self.is_compact_view = True
+            self.update_layout()
 
     def edit_note_action(self):
         """
