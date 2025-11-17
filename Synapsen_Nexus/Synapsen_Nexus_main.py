@@ -566,6 +566,17 @@ class Synapsen_Nexus(ctk.CTk):
             self.details_frame, fg_color="transparent")
         self.edit_button_frame.grid(row=9, column=0, columnspan=2, pady=10)
 
+        # 10. 詳細プレビューボタン
+        self.open_preview_button = ctk.CTkButton(
+            self.edit_button_frame,
+            text="詳細プレビューで開く",
+            command=self.open_current_note_in_preview,
+            state="disabled",
+            fg_color="#00695C",    # 濃い緑
+            hover_color="#004D40"  # さらに濃い緑
+        )
+        self.open_preview_button.pack(side="left", padx=10)
+
         self.edit_button = ctk.CTkButton(
             self.edit_button_frame,
             text="このノートを編集",
@@ -1439,6 +1450,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.current_selected_row = None
         self.edit_button.configure(state="disabled")
         self.delete_button.configure(state="disabled")
+        self.open_preview_button.configure(state="disabled")
 
         # memo_display_frame内のすべてのウィジェット（ラベル）を削除
         for widget in self.memo_display_frame.winfo_children():
@@ -1451,13 +1463,25 @@ class Synapsen_Nexus(ctk.CTk):
             label_text="このノートを引用しているノート"
             )
 
-    def open_preview_window(self, key):
+    def open_current_note_in_preview(self):
+        """
+        ★ 新規追加:
+        メインペインの「詳細プレビューで開く」ボタンから呼び出される。
+        'full' (拡大) モードでプレビューを開く。
+        """
+        if self.current_selected_row is None:
+            messagebox.showwarning(
+                "ノート未選択", "詳細プレビューを開くノートが選択されていません。")
+            return
+        
+        key_to_open = self.current_selected_row.get("key")
+        if key_to_open:
+            self.open_preview_window(key_to_open, default_view_mode='full')
+
+    def open_preview_window(self, key, default_view_mode='compact'):
         """
         指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
-        (メモ欄の [[key]] リンククリック時の動作)
-
-        Args:
-            key (str): 表示するノートの 'key' (ID)。
+        (★ default_view_mode 引数を追加)
         """
         if self.df is None or self.db_conn is None:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
@@ -1465,7 +1489,6 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 1. メタデータを self.df から取得 (高速)
         target_note_row = self.df[self.df['key'] == key]
-
         if target_note_row.empty:
             messagebox.showwarning("ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。")
             return
@@ -1477,20 +1500,18 @@ class Synapsen_Nexus(ctk.CTk):
                 "SELECT memo, full_text FROM notes WHERE key = ?", (key,)
             )
             db_data = cursor.fetchone()
-
-            # pandas.Series にDBのデータをマージ
             note_data = target_note_row.iloc[0].copy()
             if db_data:
                 note_data['memo'] = db_data[0]
-                note_data['full_text'] = db_data[1]  # プレビューでは使わないが念のため
-
+                note_data['full_text'] = db_data[1]
         except Exception as e:
             logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
-            note_data = target_note_row.iloc[0]  # メタデータのみで続行
+            note_data = target_note_row.iloc[0]
 
-        # 3. プレビューウィンドウ (読み取り専用) のインスタンスを作成
-        preview_win = NotePreviewWindow(self, note_data)
-        preview_win.focus()  # ウィンドウにフォーカスを当てる
+        # 3. プレビューウィンドウのインスタンスを作成
+        # ★ default_view_mode を渡す
+        preview_win = NotePreviewWindow(self, note_data, default_view_mode)
+        preview_win.focus()
 
     def show_details(self, row_data):
         """
@@ -1514,6 +1535,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.title_label.configure(text=row.get('title', ''))
         self.key_label.configure(text=row.get('key', ''))
         self.cpkey_label.configure(text=row.get('commonplace_key', ''))
+        self.open_preview_button.configure(state="normal")
 
         # タグ表示（文字列をリストに変換して表示）
         tags_str = str(row.get('tags', ''))
@@ -1616,14 +1638,16 @@ class Synapsen_Nexus(ctk.CTk):
             self.memo_display_frame,
             memo_text,
             self.df,
-            self.open_preview_window,
+            lambda key: self.open_preview_window(
+                key, default_view_mode='compact'),
             frame_width
         )
         # 引用元UIを構築
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            self.open_preview_window,
+            lambda key: self.open_preview_window(
+                key, default_view_mode='compact'),
             self.key_icons,
             self.key_colors
         )

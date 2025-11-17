@@ -780,3 +780,144 @@ def get_pdf_page_image(
     finally:
         if doc:
             doc.close()
+
+
+def get_pdf_document_for_note(
+    row_data: pd.Series,
+    loaded_db_path: Path,
+    pdf_root_folder: Path
+) -> tuple[fitz.Document | None, int, int]:
+    """
+    ノートデータに紐づくPDFドキュメント(fitz)と、
+    表示すべき開始ページインデックス、総ページ数を返す。
+
+    Returns:
+        tuple[fitz.Document | None, int, int]:
+            (doc, start_page_index, total_pages)
+            doc: PyMuPDFのドキュメントオブジェクト (失敗時はNone)
+            start_page_index: 表示すべき開始ページ (0-indexed)
+            total_pages: このノートの総ページ数 (統合PDFの場合は pages 列の値)
+    """
+    pdf_path = None
+    start_page_index = 0  # 0-indexed
+    total_pages = 0
+
+    merged_pdf_filename = row_data.get('merged_pdf_filename')
+    start_page_str = row_data.get('merged_start_page')
+
+    # 1. 統合PDF (merged_pdf) が指定されているか
+    if (
+        merged_pdf_filename and
+        loaded_db_path and
+        not pd.isna(start_page_str) and
+        start_page_str != ''
+    ):
+        pdf_path = loaded_db_path.parent / merged_pdf_filename
+        if not pdf_path.is_file():
+            pdf_path = None  # 見つからなければ元のPDFを探す
+        else:
+            try:
+                # 1-indexed -> 0-indexed
+                start_page_index = int(start_page_str) - 1
+            except ValueError:
+                start_page_index = 0
+
+    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
+    if pdf_path is None:
+        if not pdf_root_folder or not pdf_root_folder.is_dir():
+            logger.debug("[utils] pdf_root_folder が未設定または存在しません。")
+            return (None, 0, 0)
+        filename = row_data.get('filepath')
+        if not filename:
+            logger.debug("[utils] filepath がデータに含まれていません。")
+            return (None, 0, 0)
+
+        pdf_path = pdf_root_folder / Path(filename).name
+        start_page_index = 0  # 元のPDFは常に 0 から
+        if not pdf_path.is_file():
+            logger.debug(
+                f"[utils] 元のPDFファイルが見つかりません: {pdf_path}",
+                extra={'sensitive': True}
+            )
+            return (None, 0, 0)
+
+    # 3. PyMuPDFでPDFを開く
+    try:
+        doc = fitz.open(pdf_path)
+        doc_total_pages = len(doc)
+
+        # 開始ページがドキュメントの総ページ数を超えていたら0に戻す
+        if not (0 <= start_page_index < doc_total_pages):
+            start_page_index = 0
+
+        # このノートが担当するページ数 (pages列) を取得
+        note_page_count_str = str(row_data.get('pages', '0'))
+        if note_page_count_str.isdigit():
+            note_page_count = int(note_page_count_str)
+        else:
+            note_page_count = 0
+
+        # 統合PDFの場合、total_pages を ノートのページ数(pages列) に設定
+        # (例: 統合PDF全体は300ページでも、このノートは3ページ分)
+        if merged_pdf_filename and note_page_count > 0:
+            # ただし、ドキュメントの物理ページ数を超えないようにする
+            available_pages = doc_total_pages - start_page_index
+            total_pages = min(note_page_count, available_pages)
+        else:
+            # 元PDFの場合、ドキュメント全体のページ数をそのまま使用
+            total_pages = doc_total_pages
+
+        return (doc, start_page_index, total_pages)
+
+    except Exception as e:
+        logger.error(
+            f"[utils] PDFドキュメントの読み込みに失敗 ({pdf_path}): {e}",
+            extra={'sensitive': True}
+        )
+        return (None, 0, 0)
+
+
+def get_pdf_page_image_from_doc(
+    doc: fitz.Document,
+    page_index: int,
+    max_width: int = 400
+) -> Image.Image | None:
+    """
+    既に開かれているfitz.Documentオブジェクトとページインデックスから
+    Pillowイメージを取得する。
+    (旧 get_pdf_page_image からロジックを移植・変更)
+
+    Args:
+        doc (fitz.Document): PyMuPDFのドキュメントオブジェクト。
+        page_index (int): 描画するページのインデックス (0-indexed)。
+        max_width (int): プレビュー画像の最大幅。
+
+    Returns:
+        Image.Image or None: 取得・リサイズされたPillowイメージ。
+    """
+    try:
+        if not (0 <= page_index < len(doc)):
+            logger.error(f"[utils] 無効なページインデックス: {page_index}")
+            return None
+
+        page = doc[page_index]
+        # DPIを150に設定 (プレビュー品質)
+        pix = page.get_pixmap(dpi=150)
+        img_data = pix.tobytes("png")
+        if not img_data:
+            return None
+
+        pil_image = Image.open(io.BytesIO(img_data))
+
+        # アスペクト比を維持してリサイズ
+        scale = max_width / pil_image.width
+        new_height = int(pil_image.height * scale)
+        pil_image = pil_image.resize(
+            (max_width, new_height), Image.Resampling.LANCZOS
+        )
+
+        return pil_image
+
+    except Exception as e:
+        logger.error(f"[utils] PDFの画像化に失敗 (Page {page_index}): {e}")
+        return None
