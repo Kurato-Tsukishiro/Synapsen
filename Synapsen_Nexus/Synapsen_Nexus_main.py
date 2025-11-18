@@ -1072,6 +1072,14 @@ class Synapsen_Nexus(ctk.CTk):
             # (C) FTS用のDB接続(conn)準備
             conn = None
 
+            # 孤立ノート (is:orphan) 検索の判定
+            is_orphan_search = "is:orphan" in query_text.lower()
+            if is_orphan_search:
+                # is:orphan をクエリから除去して、他の検索語(もしあれば)と併用できるようにする
+                # (例: "is:orphan tag:Python" -> Pythonタグを持つ孤立ノート)
+                query_text = re.sub(
+                    r"is:orphan", "", query_text, flags=re.IGNORECASE).strip()
+
             # '本文・メモ検索' (include_full_text) が有効 又は
             # 'memo:'/'fulltext:'/'text:' プレフィックスがクエリに含まれる場合に
             # DB接続(conn)を準備する
@@ -1080,10 +1088,11 @@ class Synapsen_Nexus(ctk.CTk):
                 include_full_text or
                 'memo:' in query_lower or
                 'fulltext:' in query_lower or
-                'text:' in query_lower
+                'text:' in query_lower or
+                is_orphan_search
             )
 
-            if needs_db_search and query_text:  # (query_text が空でないことも確認)
+            if needs_db_search:  # クエリが空でもorphan検索なら接続する
                 try:
                     # スレッドごとに読み取り専用接続を作成
                     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -1104,12 +1113,35 @@ class Synapsen_Nexus(ctk.CTk):
                         pd.Series([False] * len(base_df), index=base_df.index)
                     )
 
-            # --- 3. クリーンアップ (変更なし) ---
+            # (E) --- 孤立ノートフィルタリング ---
+            orphan_mask = pd.Series([True] * len(base_df), index=base_df.index)
+
+            if is_orphan_search and conn:
+                try:
+                    # リンクテーブルにある全ての source_key と target_key を取得
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        SELECT source_key FROM note_links
+                        UNION
+                        SELECT target_key FROM note_links
+                    """)
+                    linked_keys = {row[0] for row in cursor.fetchall()}
+
+                    # リンクされているキーに含まれ「ない」ものを True にする
+                    orphan_mask = ~base_df['key'].isin(linked_keys)
+
+                except Exception as e:
+                    logger.error(f"孤立ノート検索エラー: {e}")
+                    # エラー時は全除外等の安全策をとるか、無視して続行するか
+                    orphan_mask = pd.Series(
+                        [False] * len(base_df), index=base_df.index)
+
+            # --- 3. クリーンアップ ---
             if conn:
                 conn.close()
 
             # --- 4. 【重要】最終的な絞り込み ---
-            final_mask = key_filter_mask & query_mask
+            final_mask = key_filter_mask & query_mask & orphan_mask
             filtered_df = base_df[final_mask]
 
             # --- 5. メインスレッドに結果を渡す ---
@@ -2216,6 +2248,11 @@ Synapsen Nexus 検索クエリ リファレンス
   (例: `time:0900` → `0900__` → 9時00分台 (`0900ss`) にヒット)
   (例: `time:__30` → `__30__` → 毎時30分台 (`hh30mm`) にヒット)
   (例: `time:____00` → `____00` → 毎分00秒 (`hhmm00`) にヒット)
+
+`is:orphan` (孤立ノート)
+- どのノートからもリンクされておらず、どのノートへもリンクしていない「孤立したノート」を検索します。
+- リンクのメンテナンスや、整理漏れの発見に役立ちます。
+  (例: `is:orphan tag:アイデア` → 孤立しているアイデアノートを抽出)
 
 ---
 ■ グローバル検索 (プレフィックスなし)
