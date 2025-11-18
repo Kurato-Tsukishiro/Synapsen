@@ -1119,14 +1119,21 @@ class Synapsen_Ersteller(ctk.CTk):
                     }
                     metadata_to_embed.append(clean_note)
 
-                # 2. JSON文字列に変換 (日本語対応)
-                json_data = json.dumps(
-                    metadata_to_embed, ensure_ascii=False, indent=2)
+                # 2. スキーマバージョンを含む親辞書を作成
+                data_to_save = {
+                    "schema_version": 1.0,  # 現在のスキーマ
+                    "notes_data": metadata_to_embed
+                }
 
-                # 3. バイトデータに変換
+                # 3. JSON文字列に変換 (日本語対応)
+                json_data = json.dumps(
+                    data_to_save, ensure_ascii=False, indent=2
+                )
+
+                # 4. バイトデータに変換
                 json_bytes = json_data.encode('utf-8')
 
-                # 4. PDFに添付ファイルとして追加
+                # 5. PDFに添付ファイルとして追加
                 # ファイル名: "synapsen_metadata_backup.json"
                 final_writer.add_attachment(
                     "synapsen_metadata_backup.json", json_bytes)

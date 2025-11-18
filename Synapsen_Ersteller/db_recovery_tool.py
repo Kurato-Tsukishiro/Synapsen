@@ -156,8 +156,24 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
             # データの読み出し
             json_bytes = attachments[target_filename][0]
-            self.extracted_data = json.loads(json_bytes.decode('utf-8'))
 
+            # スキーマバージョンを考慮してJSONをパース
+            json_data = json.loads(json_bytes.decode('utf-8'))
+
+            schema_ver = 1.0
+            notes_list = []
+
+            if isinstance(json_data, dict):
+                schema_ver = json_data.get("schema_version", 1.0)
+                notes_list = json_data.get("notes_data", [])
+                self.log(f"スキーマバージョン: {schema_ver} (新形式) を検出。")
+            elif isinstance(json_data, list):
+                schema_ver = 1.0  # スキーマを実装する前のノートはスキーマ1.0とみなす
+                notes_list = json_data
+                self.log("スキーマバージョン: 1.0 として読み込みます。")
+
+            # 抽出したノートリストを内部に保持
+            self.extracted_data = notes_list
             count = len(self.extracted_data)
             self.log(f"[成功] {count} 件のノートデータが見つかりました。")
 
