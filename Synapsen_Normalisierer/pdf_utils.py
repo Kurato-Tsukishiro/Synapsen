@@ -69,17 +69,23 @@ def add_metadata_to_clip(
     comment_to_embed: str,
     sist_string_formal: str | None = None,
     sist_string_readable: str | None = None,
-    base_name: str | None = None
+    base_name: str | None = None,
+    cited_keys_list: list[str] | None = None,
+    refs_qr_size_pt: int = 75
 ) -> None:
     """
     Playwrightで生成されたPDFに対し、
-    1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報 を書き込みます。
+    1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報及び引用Key(QR) を書き込みます。
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
-    if (not index_key_to_embed and
+    if (
+        not index_key_to_embed and
         not comment_to_embed and
-            not sist_string_formal):
+        not sist_string_formal and
+        not cited_keys_list and
+        not base_name
+    ):
         logger.info(
             f"埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}",
             extra={'sensitive': True}
@@ -107,28 +113,9 @@ def add_metadata_to_clip(
             except Exception as e:
                 logger.warning(f"フォント埋め込み警告 (Page 1): {e}")
 
-            shape1 = page1.new_shape()
-
-            # ============================================================
-            # レイアウト計算: 左端にQR、その右にテキスト
-            # ============================================================
-            # 1. QRコードの領域計算 (左端に配置)
-            qr_size = 35  # ポイント
-            qr_margin = 5
-            qr_x = key_rect.x0 + qr_margin
-            qr_y = key_rect.y0
-
-            qr_rect = fitz.Rect(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size)
-
-            # 2. テキストの領域計算 (QRコードの分だけ右にずらす)
-            text_rect = fitz.Rect(
-                qr_rect.x1 + qr_margin, key_rect.y0,
-                key_rect.x1, key_rect.y1
-            )
-
-            # ============================================================
-            # A. QRコードの生成と描画
-            # ============================================================
+        # ============================================================
+        # A. QRコードの生成と描画 (Page 1: cpk と key のみ)
+        # ============================================================
             try:
                 # --- QRコードに埋め込むJSONデータを構築 (cpk と key のみ) ---
                 qr_data = {"cpk": index_key_to_embed}
@@ -148,6 +135,7 @@ def add_metadata_to_clip(
                             time_str = time_val.ljust(6, '0')
                         else:
                             time_str = "999999"
+
                         if time_str != "999999":
                             key_time = time_str
                         else:
@@ -170,16 +158,27 @@ def add_metadata_to_clip(
                 qr_img.save(img_byte_arr, format='PNG')
                 img_bytes = img_byte_arr.getvalue()
 
-                # ページに画像を挿入
+                # (Page 1 QR のレイアウト計算 ... 変更なし)
+                qr_size = 35
+                qr_margin = 5
+                qr_x = key_rect.x0 + qr_margin
+                qr_y = key_rect.y0
+                qr_rect = fitz.Rect(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size)
+
                 page1.insert_image(qr_rect, stream=img_bytes)
 
             except Exception as e:
-                logger.error(f"QRコード生成エラー: {e}")
+                logger.error(f"QRコード生成エラー (Page 1): {e}")
 
             # ============================================================
             # B. テキストの描画 (Index Key がある場合のみ)
             # ============================================================
             # Index Key がある場合のみテキストを描画
+            shape1 = page1.new_shape()
+            text_rect = fitz.Rect(
+                qr_rect.x1 + qr_margin, key_rect.y0,
+                key_rect.x1, key_rect.y1
+            )
             if index_key_to_embed:
                 shape1.insert_textbox(
                     text_rect, index_key_to_embed, fontname=font_alias,
@@ -251,6 +250,54 @@ def add_metadata_to_clip(
                 )
 
             shape_last.commit()
+
+        # 最終ページに「引用Key専用QRコード」を描画
+        if cited_keys_list:
+            # (page_last がまだ定義されていない場合 = コメント等が空だった場合)
+            if 'page_last' not in locals():
+                page_last = doc.new_page(
+                    pno=len(doc), width=paper_width, height=paper_height
+                )
+
+            try:
+                # 1. Prepare JSON (refs only)
+                qr_data_refs = {"refs": cited_keys_list}
+                qr_data_str_refs = json.dumps(qr_data_refs, ensure_ascii=False)
+
+                # 2. Generate QR image (Larger size)
+                qr_refs = qrcode.QRCode(
+                    box_size=4,
+                    border=1
+                )
+                qr_refs.add_data(qr_data_str_refs)
+                qr_refs.make(fit=True)
+                qr_img_refs = qr_refs.make_image(
+                    fill_color="black", back_color="white")
+
+                # 3. Get image bytes
+                img_byte_arr_refs = io.BytesIO()
+                qr_img_refs.save(img_byte_arr_refs, format='PNG')
+                img_bytes_refs = img_byte_arr_refs.getvalue()
+
+                # 4. Define position (Bottom-Right)
+                qr_size_refs = refs_qr_size_pt  # Default: 75x75 pt (約 2.6 cm)
+                margin_refs = 30                # 右下からのマージン
+                qr_x_refs = page_last.rect.width - qr_size_refs - margin_refs
+                qr_y_refs = page_last.rect.height - qr_size_refs - margin_refs
+                qr_rect_refs = fitz.Rect(
+                    qr_x_refs, qr_y_refs,
+                    qr_x_refs + qr_size_refs, qr_y_refs + qr_size_refs
+                )
+
+                # 5. Insert QR image
+                page_last.insert_image(qr_rect_refs, stream=img_bytes_refs)
+                logger.info(
+                    f"引用Key専用QRコードを最終ページに埋め込みました: {Path(pdf_path_str).name}",
+                    extra={'sensitive': True}
+                )
+
+            except Exception as e:
+                logger.error(f"最終ページの引用Key用QRコード生成エラー: {e}")
 
         # 変更を上書き保存
         doc.saveIncr()

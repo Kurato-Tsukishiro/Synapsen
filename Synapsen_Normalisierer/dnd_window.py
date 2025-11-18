@@ -71,7 +71,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.staged_items = []
 
         self.title("D&D/ペーストで正規化")
-        self.geometry("1000x700")
+        self.geometry("1000x800")
 
         if self.parent_app.icon_path:
             try:
@@ -120,7 +120,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         meta_frame = ctk.CTkFrame(main_frame)
         meta_frame.grid(row=0, column=0, pady=0, padx=(0, 5), sticky="nsew")
 
-        # 2a. IndexKey 選択
+        # 2-1 IndexKey 選択
         ctk.CTkLabel(
             meta_frame, text="IndexKey (PDF 1ページ目に埋込):", anchor="w"
             ).pack(pady=(10, 0), padx=10, fill="x")
@@ -135,7 +135,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.index_key_combo.set("（未選択）")
         self.index_key_combo.pack(pady=5, padx=10, fill="x")
 
-        # 2b. コメント入力
+        # 2-2. コメント入力
         ctk.CTkLabel(
             meta_frame, text="コメント (PDF 最終ページに埋込):", anchor="w"
             ).pack(pady=(5, 0), padx=10, fill="x")
@@ -143,7 +143,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.comment_textbox.pack(
             pady=5, padx=10, fill="both", expand=True)
 
-        # 2c. 書誌情報UI
+        # 2-3. 書誌情報UI
         ctk.CTkLabel(
             meta_frame, text="書誌情報 (任意入力)", anchor="w"
             ).pack(pady=(10, 0), padx=10, fill="x")
@@ -184,7 +184,20 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.sist_date_entry.grid(
             row=3, column=1, padx=5, pady=5, sticky="ew")
 
-        # 2d. 統合チェックボックス
+        # 2-4. 引用Key入力欄
+        ctk.CTkLabel(
+            meta_frame, text="引用元Key (カンマ区切り または 改行区切り):", anchor="w"
+            ).pack(pady=(10, 0), padx=10, fill="x")
+        self.cited_keys_entry = ctk.CTkTextbox(
+            meta_frame,
+            height=40
+        )
+        self.cited_keys_entry.pack(
+            pady=5, padx=10,
+            fill="both", expand=True
+        )
+
+        # 2-5. 統合チェックボックス
         self.merge_files_checkbox = ctk.CTkCheckBox(
             meta_frame,
             text="処理対象ファイルを1つのノート（PDF）に統合する",
@@ -510,7 +523,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         if self.add_staged_item(p, p.stem, p.name):
                             added_files_count += 1
                     else:
-                        logger.warning(f"スキップ (無効なパスまたは非対応拡張子): {f}")
+                        logger.warning(
+                            f"スキップ (無効なパスまたは非対応拡張子): {f}",
+                            extra={'sensitive': True}
+                        )
 
                 if added_files_count > 0:
                     self.update_staged_files_label()
@@ -601,6 +617,35 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text_color = hex_to_rgb_tuple(hex_color)
         comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
 
+        # 引用Keyリストを取得 ([[Key: Title]]形式に対応)
+        cited_keys_str = self.cited_keys_entry.get("1.0", "end-1c").strip()
+        cited_keys_list = []
+
+        refs_qr_size_pt = self.parent_app.config_data.get(
+            'refs_qr_size', 75  # configからQRサイズを取得
+        )
+
+        # Key (14桁以上の数字) を抽出するための正規表現
+        key_regex = re.compile(r'(\d{14,})')
+
+        if cited_keys_str:
+            # 1. カンマで分割 (複数のKey/リンクが入力された場合に対応)
+            parts = re.split(r'[,\n]+', cited_keys_str)
+
+            for part in parts:
+                part_cleaned = part.strip()
+                if not part_cleaned:
+                    continue
+
+                # 2. 各部分から Key (14桁以上の数字) を検索
+                match = key_regex.search(part_cleaned)
+
+                if match:
+                    # 3. 見つかったKeyのみをリストに追加
+                    extracted_key = match.group(1)
+                    if extracted_key not in cited_keys_list:  # 重複防止
+                        cited_keys_list.append(extracted_key)
+
         raw_sist_author = self.sist_author_entry.get().strip()
         raw_sist_title = self.sist_title_entry.get().strip()
         raw_sist_site = self.sist_site_entry.get().strip()
@@ -674,17 +719,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     enable_tesseract, paper_size_str,
                     key_rect_tuple, index_key_to_embed, text_color,
                     comment_to_embed,
-                    sist_string_formal, sist_string_readable
+                    sist_string_formal, sist_string_readable,
+                    cited_keys_list,
+                    refs_qr_size_pt
                 )
             else:
-                # --- [分岐 B: 新規 (統合処理)] ---
+                # --- [分岐 B: 統合処理] ---
                 self.run_pipeline_merge(
                     items_to_process, dest_path, temp_dir,
                     font_path, paper_width, paper_height,
                     enable_tesseract, paper_size_str,
                     key_rect_tuple, index_key_to_embed,
                     text_color, comment_to_embed,
-                    sist_string_formal, sist_string_readable
+                    sist_string_formal, sist_string_readable,
+                    cited_keys_list,
+                    refs_qr_size_pt
                 )
 
             # 成功したら、このウィンドウを閉じる
@@ -707,7 +756,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             font_path, paper_width, paper_height,
             enable_tesseract, paper_size_str,
             key_rect_tuple, index_key_to_embed, text_color, comment_to_embed,
-            sist_string_formal, sist_string_readable
+            sist_string_formal, sist_string_readable,
+            cited_keys_list,
+            refs_qr_size_pt
             ):
         """
         個別ファイル処理パイプライン
@@ -804,7 +855,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 comment_to_embed,
                 sist_string_formal,
                 sist_string_readable,
-                base_name=base_name
+                base_name=base_name,
+                cited_keys_list=cited_keys_list,
+                refs_qr_size_pt=refs_qr_size_pt
             )
 
         messagebox.showinfo(
@@ -817,7 +870,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             font_path, paper_width, paper_height,
             enable_tesseract, paper_size_str,
             key_rect_tuple, index_key_to_embed, text_color, comment_to_embed,
-            sist_string_formal, sist_string_readable
+            sist_string_formal, sist_string_readable,
+            cited_keys_list,
+            refs_qr_size_pt
             ):
         """
         ファイル統合処理パイプライン
@@ -959,7 +1014,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             comment_to_embed,
             sist_string_formal,
             sist_string_readable,
-            base_name=base_name
+            base_name=base_name,
+            cited_keys_list=cited_keys_list,
+            refs_qr_size_pt=refs_qr_size_pt
         )
 
         messagebox.showinfo(

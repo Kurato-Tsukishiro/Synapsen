@@ -238,12 +238,17 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.config_data[
                 'enable_tesseract_ocr'] = self.enable_tesseract_ocr
 
-            # 3.5. LaTeXフォント名の読み込み (Pandoc用)
+            # 4. LaTeXフォント名の読み込み (Pandoc用)
             self.config_data['latex_font'] = config.get(
                 'LaTeX', 'font', fallback='MS UI Gothic'
             )
 
-            # 4. WebClipウィンドウが参照するその他の設定
+            # 5. 引用Key用QRコードのサイズの読み込み
+            self.config_data['refs_qr_size'] = config.getint(
+                'Extraction', 'refs_qr_size', fallback=75
+            )
+
+            # 6. WebClipウィンドウが参照するその他の設定
             keys_str = config.get('CommonplaceKeys', 'options', fallback='')
             self.config_data['commonplace_keys_options'] = [
                 key.strip() for key in keys_str.split(',') if key.strip()

@@ -63,7 +63,8 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         match = re.match(
             r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf",
             pdf_path.name,
-            re.IGNORECASE)
+            re.IGNORECASE
+        )
 
         if match:
             date_str, time_val, title = match.groups()
@@ -80,32 +81,34 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
 
         # --- 2. PDFからメタデータを抽出 (QR/テキスト) ---
         commonplace_key = ""
+        memo_from_qr = ""
         doc = None
         try:
             doc = fitz.open(pdf_path)
             if len(doc) > 0:
-                page = doc[0]
-                qr_found = False
+                qr_found = False  # (Page 1 の cpk/key が見つかったか)
 
-                # --- 2A. QRコードからの読み取り (優先) ---
+                # --- 2A. QRコードからの読み取り (Page 1: Key/CPK) ---
                 # Normalisierer のクリップ機能で埋め込まれたQRコードを想定
                 # clipperのOCRが、埋め込んだIndex Keyと干渉する事があるため、QRコードを付与している
+
                 if decode is not None:
                     try:
-                        pix = page.get_pixmap(dpi=200)
-                        img_data = pix.tobytes("png")
-                        pil_image = Image.open(io.BytesIO(img_data))
+                        page1 = doc[0]  # 1ページ目を取得
+                        pix1 = page1.get_pixmap(dpi=200)
+                        img_data1 = pix1.tobytes("png")
+                        pil_image1 = Image.open(io.BytesIO(img_data1))
 
-                        decoded_objects = decode(pil_image)
+                        decoded_objects1 = decode(pil_image1)
 
-                        if not decoded_objects:
+                        if not decoded_objects1:
                             logger.warning(
-                                f"QR: pyzbarは起動しましたが、QRを検出できませんでした "
+                                f"QR: pyzbarは起動しましたが、QRを検出できませんでした (Page 1) "
                                 f"({pdf_path.name})",
                                 extra={'sensitive': True}
                             )
 
-                        for obj in decoded_objects:
+                        for obj in decoded_objects1:
                             if obj.type == 'QRCODE':
                                 qr_text = obj.data.decode('utf-8').strip()
                                 if qr_text:
@@ -128,9 +131,9 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                             # ファイル名が正規表現にマッチしなくても警告解除
                                             is_warning = False
 
-                                        qr_found = True
+                                        qr_found = True  # ★ Page 1 の QR が見つかった
                                         logger.info(
-                                            f"QR(JSON)読み取り成功: "
+                                            f"QR(Page 1)読み取り成功: "
                                             f"cpk={commonplace_key}, "
                                             f"key={auto_generated_key} "
                                             f"({pdf_path.name})",
@@ -156,7 +159,76 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                     break
                     except Exception as e:
                         logger.warning(
-                            f"QR読み取り失敗 ({pdf_path.name}): {e}",
+                            f"QR読み取り失敗 (Page 1) ({pdf_path.name}): {e}",
+                            extra={'sensitive': True}
+                        )
+
+                # --- 2B. QRコードからの読み取り (Last Page: Refs) ---
+                # (1ページ目と最終ページが異なる場合のみ実行)
+                if decode is not None and len(doc) > 1:
+                    try:
+                        pageLast = doc[-1]  # 最終ページを取得
+                        pixLast = pageLast.get_pixmap(dpi=200)
+                        img_dataLast = pixLast.tobytes("png")
+                        pil_imageLast = Image.open(io.BytesIO(img_dataLast))
+
+                        decoded_objectsLast = decode(pil_imageLast)
+
+                        if not decoded_objectsLast:
+                            logger.warning(
+                                f"QR: pyzbarは起動しましたが、"
+                                "QRを検出できませんでした (Last Page) "
+                                f"({pdf_path.name})",
+                                extra={'sensitive': True}
+                            )
+
+                        for obj in decoded_objectsLast:
+                            if obj.type == 'QRCODE':
+                                qr_text_refs = obj.data.decode('utf-8').strip()
+                                if qr_text_refs:
+                                    try:
+                                        # 【JSONパース試行】
+                                        qr_data_refs = json.loads(qr_text_refs)
+
+                                        # "refs" (引用Key) の取得
+                                        if (
+                                            "refs" in qr_data_refs and
+                                            isinstance(
+                                                qr_data_refs["refs"],
+                                                list
+                                            )
+                                        ):
+                                            links_to_add = []
+                                            for ref_key in qr_data_refs[
+                                                    "refs"
+                                                    ]:
+                                                links_to_add.append(
+                                                    f"[[{ref_key}]]"
+                                                )
+
+                                            if links_to_add:
+                                                memo_from_qr = (
+                                                    "\n".join(links_to_add)
+                                                    + "\n"
+                                                )
+
+                                                log_message = (
+                                                    f"QR(Last Page)読み取り成功: "
+                                                    f"refs={len(links_to_add)}"
+                                                    f" ({pdf_path.name})"
+                                                )
+                                                logger.info(
+                                                    log_message,
+                                                    extra={'sensitive': True}
+                                                )
+                                    except json.JSONDecodeError:
+                                        # 最終ページのQRは "refs" 専用なので、
+                                        # JSON以外 (Page 1 の cpk のみQR等) は無視
+                                        pass
+                                    break  # 最終ページの最初のQRデコード成功でループを抜ける
+                    except Exception as e:
+                        logger.warning(
+                            f"QR読み取り失敗 (Last Page) ({pdf_path.name}): {e}",
                             extra={'sensitive': True}
                         )
                 else:
@@ -164,21 +236,22 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         "QRデバッグ: pyzbarがインポートされていない (decode is None)"
                     )
 
-                # --- 2B. 指定座標からのテキスト抽出 (基本処理) ---
+                # --- 2C. 指定座標からのテキスト抽出 (基本処理) ---
+                # (qr_found は Page 1 のQRが見つかったかのフラグ)
                 if not qr_found and key_rect and len(key_rect) == 4:
                     logger.warning(
-                        f"QRデバッグ: QRが見つからなかったため、key_rectを検索します "
+                        f"QRデバッグ: QR(Page 1)が見つからなかったため、key_rectを検索します "
                         f"({pdf_path.name})",
                         extra={'sensitive': True}
                     )
-                    raw_text = page.get_textbox(key_rect)
+                    raw_text = doc[0].get_textbox(key_rect)
                     commonplace_key = _normalize_key_text(raw_text)
 
         except Exception as e:
             logger.error(
                 f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}",
                 extra={'sensitive': True}
-            )
+                )
         finally:
             if doc:
                 doc.close()
@@ -193,7 +266,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "pages": page_count,
             "tags": [],
             "key": auto_generated_key,
-            "memo": "",
+            "memo": memo_from_qr,
             "commonplace_key": commonplace_key,
             "filepath": filepath,
             "full_text": "",

@@ -77,7 +77,7 @@ class WebClipWindow(ctk.CTkToplevel):
             return
 
         self.title("Webクリップで正規化")
-        self.geometry("450x670")
+        self.geometry("450x730")
 
         if self.parent_app.icon_path:
             try:
@@ -193,7 +193,22 @@ class WebClipWindow(ctk.CTkToplevel):
         self.comment_textbox = ctk.CTkTextbox(comment_frame, height=80)
         self.comment_textbox.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # --- 6. 実行ボタン ---
+        # --- 7. Key入力欄 ---
+        ctk.CTkLabel(
+            self, text="引用元Key (カンマ区切り または 改行区切り)", anchor="w"
+            ).pack(pady=(10, 0), padx=10, fill="x")
+        key_frame = ctk.CTkFrame(self)
+
+        self.cited_keys_entry = ctk.CTkTextbox(
+            key_frame,
+            height=60
+        )
+        self.cited_keys_entry.pack(
+            fill="both", expand=True, padx=5, pady=5
+        )
+        key_frame.pack(pady=(0, 10), padx=10, fill="x")
+
+        # --- 8. 実行ボタン ---
         self.run_button = ctk.CTkButton(
             self,
             text="2. 出力先を選んでクリップ実行",
@@ -202,7 +217,7 @@ class WebClipWindow(ctk.CTkToplevel):
         )
         self.run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
-        # --- 7. ステータスラベル ---
+        # --- 9. ステータスラベル ---
         self.status_label = ctk.CTkLabel(self, text="")
         self.status_label.pack(pady=10, padx=10)
 
@@ -479,6 +494,34 @@ class WebClipWindow(ctk.CTkToplevel):
 
         comment_to_embed = self.comment_textbox.get("1.0", "end-1c").strip()
 
+        # 引用Keyリストを取得 ([[Key: Title]]形式に対応)
+        cited_keys_str = self.cited_keys_entry.get("1.0", "end-1c").strip()
+        cited_keys_list = []
+        refs_qr_size_pt = self.parent_app.config_data.get(
+            'refs_qr_size', 75  # configからQRサイズを取得
+        )
+
+        # Key (14桁以上の数字) を抽出するための正規表現
+        key_regex = re.compile(r'(\d{14,})')
+
+        if cited_keys_str:
+            # 1. カンマで分割 (複数のKey/リンクが入力された場合に対応)
+            parts = re.split(r'[,\n]+', cited_keys_str)
+
+            for part in parts:
+                part_cleaned = part.strip()
+                if not part_cleaned:
+                    continue
+
+                # 2. 各部分から Key (14桁以上の数字) を検索
+                match = key_regex.search(part_cleaned)
+
+                if match:
+                    # 3. 見つかったKeyのみをリストに追加
+                    extracted_key = match.group(1)
+                    if extracted_key not in cited_keys_list:  # 重複防止
+                        cited_keys_list.append(extracted_key)
+
         # SIST 02 書誌情報の構築
         # 1. UIから生のテキストを取得
         raw_sist_author = self.sist_author_entry.get().strip()
@@ -679,7 +722,9 @@ class WebClipWindow(ctk.CTkToplevel):
                 comment_to_embed=comment_to_embed,
                 sist_string_formal=sist_string_formal,
                 sist_string_readable=sist_string_readable,
-                base_name=base_name
+                base_name=base_name,
+                cited_keys_list=cited_keys_list,
+                refs_qr_size_pt=refs_qr_size_pt
             )
 
         except Exception as e:
