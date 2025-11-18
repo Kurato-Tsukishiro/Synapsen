@@ -29,7 +29,11 @@ A4_HEIGHT = 841.89
 A5_WIDTH = 419.528
 A5_HEIGHT = 595.276
 
-SUPPORTED_EXTENSIONS = [".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]
+SUPPORTED_EXTENSIONS = [
+    ".pdf",
+    ".png", ".jpg", ".jpeg", ".bmp", ".tiff",
+    ".md", ".txt", ".docx", ".rtf", ".odt"
+]
 
 # ==============================================================================
 # ロギング設定の初期化
@@ -423,29 +427,32 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 path_to_flatten: Path  # フラット化対象のPDFパス
 
-                # --- [ステップ 1-A: MD -> PDF 変換] ---
+                # --- [ステップ 1-A: ドキュメント形式 (MD, TXT, DOCX等) -> PDF 変換] ---
                 if (isinstance(item_data, Path) and
-                        item_data.suffix.lower()) == ".md":
+                        item_data.suffix.lower() not in [
+                            ".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]):
+
                     self.status_label.configure(
-                        text=f"{status_prefix} MD->PDF変換: {base_name}"
+                        text=f"{status_prefix} ドキュメント->PDF変換: {base_name}"
                     )
                     self.update_idletasks()
 
-                    # 一時フォルダに {base_name}.pdf として変換
-                    temp_converted_md_pdf = temp_dir / f"md_{base_name}.pdf"
+                    # 一時フォルダに変換
+                    temp_converted_doc_pdf = temp_dir / f"doc_{base_name}.pdf"
                     try:
+                        # 汎用関数 convert_document_to_pdf を使用
                         convert_document_to_pdf(
                             item_data,
-                            temp_converted_md_pdf,
+                            temp_converted_doc_pdf,
                             paper_size_str
                         )
-                        # 変換後のPDFを、次のパイプラインの入力 (item_data) として上書き
-                        item_data = temp_converted_md_pdf
+                        # 変換後のPDFを、次の処理（フラット化・正規化）の入力として上書き
+                        item_data = temp_converted_doc_pdf
+
                     except Exception as e:
-                        logger.warning(f"警告: {base_name} のMarkdown変換に失敗: {e}")
-                        # pandoc がない場合など
+                        logger.warning(f"警告: {base_name} のドキュメント変換に失敗: {e}")
                         messagebox.showerror(
-                            "Markdown変換エラー",
+                            "ドキュメント変換エラー",
                             f"{base_name} の変換に失敗しました:\n{e}",
                             parent=self
                         )
