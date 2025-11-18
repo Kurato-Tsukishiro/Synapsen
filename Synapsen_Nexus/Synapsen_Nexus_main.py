@@ -15,7 +15,7 @@ import logging
 from utils import (
     load_app_config, load_sql_data_file, open_pdf_viewer,
     build_memo_display, build_references_display,
-    update_note_in_db, delete_note_from_db,
+    update_note_in_db, _update_note_links, delete_note_from_db,
     get_pdf_page_image
 )
 from search_parser import parse_or_expression
@@ -1476,6 +1476,95 @@ class Synapsen_Nexus(ctk.CTk):
         self.references_display_frame.configure(
             label_text="このノートを引用しているノート"
             )
+
+    def append_link_to_selected_notes(self, key_to_link, title_to_link):
+        """
+        メイン画面で選択中の全ノートに対し、
+        指定されたKeyとTitleのリンクをメモ欄の末尾に追記する。
+        """
+        selected_keys_to_update = self.selected_keys
+
+        if not selected_keys_to_update:
+            messagebox.showwarning(
+                "リンク失敗",
+                "リンクの追記先となるノートがメイン画面で選択されていません。",
+                parent=self)
+            return
+
+        if not self.loaded_db_path:
+            messagebox.showerror("DBエラー", "データベースが読み込まれていません。", parent=self)
+            return
+
+        # リンク文字列を生成
+        link_text_to_append = f"[[{key_to_link}: {title_to_link}]]"
+
+        conn = None
+        updated_keys = []
+        try:
+            # 1. 書き込み用のDB接続を開始
+            conn = sqlite3.connect(self.loaded_db_path)
+            cursor = conn.cursor()
+
+            for key in selected_keys_to_update:
+                # 2. 現在のメモを取得
+                cursor.execute(
+                    "SELECT memo FROM notes WHERE key = ?", (key,)
+                )
+                memo_data = cursor.fetchone()
+                if (memo_data and memo_data[0]):
+                    current_memo = memo_data[0]
+                else:
+                    current_memo = ""
+
+                # 3. 既にリンクが含まれていないかチェック
+                if link_text_to_append in current_memo:
+                    continue
+
+                # 4. メモを更新 (末尾に改行＋リンクを追加)
+                new_memo = current_memo.strip() + f"\n{link_text_to_append}\n"
+
+                # 5. DBを更新 (notes テーブル)
+                cursor.execute(
+                    "UPDATE notes SET memo = ? WHERE key = ?", (new_memo, key)
+                )
+
+                # 6. リンクテーブルも更新 (utils._update_note_links を使用)
+                _update_note_links(cursor, key, new_memo)
+
+                updated_keys.append(key)
+
+            # 7. トランザクションをコミット
+            conn.commit()
+
+            if updated_keys:
+                messagebox.showinfo(
+                    "リンク完了",
+                    f"{len(updated_keys)}件のノートにリンクを追記しました。\n\n"
+                    f"(対象Key: {', '.join(updated_keys)})",
+                    parent=self
+                )
+
+                # メイン画面の詳細表示が更新対象に含まれていたら、再描画
+                if (
+                    self.current_selected_row is not None and
+                    self.current_selected_row.get("key") in updated_keys
+                ):
+                    self.show_details(self.current_selected_row)
+            else:
+                messagebox.showinfo(
+                    "リンク不要",
+                    "選択中のノートには、既にリンクが追加されています。",
+                    parent=self
+                )
+
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            messagebox.showerror(
+                "リンクエラー", f"リンクの追記に失敗しました:\n{e}", parent=self)
+        finally:
+            if conn:
+                conn.close()
 
     def open_current_note_in_preview(self):
         """

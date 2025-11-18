@@ -240,6 +240,16 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.copy_menu.pack(side="left", padx=5)
 
+        # 14. 選択ノートへリンク
+        self.link_to_selected_button = ctk.CTkButton(
+            self.button_frame,
+            text="選択へリンク",
+            command=self.link_to_selected_action,
+            fg_color="#00695C",
+            hover_color="#004D40"
+        )
+        self.link_to_selected_button.pack(side="left", padx=5)
+
         # --- PDFプレビューの読み込み処理 ---
         (
             self.current_pdf_doc,
@@ -337,12 +347,13 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
             self.toggle_view_button.configure(text="拡大表示")
 
-            self.pdf_button.configure(text="PDF", width=70)
-            self.edit_button.configure(text="編集", width=70)
-            self.toggle_view_button.configure(text="拡大", width=70)
-            self.graph_button.configure(text="グラフ", width=70)
+            self.pdf_button.configure(text="PDF", width=60)
+            self.edit_button.configure(text="編集", width=60)
+            self.toggle_view_button.configure(text="拡大", width=60)
+            self.graph_button.configure(text="グラフ", width=60)
             self.copy_menu_var.set("コピー")
-            self.copy_menu.configure(width=70)
+            self.copy_menu.configure(width=60)
+            self.link_to_selected_button.configure(text="リンク", width=60)
 
             self._build_memo_display(frame_width=400)
             self.update_pdf_preview_image(max_width_override=400)
@@ -376,6 +387,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.graph_button.configure(text="関連グラフ", width=140)
             self.copy_menu_var.set("コピー...")
             self.copy_menu.configure(width=140)
+            self.link_to_selected_button.configure(
+                text="選択ノートへリンクを付与", width=140
+            )
 
             self._build_memo_display(frame_width=800)
             self.update_pdf_preview_image(max_width_override=400)
@@ -488,6 +502,25 @@ class NotePreviewWindow(ctk.CTkToplevel):
             "コピー完了",
             f"リンク形式でコピーしました:\n{clipboard_text}",
             parent=self
+        )
+
+    def link_to_selected_action(self):
+        """「選択ノートへリンク」ボタンが押されたときの処理"""
+        key_to_link = self.note_data.get("key")
+        title_to_link = self.note_data.get("title")
+
+        if not key_to_link:
+            messagebox.showwarning(
+                "キー不明", "このノートのKeyが不明なためリンクできません。", parent=self)
+            return
+
+        if not title_to_link:
+            title_to_link = ""
+
+        # メインアプリの新しいメソッドを呼び出す
+        self.parent_app.append_link_to_selected_notes(
+            key_to_link,
+            title_to_link
         )
 
     def _build_memo_display(self, frame_width=400):
