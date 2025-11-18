@@ -16,7 +16,7 @@ from pdf_utils import (
     # D&Dパイプラインで個別に実行するためインポート
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
-    convert_markdown_to_pdf,
+    convert_document_to_pdf,
     high_fidelity_flatten,
     normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf
@@ -32,7 +32,11 @@ SUPPORTED_EXTENSIONS = [
     ".jpeg",
     ".bmp",
     ".tiff",
-    ".md"
+    ".md",
+    ".txt",
+    ".docx",
+    ".rtf",
+    ".odt"
 ]
 
 
@@ -790,7 +794,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 self.parent_app.update_idletasks()
                 try:
                     temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
-                    convert_markdown_to_pdf(
+                    convert_document_to_pdf(
                         item_data, temp_md_pdf, paper_size_str
                     )
                     item_data = temp_md_pdf  # 次の入力として上書き
@@ -924,7 +928,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 self.parent_app.update_idletasks()
                 try:
                     temp_md_pdf = temp_dir / f"md_{i}_{base_name}.pdf"
-                    convert_markdown_to_pdf(
+                    convert_document_to_pdf(
                         item_data, temp_md_pdf, paper_size_str
                     )
                     item_data = temp_md_pdf

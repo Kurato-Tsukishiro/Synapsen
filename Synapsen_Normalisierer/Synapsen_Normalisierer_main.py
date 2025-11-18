@@ -20,7 +20,7 @@ from pdf_utils import (
     embed_ocr_text_in_pdf,
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
-    convert_markdown_to_pdf
+    convert_document_to_pdf
 )
 
 # --- 定数 ---
@@ -434,7 +434,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     # 一時フォルダに {base_name}.pdf として変換
                     temp_converted_md_pdf = temp_dir / f"md_{base_name}.pdf"
                     try:
-                        convert_markdown_to_pdf(
+                        convert_document_to_pdf(
                             item_data,
                             temp_converted_md_pdf,
                             paper_size_str

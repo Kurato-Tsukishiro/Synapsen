@@ -755,62 +755,98 @@ def convert_pil_image_to_pdf(
 
 
 # ==============================================================================
-# Markdown -> PDF 変換関数
+# Markdown(他) -> PDF 変換関数
 # ==============================================================================
-def convert_markdown_to_pdf(
-    markdown_path: Path,
+# マッピング辞書を定義
+PANDOC_INPUT_FORMATS = {
+    ".md": "gfm",
+    ".txt": "plain",
+    ".rtf": "rtf",
+    ".docx": "docx",
+    ".odt": "odt"
+}
+
+
+def convert_document_to_pdf(
+    input_path: Path,
     output_pdf_path: Path,
     paper_size_str: str = "A4",
 ) -> None:
     """
-    Pandoc (MD->HTML) と Playwright (HTML->PDF) を使用して .md を PDF に変換します。
+    Pandoc (MD, TXT, DOCX等) と Playwright (HTML->PDF) を使用して ドキュメント を PDF に変換します。
     Pandoc と Playwright (chromium) がインストールされている必要があります。
     変換前に <details> を <details open> に置換します。
 
     Args:
-        markdown_path (Path): 入力Markdownファイルのパス。
+        input_path (Path): 入力ファイルのパス。
         output_pdf_path (Path): 出力先PDFファイルのパス。
         paper_size_str (str): "A4" または "A5" (config.iniの値)。
         latex_font_name (str): (この関数では未使用)
     """
 
     # 一時ファイル用のパスを定義
-    temp_modified_md_path = output_pdf_path.with_suffix(".temp.md")
+    temp_modified_content_path = output_pdf_path.with_suffix(".temp.modified")
     temp_html_path = output_pdf_path.with_suffix(".temp.html")
 
-    # --- ステップ 1: <details> を <details open> に置換 ---
+    file_suffix = input_path.suffix.lower()
+
+    # --- ステップ 1: 前処理 (フォーマットごとに行う) ---
     try:
-        # 元のMarkdownファイルを読み込む
-        with open(markdown_path, 'r', encoding='utf-8') as f:
-            md_content = f.read()
+        with open(input_path, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-        # <details> タグを <details open> に置換 (大文字小文字を区別しない)
-        # 既に 'open' があっても 'open open' にならないよう、単純な置換を避ける
-        # '<details' (末尾スペースなし) または '<details ' (末尾スペースあり) を検索
-        modified_md_content = re.sub(
-            r"<details(?![^>]*\bopen\b)",  # 'open'属性をまだ持たない<details>タグ
-            "<details open",              # '<details open' に置換
-            md_content,
-            flags=re.IGNORECASE          # 大文字小文字を無視
-        )
+        # Markdownの場合のみ <details> を置換
+        if file_suffix == ".md":
+            modified_content = re.sub(
+                r"<details(?![^>]*\bopen\b)",
+                "<details open",
+                content,
+                flags=re.IGNORECASE
+            )
+        # テキストファイルの場合、改行を維持するために <pre> タグで囲む
+        elif file_suffix == ".txt":
+            import html
+            escaped_content = html.escape(content)
+            # preタグで囲み、CSSでフォントと言語を指定 (font-familyはシステムのsans-serifに依存させます)
+            modified_content = (
+                "<pre style='white-space: pre-wrap; "
+                "font-family: sans-serif;'>"
+                f"{escaped_content}</pre>"
+            )
+        else:
+            modified_content = content  # DOCXなどはそのままPandocに渡す
 
-        # 置換後の内容を一時的な .md ファイルに書き出す
-        with open(temp_modified_md_path, 'w', encoding='utf-8') as f:
-            f.write(modified_md_content)
+        # 前処理が不要な形式（docxなど）と、処理済みの内容を一時ファイルに書き出す
+        if file_suffix in [".docx", ".rtf", ".odt"]:
+            # バイナリファイルをコピー
+            shutil.copy2(input_path, temp_modified_content_path)
+        else:
+            # テキストベースのファイルを書き出し
+            with open(temp_modified_content_path, 'w', encoding='utf-8') as f:
+                f.write(modified_content)
 
     except Exception as e:
-        raise Exception(f"Markdownの前処理(<details>置換)に失敗しました: {e}")
+        # DOCXなどは 'utf-8' で読めないため、バイナリとして扱う
+        if file_suffix in PANDOC_INPUT_FORMATS and file_suffix not in [
+                ".md", ".txt"]:
+            try:
+                shutil.copy2(input_path, temp_modified_content_path)
+            except Exception as copy_e:
+                raise Exception(f"ドキュメントの前処理（コピー）に失敗しました: {copy_e}")
+        else:
+            raise Exception(f"ドキュメントの前処理（読み込み）に失敗しました: {e}")
 
-    # --- ステップ 2: Pandoc で Markdown を HTML (一時ファイル) に変換 ---
-    input_format = "gfm"
+    # --- ステップ 2: Pandoc で HTML (一時ファイル) に変換 ---
+    # マッピング辞書から入力フォーマットを取得
+    input_format = PANDOC_INPUT_FORMATS.get(file_suffix, "gfm")  # 不明な場合はgfm扱い
 
     pandoc_cmd = [
         "pandoc",
         "--from", input_format,
-        str(temp_modified_md_path),  # 置換後の一時MDファイルを使用
-        "-s",                        # スタンドアロン (HTMLヘッダ等を含む)
-        "--embed-resources",         # 画像などをHTMLに埋め込む
-        "--mathml",                  # 数式をMathML (HTML互換) に変換
+        str(temp_modified_content_path),  # 処理後の一時ファイルを使用
+        "-s",
+        "--embed-resources",
+        "--mathml",
         "--to", "html5",
         "-o", str(temp_html_path)
     ]
@@ -892,19 +928,19 @@ def convert_markdown_to_pdf(
         if pw_instance:
             pw_instance.stop()
 
-        # 一時HTMLファイル と 一時MDファイル の両方を削除
+        # 一時HTMLファイル と 一時処理ファイルを両方削除
         if temp_html_path.is_file():
             try:
                 temp_html_path.unlink()
             except Exception as e_del:
                 logger.warning(f"一時HTMLファイルの削除に失敗: {e_del}")
 
-        if temp_modified_md_path.is_file():
+        if temp_modified_content_path.is_file():
             try:
-                temp_modified_md_path.unlink()
+                temp_modified_content_path.unlink()
             except Exception as e_del:
                 logger.warning(
-                    f"一時MDファイル({temp_modified_md_path.name})の削除に失敗: "
+                    f"一時処理ファイル({temp_modified_content_path.name})の削除に失敗: "
                     f"{e_del}",
                     extra={'sensitive': True}
                 )
