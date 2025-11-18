@@ -596,6 +596,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     "key",
                     "memo",
                     "commonplace_key",
+                    "filepath",
                     "merged_pdf_filename",
                     "merged_start_page"
                 ]
@@ -1161,31 +1162,39 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 # --- C. 成功メッセージの生成 ---
                 if db_saved and csv_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"目次情報はマスターDB ({db_name}) に追記され、\n"
-                           f"個別CSV ({csv_name}) としても保存されました。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"目次情報はマスターDB ({db_name}) に追記され、\n"
+                        f"リストCSV ({csv_name}) としても保存されました。"
+                    )
                     self.label.configure(
                         text="成功！ 統合PDFを生成し、DBと個別CSVに保存しました。")
 
                 elif db_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"目次情報は {db_name} に自動追記されました。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"目次情報は {db_name} に自動追記されました。"
+                    )
                     self.label.configure(text="成功！ 統合PDFを生成し、マスターDBに追記しました。")
 
                 elif csv_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"個別CSV ({csv_name}) として保存されました。\n"
-                           f"（マスターDBへの自動追記は無効です）")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"リストCSV ({csv_name}) として保存されました。\n"
+                        f"（マスターDBへの自動追記は無効です）"
+                    )
                     self.label.configure(text="成功！ 統合PDFと専用目次CSVを生成しました。")
 
                 else:
                     # どちらもOFFの場合
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"（マスターDBへの追記、個別CSVの保存は両方無効です）")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"（マスターDBへの追記、リストCSVの保存は両方無効です）"
+                    )
                     self.label.configure(text="成功！ 統合PDFを生成しました（保存なし）。")
 
                 messagebox.showinfo("成功", msg)
