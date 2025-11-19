@@ -226,6 +226,7 @@ class ExportManager:
         """
         選択されたノート情報からMOC(Map of Content)用のMarkdownファイルを生成する。
         リンク先は「統合PDFの該当ページ」を優先し、なければ「元ファイル」とする。
+        ※PDF化時の絶対パス変換を防ぐため、パスはリンクにせずテキストとして記述する。
         """
         try:
             # タイトル生成
@@ -253,7 +254,6 @@ class ExportManager:
                 original_filename = Path(filepath).name if filepath else ""
 
                 merged_filename = row.get('merged_pdf_filename', '')
-                logger.debug(merged_filename)
                 merged_page = row.get('merged_start_page', '')
 
                 link_target = ""
@@ -273,16 +273,20 @@ class ExportManager:
                 if not summary:
                     summary = "(メモなし)"
 
+                item_header = f"- [[{key}: {title}]]"
+
                 if link_target:
-                    # リンクあり: [[[Key: Title]]](Target)
+                    # パスをテキストとして記述（リンク化しない）
                     line = (
-                        f"- [[[{key}: {title}]]]({link_target})\n"
+                        f"{item_header}\n"
+                        f"  - {link_target}\n"
                         f"  - {summary}"
                     )
                 else:
-                    # リンクなし (ファイル不明)
+                    # パス不明
                     line = (
-                        f"- [[{key}: {title}]]\n"
+                        f"{item_header}\n"
+                        f"  - (File not found)\n"
                         f"  - {summary}"
                     )
 
