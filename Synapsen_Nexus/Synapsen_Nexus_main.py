@@ -383,7 +383,12 @@ class Synapsen_Nexus(ctk.CTk):
         self.export_menu = ctk.CTkOptionMenu(
             right_button_frame,
             variable=self.export_menu_var,
-            values=["データ (CSV/TXT)", "統合PDF (Merge)", "全て (Data + PDF)"],
+            values=[
+                "データ (CSV/TXT)",
+                "統合PDF (Merge)",
+                "全て (Data + PDF)",
+                "MOC (Markdown)"
+            ],
             command=self.handle_export_menu,
             width=140,
             fg_color="#17a2b8",  # シアン系 (出力・情報アクションとして区別)
@@ -636,6 +641,8 @@ class Synapsen_Nexus(ctk.CTk):
         elif choice == "全て (Data + PDF)":
             # 情報及び統合PDF出力を両方呼び出す
             self.export_search_results(include_pdf=True)
+        elif choice == "MOC (Markdown)":
+            self.create_moc_markdown()
 
         self.export_menu.set("エクスポート")
 
@@ -2018,6 +2025,43 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
         else:
             messagebox.showwarning("失敗", "結合可能なPDFが見つかりませんでした。", parent=self)
+
+    def create_moc_markdown(self):
+        """MOC (Markdown) 生成処理のラッパー"""
+        # 対象データの決定 (選択中 > 検索結果)
+        target_df = None
+        if self.selected_keys:
+            if self.df is not None:
+                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+        else:
+            target_df = self.filtered_df_cache
+
+        if target_df is None or target_df.empty:
+            messagebox.showinfo("MOC作成", "対象データがありません。", parent=self)
+            return
+
+        # 保存先ダイアログ
+        time_text = datetime.datetime.now().strftime('%Y%m%d')
+        save_path = filedialog.asksaveasfilename(
+            title="MOC (Markdown) を保存",
+            defaultextension=".md",
+            filetypes=[("Markdown Files", "*.md")],
+            initialfile=f"MOC_{time_text}.md"
+        )
+        if not save_path:
+            return
+
+        # 生成実行
+        if self.exporter.generate_moc_markdown(target_df, Path(save_path)):
+            messagebox.showinfo(
+                "完了",
+                f"MOCファイルを保存しました:\n{save_path}\n\n"
+                "Normalisiererでこのファイルを処理すると、\n"
+                "各ノートへのリンク機能を持つPDFを作成できます。",
+                parent=self
+            )
+        else:
+            messagebox.showerror("失敗", "MOCファイルの生成に失敗しました。", parent=self)
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
