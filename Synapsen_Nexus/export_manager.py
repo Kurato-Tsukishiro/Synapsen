@@ -1,9 +1,12 @@
+import base64
+from enum import Enum, auto
 import shutil
 import datetime
 import io
 import re
 import sqlite3
 from pathlib import Path
+import sys
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF (プレースホルダー生成用に追加)
@@ -13,6 +16,11 @@ from graph_manager import GraphManager
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class EmojiType(Enum):
+    FOLDER = auto()
+    SUMMARY = auto()
 
 
 class ExportManager:
@@ -384,13 +392,16 @@ class ExportManager:
                     link_target = f"./{original_filename}"
 
                 # ヘッダーにプレフィックスを統合
-                item_header = f"- {prefix_html} [[{key}: {title}]]"
+                item_header = f"{prefix_html} [[{key}: {title}]]"
+
+                folder_icon = self.get_emoji_html(EmojiType.FOLDER)
+                summary_icon = self.get_emoji_html(EmojiType.SUMMARY)
 
                 # リスト項目の生成
                 line = (
-                    f"{item_header}\n"
-                    f"  - 📂 {link_target}\n"
-                    f"  - 💡 {summary_text}<br>"
+                    f"### {item_header}\n"
+                    f"- {folder_icon} {link_target}\n"
+                    f"- {summary_icon} {summary_text}\n"
                 )
                 md_content.append(line)
 
@@ -446,6 +457,69 @@ class ExportManager:
         except Exception as e:
             logger.error(f"MOC生成エラー: {e}")
             return False
+
+    """
+    Note on Embedded Assets / 埋め込みアセットについて
+        以下のソースコード内に Base64 形式などで埋め込まれているアセットデータは、
+        ソースコードの一部として AGPL-3.0 が適用されます。
+        ただし、assets/ フォルダに同梱されているオリジナルの画像ファイルについては、引き続き CC BY-SA 4.0 が適用されます。
+    """
+    _EMOJI_MAP = {
+        EmojiType.FOLDER: "iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAACuklEQVRoQ+2aTWsTURSG3ztDm4QmWDUgqdpaqUlmK36AilhcdddNFl2K6B/QHyDiRkSpUheC4LKk/0BX7lzozk1tIN8moWLzoXZmMpm5Mk0LTTKTmZhJpg43ECZwzz1znvu+99whCUGf1+Vrz+782NktSZIi94sb11gl++Sj2b2I2cClxdXYQiS4SSmFoqgQZRWSpEBqqhDFFiRZgSSraCrquDggUnm6mn5aN7qhKcj1xdXY2Uhw06pKVdUgyTpYC6KkX9X2Z/0tKlbTEQr6MDsTgtzUIDdbkKQWqg0JrZbWM3ekIFaVtotTIepq7gPqV1lWETkVxNzpYz0pKtu/sZXZOVog/UB1NXmeMwz58rWC3d1mx9g/KXKwR6xWfFTj2WId+e+d24GB6F1rVCtuldcziuSKdeS8YC0G0u1Zt7uWY4pcubEWPT/r/2a1KUc17hmQbKGGfKkx/IHotiIMpNvrTBGHdj+z1lGzVqZQQ8ELXYuBeNZaV2++vDB/ZmrLoSY0cBrHrOU+SBWF0q/hH1EYyMAmMp6QKXhEkXS+hmLZgadft63FQLqd6r4iVRTLHuha6TwD6TSX+9ZiXatTkYu3Xi9EZ3wph863gdM41n5dB8lVUaw40LUYyMAmMp7gWPt1XRGnzhEGwqzVuQJsj/R8i3J77eRxP977fXx4coIP8zw35ZBrbKUpb//5kEr//HQ4uJR+/MhssulfOLonLC+/m54IaAJPqQAOAgWNg0IgBPMAMf7V31bJxkEapQ831u89t5vCNohZwqWlV77giVCUaJpAdDgCAW3IGCEkYLeQ7rixg5gXSkki8fYcN8nFoaENiX1IQsJWgJSSB8n1uy+s4g7Gh1bE7o0Ox62svAlTygkAFwdHBQrECdXtijlCsFfTfwFiBp9IbAR4vrGnHKVaKpm8/9nuQv0FqEr8Uch1uH4AAAAASUVORK5CYII=",  # noqa: E501
+        EmojiType.SUMMARY: "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"  # noqa: E501
+    }
+
+    def get_emoji_html(self, emoji_type: EmojiType) -> str:
+        emoji_string = self._EMOJI_MAP.get(emoji_type, "FILE NOT FOUND")
+
+        # HTML imgタグを生成 (高さを文字サイズに合わせる調整付き)
+        # style="height: 1em; vertical-align: middle;" で行内に綺麗に収めます
+        return (
+            f'<img src="data:image/png;base64,{emoji_string}" '
+            f'alt="{emoji_type.name}" '
+            'style="height: 1.2em; vertical-align: text-bottom;">'
+        )
+
+    def get_base64_data(self, filename: str) -> str:
+        """
+        (未使用)
+        画像をbase64に変換する為のコード。
+        絵文字を導入する時に使用する為、常時使用する物ではない
+
+        Args:
+            filename (str): 変換したい画像のファイル名
+
+        Returns:
+            str: 画像がBase64化された文字列
+        """
+        try:
+            # assetsパスの特定
+            if getattr(sys, 'frozen', False):
+                base_dir = Path(sys.executable).parent
+            else:
+                base_dir = Path(__file__).parent.parent
+
+            icon_path = base_dir / 'assets' / 'emoji_source' / filename
+
+            if not icon_path.exists():
+                return "FILE NOT FOUND"
+
+            with open(icon_path, "rb") as img_file:
+                encoded_string = (
+                    base64.b64encode(img_file.read()).decode('utf-8')
+                )
+
+            print(f"encoded_string = {encoded_string}")
+
+            return (
+                f'<img src="data:image/png;base64,{encoded_string}" '
+                f'alt="{filename}" '
+                'style="height: 1.2em; vertical-align: text-bottom;">'
+            )
+
+        except Exception as e:
+            logger.error(f"アイコン画像の読み込みエラー: {e}")
+            return "FILE NOT FOUND"
 
     def _create_fallback_page_reader(self, title, date, key):
         """
