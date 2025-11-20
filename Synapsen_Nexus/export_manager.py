@@ -4,6 +4,7 @@ import io
 import re
 import sqlite3
 from pathlib import Path
+import pandas as pd
 from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF (プレースホルダー生成用に追加)
 
@@ -222,17 +223,107 @@ class ExportManager:
             return True
         return False
 
-    def generate_moc_markdown(self, target_df, save_path):
+    def generate_moc_markdown(
+            self,
+            target_df: pd.DataFrame,
+            save_path: str,
+            loaded_db_path: str = None
+    ) -> bool:
         """
-        選択されたノート情報からMOC(Map of Content)用のMarkdownファイルを生成する。
-        リンク先は「統合PDFの該当ページ」を優先し、なければ「元ファイル」とする。
-        ※PDF化時の絶対パス変換を防ぐため、パスはリンクにせずテキストとして記述する。
+        選択されたノート情報に基づき、MOC (Map of Content) 用のMarkdownファイルを生成する。
+
+        データベースから最新の `memo` と `summary` を取得し、統合PDFまたは個別ファイルへのリンクを含む
+        インデックスページを作成する。また、メモ内の内部リンク（`[[Link]]`）を抽出し、
+        引用一覧セクションを生成する。
+
+        Args:
+            target_df (pd.DataFrame): 処理対象のノート情報を含むDataFrame。
+                以下のカラムが含まれていることを想定:
+                - 'key': ノートの一意なキー
+                - 'title': ノートのタイトル
+                - 'date', 'time': ソート用
+                - 'filepath': 元ファイルのパス
+                - 'merged_pdf_filename', 'merged_start_page': 統合PDF時のリンク用情報
+                - 'commonplace_key': アイコン/色決定用のキー
+            save_path (str | Path): 生成されたMarkdownファイルの保存先パス。
+            loaded_db_path (str, optional): データ取得元のSQLiteデータベースのパス。
+                指定された場合、`target_df` の値ではなくDBから最新の `memo`, `summary` を再取得して使用する。
+                Defaults to None.
+
+        Returns:
+            bool: 生成に成功した場合は True、エラーが発生した場合は False を返す。
         """
         try:
+            # --- 1. DBから必要なデータを一括取得するための準備 ---
+            keys_in_moc = target_df['key'].dropna().tolist()
+            db_data_map = {}      # key -> {'summary': ...}
+            links_by_source = {}  # source_key -> [target_key, ...]
+            all_linked_keys = set()
+            title_map = {}        # key -> title
+
+            conn = None
+            if loaded_db_path and keys_in_moc:
+                try:
+                    # 読み取り専用でDB接続
+                    conn = sqlite3.connect(
+                        f"file:{loaded_db_path}?mode=ro",
+                        uri=True
+                    )
+                    cursor = conn.cursor()
+
+                    placeholders = ','.join('?' for _ in keys_in_moc)
+
+                    # A. Summary の一括取得
+                    sql_summary = (
+                        "SELECT key, summary FROM notes "
+                        f"WHERE key IN ({placeholders})"
+                    )
+                    cursor.execute(sql_summary, keys_in_moc)
+                    for row in cursor.fetchall():
+                        k, s = row
+                        db_data_map[k] = {'summary': s if s else ""}
+
+                    # B. 発リンク (Outgoing Links) の一括取得
+                    # MOCを構成するノートからの発リンクのみを取得
+                    sql_links = (
+                        "SELECT source_key, target_key FROM note_links "
+                        f"WHERE source_key IN ({placeholders})"
+                    )
+                    cursor.execute(sql_links, keys_in_moc)
+
+                    for source_key, target_key in cursor.fetchall():
+                        if source_key not in links_by_source:
+                            links_by_source[source_key] = []
+                        links_by_source[source_key].append(target_key)
+                        all_linked_keys.add(target_key)  # リンク先もタイトルの取得対象に含める
+
+                    # C. MOC内のキーとリンク先キーを合わせた全てのキーの集合
+                    all_relevant_keys = set(keys_in_moc) | all_linked_keys
+
+                    # D. 全ての関連ノートのタイトルを一括取得
+                    title_placeholders = (
+                        ','.join('?' for _ in all_relevant_keys)
+                    )
+                    sql_titles = (
+                        "SELECT key, title FROM notes "
+                        f"WHERE key IN ({title_placeholders})"
+                    )
+                    cursor.execute(sql_titles, list(all_relevant_keys))
+
+                    for key, title in cursor.fetchall():
+                        title_map[key] = title if title else "(タイトルなし)"
+
+                except Exception as e:
+                    logger.error(f"MOC生成時のDB取得エラー: {e}")
+                finally:
+                    if conn:
+                        conn.close()
+            # -------------------------------------------------------
+
             # タイトル生成
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d")
             md_content = [
-                f"# MOC (Map of Content) - {timestamp}",
+                f"# MOC (Map of Content)<br> ( {timestamp} )",
                 "",
                 "## 概要",
                 "ここにこのMOCの概要や目的を記述してください。",
@@ -244,21 +335,46 @@ class ExportManager:
             # 日付・時刻順でソート
             sorted_df = target_df.sort_values(by=["date", "time"])
 
+            # 設定からアイコンと色を取得
+            key_icons = self.config.get('key_icons', {})
+            key_colors = self.config.get('key_colors', {})
+
+            # --- 第1部: 関連ノート一覧 ---
             for _, row in sorted_df.iterrows():
                 key = row.get('key', '')
                 title = row.get('title', 'No Title')
-                memo = str(row.get('memo', '')).replace('\n', ' ').strip()
 
-                # --- リンク先の決定ロジック ---
+                # Summary
+                summary_text = (
+                    db_data_map.get(key, {}).get('summary', '').strip()
+                )
+                if not summary_text:
+                    summary_text = "(概要なし)"
+
+                # Index Key情報の取得と装飾
+                cp_key_raw = str(row.get('commonplace_key', ''))
+                cp_key_lower = cp_key_raw.lower()
+                icon = key_icons.get(cp_key_lower, '')
+                color = key_colors.get(cp_key_lower, '')
+                display_content = icon if icon else cp_key_raw
+
+                if color:
+                    prefix_html = (
+                        f'<span style="color: {color}">'
+                        f'{display_content}'
+                        '</span>'
+                    )
+                else:
+                    prefix_html = display_content
+
+                # リンク先の決定 (FilePath)
                 filepath = row.get('filepath', '')
                 original_filename = Path(filepath).name if filepath else ""
 
                 merged_filename = row.get('merged_pdf_filename', '')
                 merged_page = row.get('merged_start_page', '')
 
-                link_target = ""
-
-                # 1. 統合PDF情報がある場合、それを優先
+                link_target = "(File not found)"
                 if merged_filename and merged_page:
                     # PDFのページ指定リンク形式: ./File.pdf#page=5
                     link_target = f"./{merged_filename}#page={merged_page}"
@@ -267,30 +383,55 @@ class ExportManager:
                 elif original_filename:
                     link_target = f"./{original_filename}"
 
-                # --- 行の生成 ---
-                # メモの要約
-                summary = (memo[:50] + '...') if len(memo) > 50 else memo
-                if not summary:
-                    summary = "(メモなし)"
+                # ヘッダーにプレフィックスを統合
+                item_header = f"- {prefix_html} [[{key}: {title}]]"
 
-                item_header = f"- [[{key}: {title}]]"
-
-                if link_target:
-                    # パスをテキストとして記述（リンク化しない）
-                    line = (
-                        f"{item_header}\n"
-                        f"  - {link_target}\n"
-                        f"  - {summary}"
-                    )
-                else:
-                    # パス不明
-                    line = (
-                        f"{item_header}\n"
-                        f"  - (File not found)\n"
-                        f"  - {summary}"
-                    )
-
+                # リスト項目の生成
+                line = (
+                    f"{item_header}\n"
+                    f"  - 📂 {link_target}\n"
+                    f"  - 💡 {summary_text}<br>"
+                )
                 md_content.append(line)
+
+            # --- 改ページ ---
+            md_content.append("")
+            md_content.append('<div style="page-break-after: always;"></div>')
+            md_content.append("")
+            md_content.append("")
+
+            # --- 第2部: 引用一覧 ---
+            md_content.append("## 引用一覧")
+            md_content.append("")
+
+            has_references = False
+
+            for _, row in sorted_df.iterrows():
+                source_key = row.get('key', '')
+
+                # リンクテーブルからターゲットキーを取得
+                target_keys = links_by_source.get(source_key)
+
+                if target_keys:
+                    has_references = True
+                    source_title = row.get('title', 'No Title')
+
+                    # 見出し: 引用元のノート
+                    md_content.append(f"### [[{source_key}: {source_title}]]")
+
+                    # 引用リスト
+                    for target_key in target_keys:
+                        # title_map を使ってタイトルを取得し、リンク形式に整形
+                        target_title = title_map.get(
+                            target_key, f"(タイトル不明 / Key: {target_key})"
+                        )
+                        link_text = f"[[{target_key}: {target_title}]]"
+                        md_content.append(f"- {link_text}")
+
+                    md_content.append("")
+
+            if not has_references:
+                md_content.append("(引用リンクはありません)")
 
             md_content.append("")
             md_content.append("---")
