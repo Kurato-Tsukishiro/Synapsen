@@ -123,8 +123,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.info_container.grid_columnconfigure(1, weight=1)
 
         # メモと引用元のために行の重みを設定
-        self.info_container.grid_rowconfigure(4, weight=1)  # メモ
-        self.info_container.grid_rowconfigure(6, weight=1)  # 引用元
+        self.info_container.grid_rowconfigure(5, weight=1)  # メモ
+        self.info_container.grid_rowconfigure(7, weight=1)  # 引用元
 
         # --- ウィジェットの作成  ---
         # 1. タイトル
@@ -153,40 +153,50 @@ class NotePreviewWindow(ctk.CTkToplevel):
             text=self.note_data.get('commonplace_key', ''), anchor="w"
             ).grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
-        # 4. タグ
+        # 4. 概要 (Summary)
+        ctk.CTkLabel(
+            self.info_container, text="概要:", anchor="w"
+            ).grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        ctk.CTkLabel(
+            self.info_container, text=self.note_data.get('summary', ''),
+            wraplength=300,
+            justify="left", anchor="w"
+            ).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+
+        # 5. タグ
         ctk.CTkLabel(
             self.info_container, text="タグ:", anchor="w"
-            ).grid(row=3, column=0, padx=10, pady=5, sticky="w")
+            ).grid(row=4, column=0, padx=10, pady=5, sticky="w")
         tags_str = str(self.note_data.get('tags', ''))
         tags_list = [tag for tag in tags_str.split(';') if tag]
         tags_display = ", ".join(tags_list)
         ctk.CTkLabel(
             self.info_container, text=tags_display, wraplength=300,
             justify="left", anchor="w"
-            ).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+            ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
         # 5. メモ (ラベル)
         ctk.CTkLabel(
             self.info_container, text="メモ:", anchor="w"
-            ).grid(row=4, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=5, column=0, padx=10, pady=5, sticky="nw")
 
         # 6. メモ (フレーム)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.info_container)
         self.memo_display_frame.grid(
-            row=4, column=1, padx=10, pady=5, sticky="nsew"
+            row=5, column=1, padx=10, pady=5, sticky="nsew"
             )
 
         # 7. 引用元 (ラベル)
         ctk.CTkLabel(
             self.info_container, text="引用元:", anchor="w"
-            ).grid(row=5, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
 
         # 8. 引用元 (フレーム)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.info_container, label_text="このノートを引用"
             )
         self.references_display_frame.grid(
-            row=6, column=1, padx=10, pady=5, sticky="nsew"
+            row=7, column=1, padx=10, pady=5, sticky="nsew"
             )
 
         # --- [Row 1] ボタンエリア ---

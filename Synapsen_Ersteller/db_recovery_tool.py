@@ -174,6 +174,12 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
             # 抽出したノートリストを内部に保持
             self.extracted_data = notes_list
+
+            for note in self.extracted_data:
+                # 'summary' キーがない場合、空文字列で初期化
+                if 'summary' not in note:
+                    note['summary'] = ""
+
             count = len(self.extracted_data)
             self.log(f"[成功] {count} 件のノートデータが見つかりました。")
 
@@ -310,7 +316,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 "date" TEXT, "time" TEXT, "title" TEXT, "pages" INTEGER,
                 "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
                 "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
-                "merged_pdf_filename" TEXT, "merged_start_page" TEXT
+                "merged_pdf_filename" TEXT, "merged_start_page" TEXT,
+                "summary" TEXT
             )
             """
             cursor.execute(create_table_sql)
@@ -324,6 +331,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 memo,
                 tags,
                 full_text,
+                summary,
                 content='notes',
                 content_rowid='key'
             );
@@ -337,31 +345,31 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 AFTER INSERT ON notes
             BEGIN
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_delete
                 AFTER DELETE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_update
                 AFTER UPDATE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
         """)
             cursor.executescript(trigger_sql)

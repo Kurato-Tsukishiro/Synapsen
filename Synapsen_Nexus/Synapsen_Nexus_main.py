@@ -496,11 +496,12 @@ class Synapsen_Nexus(ctk.CTk):
             )
 
         # グリッドの行設定 (プレビュー領域、メモ、引用元のために変更)
-        self.details_frame.grid_rowconfigure(4, weight=1)  # PDFプレビュー
-        self.details_frame.grid_rowconfigure(6, weight=2)  # メモ欄 (重み2)
-        self.details_frame.grid_rowconfigure(8, weight=1)  # 引用元欄 (重み1)
+        self.details_frame.grid_rowconfigure(5, weight=1)  # PDFプレビュー (row 5)
+        self.details_frame.grid_rowconfigure(7, weight=2)  # メモスクロール領域 (row 7)
+        self.details_frame.grid_rowconfigure(9, weight=1)  # 引用元スクロール領域 (row 9)
         self.details_frame.grid_columnconfigure(1, weight=1)
 
+        # 1. タイトル (row=0)
         ctk.CTkLabel(
             self.details_frame, text="タイトル:", anchor="w"
             ).grid(row=0, column=0, padx=10, pady=5, sticky="w")
@@ -510,12 +511,14 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.title_label.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
 
+        # 2. キー (row=1)
         ctk.CTkLabel(
             self.details_frame, text="キー:", anchor="w"
             ).grid(row=1, column=0, padx=10, pady=5, sticky="w")
         self.key_label = ctk.CTkLabel(self.details_frame, text="", anchor="w")
         self.key_label.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
+        # 3. インデックス キー (row=2)
         ctk.CTkLabel(
             self.details_frame, text="インデックス キー:", anchor="w"
             ).grid(row=2, column=0, padx=10, pady=5, sticky="w")
@@ -524,6 +527,7 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.cpkey_label.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
+        # 4. タグ (row=3)
         ctk.CTkLabel(
             self.details_frame, text="タグ:", anchor="w"
             ).grid(row=3, column=0, padx=10, pady=5, sticky="w")
@@ -533,7 +537,17 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.tags_label.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
-        # 4. PDFプレビュー
+        # 5. 概要 (Summary)
+        ctk.CTkLabel(
+            self.details_frame, text="概要:", anchor="w"
+            ).grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        self.summary_label = ctk.CTkLabel(
+            self.details_frame, text="",
+            wraplength=400, justify="left", anchor="w"
+            )
+        self.summary_label.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+
+        # 6. PDFプレビュー (row=5)
         self.pdf_preview_label = ctk.CTkLabel(
             self.details_frame,
             text="ノートを選択するとプレビューが表示されます",
@@ -542,39 +556,39 @@ class Synapsen_Nexus(ctk.CTk):
             text_color="gray70"  # プレースホルダーの文字色
         )
         self.pdf_preview_label.grid(
-            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+            row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
 
-        # 5. メモ (ラベル)
+        # 7. メモ (ラベル) (row=6)
         ctk.CTkLabel(
             self.details_frame, text="メモ:", anchor="w"
-            ).grid(row=5, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
 
-        # 6. メモ (スクロールフレーム)
+        # 8. メモ (スクロールフレーム) (row=7)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame)
         self.memo_display_frame.grid(
-            row=6, column=1, padx=10, pady=5, sticky="nsew"
+            row=7, column=1, padx=10, pady=4, sticky="nsew"
             )
 
-        # 7. 引用元 (ラベル)
+        # 9. 引用元 (ラベル) (row=8)
         ctk.CTkLabel(
             self.details_frame, text="引用元:", anchor="w"
-            ).grid(row=7, column=0, padx=10, pady=5, sticky="nw")
+            ).grid(row=8, column=0, padx=10, pady=4, sticky="nw")
 
-        # 8. 引用元 (スクロールフレーム)
+        # 10. 引用元 (スクロールフレーム) (row=9)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.details_frame, label_text="このノートを引用しているノート"
             )
         self.references_display_frame.grid(
-            row=8, column=1, padx=10, pady=5, sticky="nsew"
+            row=9, column=1, padx=10, pady=5, sticky="nsew"
             )
 
-        # 9. 編集ボタン
+        # 11. 編集ボタンのフレーム (row=10)
         self.edit_button_frame = ctk.CTkFrame(
             self.details_frame, fg_color="transparent")
-        self.edit_button_frame.grid(row=9, column=0, columnspan=2, pady=10)
+        self.edit_button_frame.grid(row=10, column=0, columnspan=2, pady=10)
 
-        # 10. 詳細プレビューボタン
+        # 詳細プレビューボタン
         self.open_preview_button = ctk.CTkButton(
             self.edit_button_frame,
             text="詳細プレビューで開く",
@@ -1639,13 +1653,15 @@ class Synapsen_Nexus(ctk.CTk):
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
-                "SELECT memo, full_text FROM notes WHERE key = ?", (key,)
+                "SELECT memo, full_text, summary FROM notes WHERE key = ?",
+                (key,)
             )
             db_data = cursor.fetchone()
             note_data = target_note_row.iloc[0].copy()
             if db_data:
                 note_data['memo'] = db_data[0]
                 note_data['full_text'] = db_data[1]
+                note_data['summary'] = db_data[2]
         except Exception as e:
             logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
             note_data = target_note_row.iloc[0]
@@ -1674,6 +1690,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.delete_button.configure(state="normal")
 
         row = row_data
+        self.summary_label.configure(text=row.get('summary', ''))
         self.title_label.configure(text=row.get('title', ''))
         self.key_label.configure(text=row.get('key', ''))
         self.cpkey_label.configure(text=row.get('commonplace_key', ''))
@@ -1725,7 +1742,7 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 新しく作成したラベルをグリッドに配置
         self.pdf_preview_label.grid(
-            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
+            row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
 
         # --- メモと引用元の取得 ---
@@ -1739,13 +1756,17 @@ class Synapsen_Nexus(ctk.CTk):
             # (db_conn は読み取り専用接続)
             cursor = self.db_conn.cursor()
 
-            # 1. このノートの 'memo' を取得
+            # 1. このノートの 'memo' と 'summary' を取得
             cursor.execute(
-                "SELECT memo FROM notes WHERE key = ?", (current_key,)
+                "SELECT memo, summary FROM notes WHERE key = ?", (current_key,)
             )
-            memo_data = cursor.fetchone()
-            if memo_data:
-                memo_text = str(memo_data[0])
+            data = cursor.fetchone()
+            if data:
+                memo_text = str(data[0])
+                # メモリ上にある row_data にも最新の memo と summary をセット
+                self.current_selected_row['memo'] = memo_text
+                self.current_selected_row['summary'] = str(data[1])
+                self.summary_label.configure(text=str(data[1]))
 
             # 2. 引用元 (Backlinks) を 'note_links' テーブルから取得
 
@@ -2052,12 +2073,16 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 生成実行
-        if self.exporter.generate_moc_markdown(target_df, Path(save_path)):
+        if self.exporter.generate_moc_markdown(
+                target_df,
+                Path(save_path),
+                self.loaded_db_path
+        ):
             messagebox.showinfo(
                 "完了",
-                f"MOCファイルを保存しました:\n{save_path}\n\n"
-                "Normalisiererでこのファイルを処理すると、\n"
-                "各ノートへのリンク機能を持つPDFを作成できます。",
+                f"MOC (Markdown) ファイルを保存しました:\n{save_path}\n\n"
+                "このファイルを Normalisierer で処理し PDF 化すると、\n"
+                "ノートへのファイルパスと Index Key の装飾が反映された PDF を作成できます。",
                 parent=self
             )
         else:
@@ -2080,19 +2105,21 @@ class Synapsen_Nexus(ctk.CTk):
 
         key_to_edit = note_data.get("key")
 
-        # --- DBから最新の 'memo' を取得 ---
+        # --- DBから最新の 'memo' と 'summary' を取得 ---
         # NoteEditorWindowに渡す note_data (pd.Series) をコピーして更新する
         note_data_with_memo = note_data.copy()
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
-                "SELECT memo FROM notes WHERE key = ?", (key_to_edit,)
+                "SELECT memo, summary FROM notes WHERE key = ?", (key_to_edit,)
             )
-            memo_data = cursor.fetchone()
-            if memo_data:
+            db_data = cursor.fetchone()
+            if (memo_data := db_data):
                 note_data_with_memo['memo'] = str(memo_data[0])
+                note_data_with_memo['summary'] = str(memo_data[1])
             else:
-                note_data_with_memo['memo'] = ""  # DBにメモがない場合
+                note_data_with_memo['memo'] = ""
+                note_data_with_memo['summary'] = ""
         except Exception as e:
             logger.error(f"編集ウィンドウ用のメモ取得エラー: {e}")
             note_data_with_memo['memo'] = ""  # 失敗時は空メモ

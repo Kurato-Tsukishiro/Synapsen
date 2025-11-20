@@ -1,3 +1,4 @@
+import re
 import customtkinter as ctk
 from tkinter import messagebox
 import datetime
@@ -32,57 +33,136 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.commonplace_key_options = commonplace_key_options
 
         self.title(f"データ編集: {self.note_data['title']}")
-        self.geometry("500x700")
+        self.geometry("1000x700")
         self.transient(parent)
         self.grab_set()
 
-        cp_key_frame = ctk.CTkFrame(self, fg_color="transparent")
-        cp_key_frame.pack(pady=10, padx=10, fill="x")
+        # --- メインコンテナ ---
+        main_grid_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_grid_frame.pack(fill="both", expand=True, padx=10, pady=(10, 5))
+
+        # グリッド設定 (2カラム)
+        main_grid_frame.grid_columnconfigure(0, weight=1)  # 左カラム
+        main_grid_frame.grid_columnconfigure(1, weight=1)  # 右カラム
+        main_grid_frame.grid_rowconfigure(0, weight=1)     # 縦方向を拡張
+
+        # --- 左カラム (Col 0) : 主要情報 ---
+
+        # 左カラム全体を包むフレーム
+        left_frame = ctk.CTkFrame(main_grid_frame, fg_color="transparent")
+        left_frame.grid(row=0, column=0, padx=(0, 10), pady=0, sticky="nsew")
+        left_frame.grid_columnconfigure(0, weight=1)
+        left_frame.grid_rowconfigure(5, weight=1)  # メモ欄に重み
+
+        current_row = 0
+
+        # 0. Index Key (ComboBox)
+        cp_key_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        cp_key_frame.grid(row=current_row, column=0, pady=5, sticky="ew")
+        cp_key_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
-            cp_key_frame,
-            text="Index Key:",
-            width=150,
-            anchor="w"
-        ).pack(side="left")
+            cp_key_frame, text="Index Key:", width=150, anchor="w"
+        ).grid(row=0, column=0, sticky="w")
         self.cp_key_combo = ctk.CTkComboBox(
             cp_key_frame,
             values=self.commonplace_key_options
         )
-        self.cp_key_combo.pack(side="left", expand=True, fill="x")
+        self.cp_key_combo.grid(row=0, column=1, sticky="ew")
         self.cp_key_combo.set(self.note_data.get("commonplace_key", ""))
+        current_row += 1
 
-        key_frame = ctk.CTkFrame(self, fg_color="transparent")
-        key_frame.pack(pady=10, padx=10, fill="x")
+        # 1. Key (ReadOnly)
+        key_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        key_frame.grid(row=current_row, column=0, pady=5, sticky="ew")
+        key_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
-            key_frame,
-            text="ユニークID (Key):",
-            width=150,
-            anchor="w"
-        ).pack(side="left")
-        self.key_entry = ctk.CTkEntry(key_frame, placeholder_text="このノート固有のID")
-        self.key_entry.pack(side="left", expand=True, fill="x")
+            key_frame, text="ユニークID (Key):", width=150, anchor="w"
+        ).grid(row=0, column=0, sticky="w")
+        self.key_entry = ctk.CTkEntry(key_frame)
+        self.key_entry.grid(row=0, column=1, sticky="ew")
         self.key_entry.insert(0, self.note_data.get("key", ""))
         self.key_entry.configure(state="readonly")
+        current_row += 1
 
-        memo_frame = ctk.CTkFrame(self, fg_color="transparent")
-        memo_frame.pack(pady=10, padx=10, fill="both", expand=True)
-        ctk.CTkLabel(memo_frame, text="要約・引用メモ:").pack(anchor="w")
-        self.memo_textbox = ctk.CTkTextbox(memo_frame, height=150)
-        self.memo_textbox.pack(fill="both", expand=True)
+        # 2. Summary (概要)
+        summary_outer_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        summary_outer_frame.grid(
+            row=current_row, column=0, pady=(5, 0), sticky="ew"
+        )
+        ctk.CTkLabel(
+            summary_outer_frame, text="概要 (140文字以内):", anchor="w"
+        ).pack(side="top", fill="x")
+
+        self.summary_entry = ctk.CTkTextbox(
+            summary_outer_frame,
+            height=75,
+            wrap="word",
+            activate_scrollbars=False
+        )
+        self.summary_entry.pack(side="top", fill="x", pady=5)
+
+        self.summary_count_label = ctk.CTkLabel(
+            summary_outer_frame, text="0 / 140", anchor="e"
+        )
+        self.summary_count_label.pack(side="top", fill="x")
+
+        summary_text = self.note_data.get("summary", "")
+        self.summary_entry.insert("1.0", summary_text)
+
+        # イベントバインド
+        self.summary_entry.bind('<KeyRelease>', self.update_summary_count)
+        self.summary_entry.bind('<KeyPress>', self.forbid_newline_input)
+        self.summary_entry.bind(
+            '<<Modified>>', self.update_summary_count_modified
+        )
+        self.summary_entry.mark_set("insert", "1.0")
+        self.summary_entry.edit_modified(False)
+        current_row += 1
+
+        # 3. Memo (Textbox)
+        ctk.CTkLabel(left_frame, text="メモ/引用:", anchor="w").grid(
+            row=current_row, column=0, pady=(10, 0), sticky="ew"
+        )
+        current_row += 1
+
+        self.memo_textbox = ctk.CTkTextbox(left_frame, height=275)
+        self.memo_textbox.grid(
+            row=current_row, column=0, pady=5, sticky="nsew"
+        )
         self.memo_textbox.insert("1.0", self.note_data.get("memo", ""))
+        # 行の重み設定を適用
+        left_frame.grid_rowconfigure(current_row, weight=1)
+        current_row += 1
 
-        tag_input_frame = ctk.CTkFrame(self, fg_color="transparent")
-        tag_input_frame.pack(pady=5, padx=10, fill="x")
-        ctk.CTkLabel(tag_input_frame, text="新しいタグ:").pack(side="left")
+        # --- 右カラム (Col 1) : タグ関連 ---
+
+        # 右カラム全体を包むフレーム
+        right_frame = ctk.CTkFrame(main_grid_frame, fg_color="transparent")
+        right_frame.grid(row=0, column=1, padx=(10, 0), pady=0, sticky="nsew")
+        right_frame.grid_columnconfigure(0, weight=1)
+        right_frame.grid_rowconfigure(2, weight=1)  # タグリストに重み
+
+        right_row = 0
+
+        # 4. Tag Input
+        tag_input_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        tag_input_frame.grid(row=right_row, column=0, pady=5, sticky="ew")
+        tag_input_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            tag_input_frame, text="新しいタグ:"
+        ).grid(row=0, column=0, padx=5)
         self.tag_entry = ctk.CTkEntry(
             tag_input_frame,
             placeholder_text="Enterで追加"
         )
-        self.tag_entry.pack(side="left", padx=5, expand=True, fill="x")
+        self.tag_entry.grid(row=0, column=1, padx=5, sticky="ew")
         self.tag_entry.bind("<Return>", self.add_tag_event)
+        right_row += 1
 
-        tag_button_frame = ctk.CTkFrame(self, fg_color="transparent")
-        tag_button_frame.pack(pady=5, padx=10)
+        # 5. Tag Buttons
+        tag_button_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        tag_button_frame.grid(row=right_row, column=0, pady=5, sticky="e")
         ctk.CTkButton(
             tag_button_frame,
             text="タグを追加",
@@ -93,10 +173,16 @@ class DataEditorWindow(ctk.CTkToplevel):
             text="既存タグから選択",
             command=self.open_tag_selector
         ).pack(side="left", padx=5)
+        right_row += 1
 
-        self.tags_frame = ctk.CTkScrollableFrame(self, label_text="現在のタグ")
-        self.tags_frame.pack(pady=10, padx=10, fill="both", expand=True)
+        # 6. Current Tags Display
+        self.tags_frame = ctk.CTkScrollableFrame(
+            right_frame, label_text="現在のタグ"
+        )
+        self.tags_frame.grid(row=right_row, column=0, pady=10, sticky="nsew")
+        right_row += 1
 
+        # --- 最下段: 保存/キャンセルボタン ---
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
@@ -111,12 +197,84 @@ class DataEditorWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=5)
 
         self.update_tags_display()
+        self.update_summary_count()  # <- 初期表示の実行 (1回だけ)
+
+    def update_summary_count_modified(self, event=None):
+        """Modifiedイベントを使用して文字数を更新する（コピペ対応）"""
+        if self.summary_entry.edit_modified():
+            content = self.summary_entry.get("1.0", "end-1c")
+            length = len(content)
+            max_length = 140
+
+            display_text = f"{length} / {max_length}"
+            default_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+
+            if length > max_length:
+                self.summary_count_label.configure(
+                    text=display_text,
+                    text_color="red"
+                )
+                if length > max_length:
+                    self.summary_entry.delete("1.0", "end-1c")
+                    self.summary_entry.insert("1.0", content[:max_length])
+                    self.summary_entry.edit_modified(False)
+                    self.summary_entry.after(10, self.update_summary_count)
+            else:
+                self.summary_count_label.configure(
+                    text=display_text,
+                    text_color=default_color
+                )
+            self.summary_entry.edit_modified(False)
+
+    def update_summary_count(self, event=None):
+        """KeyReleaseイベントで文字数を更新する (手打ち対応)"""
+        content = self.summary_entry.get("1.0", "end-1c")
+        length = len(content)
+        max_length = 140
+
+        display_text = f"{length} / {max_length}"
+        default_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+
+        if length > max_length:
+            self.summary_count_label.configure(
+                text=display_text,
+                text_color="red"
+            )
+            if event and event.keysym not in ('BackSpace', 'Delete'):
+                self.summary_entry.delete("1.0", "end-1c")
+                self.summary_entry.insert("1.0", content[:max_length])
+                self.summary_entry.after(10, self.update_summary_count)
+        else:
+            self.summary_count_label.configure(
+                text=display_text,
+                text_color=default_color
+            )
+
+    def forbid_newline_input(self, event):
+        """Enter/Return キーが押された時に、イベントをブロックし改行入力を禁止する"""
+        if event.keysym == 'Return' or event.keysym == 'KP_Enter':
+            return "break"
 
     def save_and_close(self):
+        raw_summary = self.summary_entry.get("1.0", "end-1c")
+
+        # 改行と連続スペースの削除/置換
+        new_summary = re.sub(r'[\r\n]+', ' ', raw_summary)
+        new_summary = re.sub(r'\s+', ' ', new_summary).strip()
+
+        if len(new_summary) > 140:
+            messagebox.showerror(
+                "入力エラー",
+                f"概要が140文字を超えています。（現在: {len(new_summary)}文字）\n保存できません。",
+                parent=self
+            )
+            return
+
         self.note_data["commonplace_key"] = self.cp_key_combo.get().strip()
         self.note_data["key"] = self.key_entry.get().strip()
         self.note_data["memo"] = self.memo_textbox.get("1.0", "end-1c").strip()
         self.note_data["tags"] = self.temp_tags
+        self.note_data["summary"] = new_summary
         self.parent.update_note_list()
         self.destroy()
 

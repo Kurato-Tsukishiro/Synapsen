@@ -366,7 +366,8 @@ class Synapsen_Ersteller(ctk.CTk):
                     "key",
                     "memo",
                     "commonplace_key",
-                    "filepath"
+                    "filepath",
+                    "summary"
                     ]
                 writer = csv.DictWriter(
                     f, fieldnames=header, extrasaction='ignore'
@@ -393,10 +394,14 @@ class Synapsen_Ersteller(ctk.CTk):
             with open(filepath, "r", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row["tags"] = row.get("tags", "").split(";") if row.get("tags") else []
+                    if (row.get("tags")):
+                        row["tags"] = row.get("tags", "").split(";")
+                    else:
+                        row["tags"] = []
                     row["pages"] = int(row.get("pages", 0))
                     row["is_warning"] = row.get("date") in ["日付不明", "読み込み失敗"]
                     row["full_text"] = row.get("full_text", "")
+                    row["summary"] = row.get("summary", "")
                     new_notes_info.append(row)
             self.all_notes_info = new_notes_info
             self.deselect_all()  # 読み込み時は選択をリセット
@@ -448,7 +453,8 @@ class Synapsen_Ersteller(ctk.CTk):
                 "date" TEXT, "time" TEXT, "title" TEXT, "pages" INTEGER,
                 "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
                 "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
-                "merged_pdf_filename" TEXT, "merged_start_page" TEXT
+                "merged_pdf_filename" TEXT, "merged_start_page" TEXT,
+                "summary" TEXT
             )
             """
             cursor.execute(create_table_sql)
@@ -456,6 +462,7 @@ class Synapsen_Ersteller(ctk.CTk):
             create_fts_sql = """
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 key, title, memo, tags, full_text,
+                summary,
                 content='notes', content_rowid='key'
             );
             """
@@ -466,31 +473,31 @@ class Synapsen_Ersteller(ctk.CTk):
                 AFTER INSERT ON notes
             BEGIN
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_delete
                 AFTER DELETE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_update
                 AFTER UPDATE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
         """)
             cursor.executescript(trigger_sql)
@@ -534,7 +541,8 @@ class Synapsen_Ersteller(ctk.CTk):
             all_columns = [
                 "date", "time", "title", "pages", "tags", "key", "memo",
                 "commonplace_key", "filepath", "full_text",
-                "merged_pdf_filename", "merged_start_page"
+                "merged_pdf_filename", "merged_start_page",
+                "summary"
             ]
 
             # 追記用DataFrameのカラムをマスターリストに合わせて整える
@@ -598,7 +606,8 @@ class Synapsen_Ersteller(ctk.CTk):
                     "commonplace_key",
                     "filepath",
                     "merged_pdf_filename",
-                    "merged_start_page"
+                    "merged_start_page",
+                    "summary"
                 ]
                 writer = csv.DictWriter(
                     f,
@@ -624,6 +633,10 @@ class Synapsen_Ersteller(ctk.CTk):
         self.all_notes_info = [
             info for pdf_file in target_dir.glob("*.pdf") if (info := Process.get_note_info(pdf_file, self.key_rect))
             ]
+
+        # ノート情報に 'summary' を追加（get_note_infoで取得できないため）
+        for info in self.all_notes_info:
+            info["summary"] = ""
 
         side_note_suffix = "_Note"
 
@@ -1115,13 +1128,14 @@ class Synapsen_Ersteller(ctk.CTk):
                         "pages": note.get("pages"),
                         "merged_start_page": note.get("merged_start_page"),
                         "merged_pdf_filename": note.get("merged_pdf_filename"),
+                        "summary": note.get("summary"),
                         # full_text は pdfから直接取得する為 埋め込まない
                     }
                     metadata_to_embed.append(clean_note)
 
                 # 2. スキーマバージョンを含む親辞書を作成
                 data_to_save = {
-                    "schema_version": 1.0,  # 現在のスキーマ
+                    "schema_version": 1.1,  # 現在のスキーマ
                     "notes_data": metadata_to_embed
                 }
 

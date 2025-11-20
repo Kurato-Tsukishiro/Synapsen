@@ -239,7 +239,7 @@ def load_sql_data_file(filepath: Path):
         # 'full_text' 及び 'memo' は型変換リストから除外
         for col in [
             'tags', 'key', 'title', 'commonplace_key', 'date',
-            'time', 'pages', 'merged_start_page'
+            'time', 'pages', 'merged_start_page', 'summary'
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
@@ -250,6 +250,7 @@ def load_sql_data_file(filepath: Path):
         # FTS検索用に 'full_text' と 'memo' を空で定義しておく
         df['full_text'] = ''
         df['memo'] = ''
+        df['summary'] = ''
 
         return df
 
@@ -667,13 +668,14 @@ def update_note_in_db(
         cursor.execute(
             """
             UPDATE notes
-            SET memo = ?, tags = ?, commonplace_key = ?
+            SET memo = ?, tags = ?, commonplace_key = ?, summary = ?
             WHERE key = ?
             """,
             (
-                new_memo,
+                new_data.get('memo', ''),
                 tags_str,
                 new_data.get('commonplace_key', ''),
+                new_data.get('summary', ''),
                 key
             )
         )
