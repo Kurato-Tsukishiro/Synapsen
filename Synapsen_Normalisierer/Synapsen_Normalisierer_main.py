@@ -20,7 +20,8 @@ from pdf_utils import (
     embed_ocr_text_in_pdf,
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
-    convert_document_to_pdf
+    convert_document_to_pdf,
+    embed_processing_flag
 )
 
 # --- 定数 ---
@@ -529,6 +530,14 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self.font_path,
                     'jpn+jpn_vert'
                 )
+
+                # --- [ステップ5: 処理済みフラグ (メタデータ) 埋め込み] ---
+                self.status_label.configure(
+                    text=f"{status_prefix} 処理済フラグ埋込: {base_name}"
+                )
+                self.update_idletasks()
+
+                embed_processing_flag(str(final_output_pdf))
 
             messagebox.showinfo(
                 "完了", f"{total_files}個のPDF/画像/MDファイルの処理が完了しました。")

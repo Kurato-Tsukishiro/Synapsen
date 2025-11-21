@@ -58,6 +58,45 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
         return None
 
 
+def embed_processing_flag(pdf_path_str: str) -> None:
+    """
+    PDFのメタデータ(Keywords)に 'Synapsen:SkipNormalization' を追記します。
+    これにより、次回以降の正規化処理でサイズ変更がスキップされます。
+    """
+    doc = None
+    try:
+        doc = fitz.open(pdf_path_str)
+        current_metadata = doc.metadata
+        keywords = current_metadata.get("keywords", "")
+
+        skip_flag = "Synapsen:SkipNormalization"
+
+        # まだフラグがない場合のみ追記
+        if skip_flag not in keywords:
+            new_keywords = (
+                f"{keywords}; {skip_flag}" if keywords else skip_flag
+            )
+
+            # fitzのset_metadataは辞書全体を渡す必要があるためコピーして更新
+            new_metadata = current_metadata.copy()
+            new_metadata["keywords"] = new_keywords
+
+            doc.set_metadata(new_metadata)
+
+            # 増分保存 (高速かつ安全)
+            doc.saveIncr()
+
+    except Exception as e:
+        # メタデータ付与に失敗しても処理自体は止めない（ログのみ）
+        logger.warning(
+            f"Warning: Failed to embed processing flag to {pdf_path_str}: {e}",
+            extra={'sensitive': True}
+        )
+    finally:
+        if doc:
+            doc.close()
+
+
 def add_metadata_to_clip(
     pdf_path_str: str,
     font_path: str,
@@ -76,6 +115,7 @@ def add_metadata_to_clip(
     """
     Playwrightで生成されたPDFに対し、
     1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報及び引用Key(QR) を書き込みます。
+    また、処理済みであることを示すキーワードも埋め込みます。
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
@@ -101,6 +141,21 @@ def add_metadata_to_clip(
                 extra={'sensitive': True}
             )
             return
+
+        # メタデータのキーワード更新 (スキップフラグの埋め込み)
+        current_metadata = doc.metadata
+        keywords = current_metadata.get("keywords", "")
+
+        skip_flag = "Synapsen:SkipNormalization"
+        if skip_flag not in keywords:
+            new_keywords = (
+                f"{keywords}; {skip_flag}" if keywords else skip_flag
+            )
+
+            # fitzのset_metadataは辞書全体を渡す必要があるためコピーして更新
+            new_metadata = current_metadata.copy()
+            new_metadata["keywords"] = new_keywords
+            doc.set_metadata(new_metadata)
 
         key_rect = fitz.Rect(key_rect_tuple)
         font_alias = "embed_font"
@@ -396,6 +451,7 @@ def normalize_pdf_to_papersize(
         ) -> None:
     """
     pypdfを使い、PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
+    ただし、'Synapsen:SkipNormalization' キーワードが含まれている場合は、サイズ変更を行わずにコピーします。
 
     マージン領域 (TOP_MARGIN, BOTTOM_MARGIN など) を考慮し、
     コンテンツがその領域内に収まるようにアスペクト比を維持して
@@ -410,6 +466,23 @@ def normalize_pdf_to_papersize(
     Raises:
         Exception: PDFの読み込み、書き込みに失敗した場合。
     """
+
+    # --- 処理スキップ判定 ---
+    skip_processing = False
+    try:
+        with fitz.open(input_path) as doc:
+            keywords = doc.metadata.get("keywords", "")
+            if keywords and "Synapsen:SkipNormalization" in keywords:
+                skip_processing = True
+    except Exception as e:
+        logger.warning(f"メタデータ確認中にエラー (スキップ判定失敗): {e}")
+
+    if skip_processing:
+        logger.info(f"正規化スキップフラグを検出しました。コピーのみ行います: {input_path}")
+        shutil.copy2(input_path, output_path)
+        return
+    # -----------------------
+
     reader = None
     try:
         reader = PdfReader(input_path)
