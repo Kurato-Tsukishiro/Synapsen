@@ -591,6 +591,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
         enable_tesseract = config_data.get('enable_tesseract_ocr', False)
+        flatten_ink = config_data.get('flatten_ink_annotations', True)
         paper_size_str = self.parent_app.config_data.get('paper_size', 'A4')
 
         # 2. 出力先フォルダを選択
@@ -725,7 +726,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     comment_to_embed,
                     sist_string_formal, sist_string_readable,
                     cited_keys_list,
-                    refs_qr_size_pt
+                    refs_qr_size_pt,
+                    flatten_ink
                 )
             else:
                 # --- [分岐 B: 統合処理] ---
@@ -737,7 +739,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     text_color, comment_to_embed,
                     sist_string_formal, sist_string_readable,
                     cited_keys_list,
-                    refs_qr_size_pt
+                    refs_qr_size_pt,
+                    flatten_ink
                 )
 
             # 成功したら、このウィンドウを閉じる
@@ -762,7 +765,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             key_rect_tuple, index_key_to_embed, text_color, comment_to_embed,
             sist_string_formal, sist_string_readable,
             cited_keys_list,
-            refs_qr_size_pt
+            refs_qr_size_pt,
+            flatten_ink=True
             ):
         """
         個別ファイル処理パイプライン
@@ -822,7 +826,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} フラット化中: {base_name}")
             self.parent_app.update_idletasks()
             high_fidelity_flatten(
-                str(path_to_flatten), str(temp_flattened_pdf), font_path
+                str(path_to_flatten),
+                str(temp_flattened_pdf),
+                font_path,
+                flatten_ink=flatten_ink
             )
 
             # --- 3: 正規化 ---
@@ -876,7 +883,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             key_rect_tuple, index_key_to_embed, text_color, comment_to_embed,
             sist_string_formal, sist_string_readable,
             cited_keys_list,
-            refs_qr_size_pt
+            refs_qr_size_pt,
+            flatten_ink=True
             ):
         """
         ファイル統合処理パイプライン
@@ -953,7 +961,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} フラット化中: {item_original_name}")
             self.parent_app.update_idletasks()
             high_fidelity_flatten(
-                str(path_to_flatten), str(temp_flattened_pdf), font_path
+                str(path_to_flatten),
+                str(temp_flattened_pdf),
+                font_path,
+                flatten_ink=flatten_ink
             )
 
             # --- 3: 正規化 (出力先を normalized_part_pdf に) ---
@@ -983,7 +994,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             messagebox.showerror("エラー", "統合できるファイルがありませんでした。", parent=self)
             return
 
-        # --- 5: PDF連結 (pypdf を使用) ---
+        # --- 5: PDF連結 ---
         self.parent_app.status_label.configure(
             text=f"全 {len(normalized_pdf_paths)} ファイルを連結中..."
         )

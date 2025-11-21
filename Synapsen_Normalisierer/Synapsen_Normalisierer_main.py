@@ -82,6 +82,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
         enable_tesseract_ocr (bool): Tesseract OCRを実行するか否か。
+        flatten_ink (bool): インク注釈をフラット化するか否か。
         config_data (dict): config.iniから読み込んだ設定の辞書。
         dnd_window (DragAndDropWindow | None): D&Dウィンドウのインスタンス。
         webclip_window (WebClipWindow | None): WebClipウィンドウのインスタンス。
@@ -102,6 +103,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
+        self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
         self._load_config()
 
@@ -183,7 +185,10 @@ class Synapsen_Normalisierer(ctk.CTk):
         読み込む設定:
         - Paths: font_path, tags_data_path, database_path
         - LaTeX: paper_size, font, author, title_prefix
-        - Automation: enable_tesseract_ocr, auto_append_to_default_db, ...
+        - Automation:
+            enable_tesseract_ocr,
+            auto_append_to_default_db,
+            flatten_ink_annotations
         - Extraction: key_rect
         - CommonplaceKeys: options
         - KeyIcons, KeyColors
@@ -243,17 +248,23 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.config_data[
                 'enable_tesseract_ocr'] = self.enable_tesseract_ocr
 
-            # 4. LaTeXフォント名の読み込み (Pandoc用)
+            # 4. インク注釈のフラット化設定
+            self.flatten_ink = config.getboolean(
+                'Automation', 'flatten_ink_annotations', fallback=True
+            )
+            self.config_data['flatten_ink_annotations'] = self.flatten_ink
+
+            # 5. LaTeXフォント名の読み込み (Pandoc用)
             self.config_data['latex_font'] = config.get(
                 'LaTeX', 'font', fallback='MS UI Gothic'
             )
 
-            # 5. 引用Key用QRコードのサイズの読み込み
+            # 6. 引用Key用QRコードのサイズの読み込み
             self.config_data['refs_qr_size'] = config.getint(
                 'Extraction', 'refs_qr_size', fallback=75
             )
 
-            # 6. WebClipウィンドウが参照するその他の設定
+            # 7. WebClipウィンドウが参照するその他の設定
             keys_str = config.get('CommonplaceKeys', 'options', fallback='')
             self.config_data['commonplace_keys_options'] = [
                 key.strip() for key in keys_str.split(',') if key.strip()
@@ -494,7 +505,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                             f"警告: {base_name} (クリップボード) のPDF変換に失敗: {e}")
                         continue  # このアイテムはスキップ
 
-                # --- [ステップ2: フラット化 (フォームのテキスト化)] ---
+                # --- [ステップ2: フラット化 (フォームのテキスト化 + インク焼き込み)] ---
                 self.status_label.configure(
                     text=f"{status_prefix} フラット化中: {base_name}"
                 )
@@ -502,7 +513,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                 high_fidelity_flatten(
                     str(path_to_flatten),
                     str(temp_flattened_pdf),
-                    self.font_path
+                    self.font_path,
+                    flatten_ink=self.flatten_ink
                 )
 
                 # --- [ステップ3: 正規化 (サイズ統一)] ---

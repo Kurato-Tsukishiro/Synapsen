@@ -6,7 +6,7 @@
 
 このプロジェクトは、以下の3つの独立したアプリケーションで構成されています。
 
-1.  **Normalisierer (正規化):** PDFのフォームをテキスト化し、指定サイズ (A4/A5) に統一します。
+1.  **Normalisierer (正規化):** PDFのフォームや手書き注釈をページに焼き込み（フラット化）、指定サイズ (A4/A5) に統一します。
 2.  **Ersteller (作成・統合):** ノートにメタデータを付与・抽出し、月ごとに1冊のPDFに統合します。
 3.  **Nexus (閲覧・検索):** 統合されたノートのデータベースを、強力な検索・リンク機能で閲覧・編集します。
 
@@ -23,7 +23,13 @@
 
 スキャンしたPDF、Markdownファイル、Webページ、画像などを、`Ersteller` で処理できる形式に変換します。
 
-* **PDFフォームのフラット化:** PDFフォームの入力内容を、注釈（アノテーション）を維持したままテキストに変換（フラット化）します。
+* **PDFフォームと注釈のフラット化:**
+    * PDFフォーム（テキストボックス等）の入力内容を、テキストとしてページに焼き込みます。
+    * **インク注釈のフラット化設定 (`flatten_ink_annotations`)**:
+        * `config.ini` で `true` に設定すると、ハイライトとリンク以外の注釈（手書きインク等）をページ背景に焼き付けます。
+          * ※筆圧情報は失われます
+        * `false` (デフォルト) に設定すると、インク注釈をそのまま維持します。筆圧情報（入り抜き等）は保たれますが、デバイスによっては動作が重くなる可能性があります。
+        * **※注意:** `false` 設定でサイズ正規化（Erstellerでのヘッダー・フッター領域確保のためのリサイズ処理を含む）が行われたページに対し、クアデルノ等の端末上でペンの書き込みや消去を行うと、仕様により手書きインクの注釈のサイズが元に戻り、表示が崩れたりする場合があります。
 * **サイズ正規化:** すべてのPDFページを `config.ini` で指定された用紙サイズ（A4またはA5）の縦サイズに（アスペクト比を維持して）リサイズ・中央配置します。
 * **D&D / ペーストによるクリップ:**
     * `PDF`, `PNG`, `JPG`, `MD` (Markdown) ファイルのD&D、またはクリップボードのスクリーンショット（Ctrl+V）に対応します。
@@ -133,7 +139,7 @@
 * **Pythonライブラリ**: ( `requirements.txt` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
-    * [**PyMuPDF (fitz)**](https://github.com/pymupdf/PyMuPDF) (AGPL-3.0 License) - PDFの正規化・情報抽出用 (※プロジェクト全体のAGPLライセンスの要因)
+    * [**PyMuPDF (fitz)**](https://github.com/pymupdf/PyMuPDF) (AGPL-3.0 License) - PDFの正規化・情報抽出・フラット化用 (※プロジェクト全体のAGPLライセンスの要因)
     * [**pypdf**](https://github.com/py-pdf/pypdf) (BSD-3-Clause License) - PDFの統合・正規化用
     * [**Pillow**](https://github.com/python-pillow/Pillow) (HPND License) - OCR処理のための画像操作用
     * [**pytesseract**](https://github.com/madmaze/pytesseract) (Apache-2.0 License) - Tesseract OCRエンジン連携用
@@ -195,6 +201,11 @@
     # Tesseract-OCR をPCにインストールしていない場合は false にしてください。
     enable_tesseract_ocr = 
     
+    # Normalisierer で ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
+    # true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
+    # false (デフォルト): インクを注釈のまま維持します。クアデルノ等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
+    flatten_ink_annotations = 
+    
     [LaTeX]
     # 正規化及び統合の用紙サイズの指定 (A4/A5)
     paper_size = 
@@ -245,6 +256,7 @@
     auto_append_to_default_db = true
     create_individual_csv = false
     enable_tesseract_ocr = false
+    flatten_ink_annotations = false
     
     [LaTeX]
     paper_size = A4

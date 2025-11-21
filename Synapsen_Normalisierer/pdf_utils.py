@@ -13,7 +13,12 @@ import subprocess
 import qrcode
 import json
 
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+# Playwrightのインポート (エラーハンドリング付き)
+try:
+    from playwright.sync_api import sync_playwright, Error as PlaywrightError
+except ImportError:
+    sync_playwright = None
+    PlaywrightError = Exception
 
 import logging
 logger = logging.getLogger(__name__)
@@ -143,6 +148,7 @@ def add_metadata_to_clip(
             return
 
         # メタデータのキーワード更新 (スキップフラグの埋め込み)
+        # (embed_processing_flagは余計な処理(saveIncr)が含まれるため使用しない)
         current_metadata = doc.metadata
         keywords = current_metadata.get("keywords", "")
 
@@ -368,22 +374,149 @@ def add_metadata_to_clip(
             doc.close()
 
 
+def _flatten_annot_manually(page: fitz.Page, annot: fitz.Annot) -> bool:
+    """
+    注釈のプロパティを読み取り、PyMuPDFの描画機能でページ本体に焼き付けます。
+    筆圧情報（線の強弱）は失われますが、確実に背景化できます。
+
+    Returns:
+        bool: 描画に成功し、注釈を削除した場合は True
+    """
+    try:
+        annot_type = annot.type[0]
+        rect = annot.rect
+
+        # 色・透明度・線幅の取得 (None対策)
+        colors = annot.colors if annot.colors else {}
+        stroke_color = colors.get("stroke")
+        fill_color = colors.get("fill")
+        opacity = annot.opacity if annot.opacity is not None else 1.0
+
+        # ボーダー情報の取得 (borderがdictでない場合やNoneの場合に対応)
+        line_width = 1
+        if annot.border and isinstance(annot.border, dict):
+            line_width = annot.border.get("width", 1)
+        elif hasattr(annot.border, "__getitem__") and len(annot.border) > 0:
+            # 古いバージョン等でリストの場合
+            line_width = annot.border[0]
+
+        # --- タイプ別の描画処理 ---
+
+        # 1. インク (手書き)
+        if annot_type == fitz.PDF_ANNOT_INK:
+            # vertices は「ストローク(点列)」のリスト
+            if annot.vertices:
+                for stroke in annot.vertices:
+                    page.draw_polyline(
+                        stroke,
+                        color=stroke_color,
+                        width=line_width,
+                        stroke_opacity=opacity
+                    )
+
+        # 2. 線
+        elif annot_type == fitz.PDF_ANNOT_LINE:
+            if annot.vertices and len(annot.vertices) >= 2:
+                page.draw_line(
+                    annot.vertices[0], annot.vertices[1],
+                    color=stroke_color,
+                    width=line_width,
+                    stroke_opacity=opacity
+                )
+
+        # 3. 四角形 / 円
+        elif annot_type == fitz.PDF_ANNOT_SQUARE:
+            page.draw_rect(
+                rect,
+                color=stroke_color,
+                fill=fill_color,
+                width=line_width,
+                stroke_opacity=opacity,
+                fill_opacity=opacity
+            )
+        elif annot_type == fitz.PDF_ANNOT_CIRCLE:
+            # draw_circleは中心+半径だが、draw_ovalはRect指定で便利
+            page.draw_oval(
+                rect,
+                color=stroke_color,
+                fill=fill_color,
+                width=line_width,
+                stroke_opacity=opacity,
+                fill_opacity=opacity
+            )
+
+        # 4. 多角形 / 折れ線
+        elif annot_type == fitz.PDF_ANNOT_POLYGON:
+            if annot.vertices:
+                page.draw_polygon(
+                    annot.vertices,
+                    color=stroke_color,
+                    fill=fill_color,
+                    width=line_width,
+                    stroke_opacity=opacity,
+                    fill_opacity=opacity
+                )
+        elif annot_type == fitz.PDF_ANNOT_POLY_LINE:
+            if annot.vertices:
+                page.draw_polyline(
+                    annot.vertices,
+                    color=stroke_color,
+                    width=line_width,
+                    stroke_opacity=opacity
+                )
+
+        # 5. スタンプ (画像として焼き込み)
+        elif annot_type == fitz.PDF_ANNOT_STAMP:
+            # 注釈の見た目をPixmapとして取得し、画像として埋め込む
+            pix = annot.get_pixmap()
+            page.insert_image(rect, pixmap=pix)
+
+        # 6. フリーテキスト (テキストボックスとして焼き込み)
+        elif annot_type == fitz.PDF_ANNOT_FREE_TEXT:
+            text_content = annot.info.get("content", "")
+            if text_content:
+                # フォントサイズ取得 (0以下の場合はデフォルト設定)
+                fs = annot.fontsize if annot.fontsize > 0 else 11
+                # テキスト挿入 (フォントの完全再現は難しいが内容は残す)
+                page.insert_textbox(
+                    rect,
+                    text_content,
+                    color=stroke_color,  # テキスト色は通常strokeに入る
+                    fontsize=fs,
+                    align=fitz.TEXT_ALIGN_LEFT
+                )
+
+        else:
+            # その他の注釈はサポート外としてスキップ（削除しない）
+            return False
+
+        # 描画に成功したら、元の注釈を削除
+        page.delete_annot(annot)
+        return True
+
+    except Exception as e:
+        logger.warning(
+            f"Manual flatten failed (Type {annot.type}): {e}"
+        )
+        return False
+
+
 def high_fidelity_flatten(
         input_path: str,
         output_path: str,
-        font_path: str
+        font_path: str,
+        flatten_ink: bool = True
 ) -> None:
     """
-    PyMuPDFを使い、指定フォントでフォームをテキストに変換（高精度フラット化）します。
-
-    Acrobatの「フォームをフラット化」とは異なり、
-    フォームフィールドの「値」を指定フォントでベタ書きし、
-    フィールド自体を削除することで、注釈（アノテーション）を維持します。
+    PyMuPDFを使い、以下の処理を行います。
+    1. フォーム（Widget）をテキスト化してフラット化 (常時実行)
+    2. ハイライトとリンク以外の注釈（手書き等）をフラット化 (flatten_ink=Trueの場合)
 
     Args:
         input_path (str): 入力PDFファイルのパス。
         output_path (str): フラット化後の出力PDFファイルのパス。
         font_path (str): 埋め込むフォントファイル（.ttf, .otfなど）のパス。
+        flatten_ink (bool): Trueなら手書き注釈等を背景化（筆圧消失）。Falseなら注釈のまま維持（筆圧維持）。
 
     Raises:
         FileNotFoundError: 指定されたフォントファイルが見つからない場合。
@@ -402,21 +535,32 @@ def high_fidelity_flatten(
             )
             return  # 暗号化ファイルは処理せず終了
 
-        font_name_in_pdf = "synapsen-embed-font"  # PDF内部で使うフォントのエイリアス名
+        font_name_in_pdf = "synapsen-embed-font"
+
+        # 全ページ共通でフォント登録を試みる
+        try:
+            if len(doc) > 0:
+                doc[0].insert_font(
+                    fontname=font_name_in_pdf, fontfile=font_path
+                )
+        except Exception:
+            pass
 
         for page in doc:
-            try:
-                page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
-            except Exception as e:
-                logger.info(f"Font insertion issue ({e}). Continuing.")
-
-            # フォームウィジェットを処理
+            # --- 1. フォーム（Widget）のテキスト化 ---
             for widget in page.widgets():
                 if widget.field_type in (
                     fitz.PDF_WIDGET_TYPE_TEXT,
                     fitz.PDF_WIDGET_TYPE_COMBOBOX
                 ) and widget.field_value:
-                    # フィールドの値をページに直接描画
+                    try:
+                        page.insert_font(
+                            fontname=font_name_in_pdf, fontfile=font_path
+                        )
+                    except (FileNotFoundError, RuntimeError):
+                        # 登録済みの可能性が高いため、エラーログは記録せず無視
+                        pass
+
                     page.insert_textbox(
                         widget.rect,
                         widget.field_value,
@@ -427,7 +571,21 @@ def high_fidelity_flatten(
                 # 元のインタラクティブなウィジェットを削除
                 page.delete_widget(widget)
 
-        # PDFを保存 (ガベージコレクション、圧縮を有効化)
+            # --- 2. 注釈の手動フラット化 (設定依存) ---
+            if flatten_ink:
+                annot_list = list(page.annots())
+                if annot_list:
+                    for annot in annot_list:
+                        # ハイライト(8) と リンク(1) は除外
+                        if annot.type[0] in (
+                            fitz.PDF_ANNOT_HIGHLIGHT, fitz.PDF_ANNOT_LINK
+                        ):
+                            continue
+
+                        # それ以外（インク等）は手動フラット化を実行
+                        _flatten_annot_manually(page, annot)
+
+        # PDFを保存
         doc.save(output_path, garbage=4, deflate=True)
 
     except Exception as e:
