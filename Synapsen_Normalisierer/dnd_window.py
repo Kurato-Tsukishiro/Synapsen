@@ -1,17 +1,18 @@
-import io
 import customtkinter as ctk
-from PIL import Image
-from image_editor import PerspectiveCropEditor  # 新規作成したモジュール
-import fitz  # PDFプレビュー用
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import datetime
 import re
 import tkinterdnd2
-from PIL import ImageGrab
+from PIL import ImageGrab, Image
 import tempfile
 import shutil
 from pypdf import PdfReader, PdfWriter
+import fitz  # PDFプレビュー用
+import io
+
+# 追加した画像エディタをインポート
+from image_editor import PerspectiveCropEditor
 
 from pdf_utils import (
     # D&D/画像クリップ用のメタデータ挿入関数
@@ -80,7 +81,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # ポップアップウィンドウの参照保持用
         self.preview_popup = None
+        self.preview_label = None      # ラベルウィジェットの参照を保持
         self.preview_image_cache = {}  # アイテムごとのサムネイルキャッシュ
+        self.drag_source_item = None
 
         self.title("D&D/ペーストで正規化")
         self.geometry("1000x800")
@@ -126,90 +129,89 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         main_frame.grid_rowconfigure(0, weight=1)
         main_frame.grid_columnconfigure(0, weight=1)  # 左カラム (メタデータ)
         main_frame.grid_columnconfigure(1, weight=1)  # 右カラム (リスト)
-        # --- [追加ここまで] ---
 
         # 2. メタデータ入力フレーム (左カラム)
         meta_frame = ctk.CTkFrame(main_frame)
         meta_frame.grid(row=0, column=0, pady=0, padx=(0, 5), sticky="nsew")
 
-        # 2-1 IndexKey 選択
+        # IndexKey
         ctk.CTkLabel(
             meta_frame, text="IndexKey (PDF 1ページ目に埋込):", anchor="w"
-            ).pack(pady=(10, 0), padx=10, fill="x")
-
+        ).pack(pady=(10, 0), padx=10, fill="x")
         key_options = self.parent_app.config_data.get(
-                'commonplace_keys_options', [])
-
+            'commonplace_keys_options', []
+        )
         self.index_key_combo = ctk.CTkComboBox(
-            meta_frame,
-            values=["（未選択）"] + key_options
+            meta_frame, values=["（未選択）"] + key_options
         )
         self.index_key_combo.set("（未選択）")
         self.index_key_combo.pack(pady=5, padx=10, fill="x")
 
-        # 2-2. コメント入力
+        # コメント
         ctk.CTkLabel(
             meta_frame, text="コメント (PDF 最終ページに埋込):", anchor="w"
-            ).pack(pady=(5, 0), padx=10, fill="x")
+        ).pack(pady=(5, 0), padx=10, fill="x")
         self.comment_textbox = ctk.CTkTextbox(meta_frame, height=80)
-        self.comment_textbox.pack(
-            pady=5, padx=10, fill="both", expand=True)
+        self.comment_textbox.pack(pady=5, padx=10, fill="both", expand=True)
 
-        # 2-3. 書誌情報UI
+        # 書誌情報
         ctk.CTkLabel(
             meta_frame, text="書誌情報 (任意入力)", anchor="w"
-            ).pack(pady=(10, 0), padx=10, fill="x")
-
+        ).pack(pady=(10, 0), padx=10, fill="x")
         sist_frame = ctk.CTkFrame(meta_frame)
         sist_frame.pack(pady=(0, 5), padx=5, fill="x")
         sist_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
             sist_frame, text="著者名:"
-            ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.sist_author_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）")
+            sist_frame, placeholder_text="（任意）"
+        )
         self.sist_author_entry.grid(
-            row=0, column=1, padx=5, pady=5, sticky="ew")
+            row=0, column=1, padx=5, pady=5, sticky="ew"
+        )
 
         ctk.CTkLabel(
             sist_frame, text="ページ名:"
-            ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.sist_title_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）")
+            sist_frame, placeholder_text="（任意）"
+        )
         self.sist_title_entry.grid(
-            row=1, column=1, padx=5, pady=5, sticky="ew")
+            row=1, column=1, padx=5, pady=5, sticky="ew"
+        )
 
         ctk.CTkLabel(
             sist_frame, text="サイト名/出典:"
-            ).grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ).grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.sist_site_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）")
+            sist_frame, placeholder_text="（任意）"
+        )
         self.sist_site_entry.grid(
-            row=2, column=1, padx=5, pady=5, sticky="ew")
+            row=2, column=1, padx=5, pady=5, sticky="ew"
+        )
 
         ctk.CTkLabel(
             sist_frame, text="更新日:"
-            ).grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        ).grid(row=3, column=0, padx=5, pady=5, sticky="w")
         self.sist_date_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意, YYYY-MM-DD）")
+            sist_frame, placeholder_text="（任意, YYYY-MM-DD）"
+        )
         self.sist_date_entry.grid(
-            row=3, column=1, padx=5, pady=5, sticky="ew")
+            row=3, column=1, padx=5, pady=5, sticky="ew"
+        )
 
-        # 2-4. 引用Key入力欄
+        # 引用Key
         ctk.CTkLabel(
             meta_frame, text="引用元Key (カンマ区切り または 改行区切り):", anchor="w"
-            ).pack(pady=(10, 0), padx=10, fill="x")
-        self.cited_keys_entry = ctk.CTkTextbox(
-            meta_frame,
-            height=40
-        )
+        ).pack(pady=(10, 0), padx=10, fill="x")
+        self.cited_keys_entry = ctk.CTkTextbox(meta_frame, height=40)
         self.cited_keys_entry.pack(
-            pady=5, padx=10,
-            fill="both", expand=True
+            pady=5, padx=10, fill="both", expand=True
         )
 
-        # 2-5. 統合チェックボックス
+        # 統合チェックボックス
         self.merge_files_checkbox = ctk.CTkCheckBox(
             meta_frame,
             text="処理対象ファイルを1つのノート（PDF）に統合する",
@@ -217,29 +219,29 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         )
         self.merge_files_checkbox.pack(pady=10, padx=10, anchor="w")
 
-        # 3. 処理対象リスト (スクロールフレーム) (右カラム)
+        # 処理対象リスト (スクロールフレーム)
         self.staged_list_frame = ctk.CTkScrollableFrame(
             main_frame, label_text="処理対象リスト (ファイル名を編集可能)")
-        # .pack() -> .grid()
         self.staged_list_frame.grid(
-            row=0, column=1, pady=0, padx=(5, 0), sticky="nsew")
+            row=0, column=1, pady=0, padx=(5, 0), sticky="nsew"
+        )
 
-        # 4. 処理対象ファイル数のラベル (ウィンドウ下部)
+        # 4. 処理対象ファイル数のラベル
         self.staged_files_label = ctk.CTkLabel(
-            self, text="処理対象ファイル: 0 件")
-        # .pack() -> .grid()
+            self, text="処理対象ファイル: 0 件"
+        )
         self.staged_files_label.grid(row=2, column=0, pady=5, padx=10)
 
-        # 5. 実行ボタン (ウィンドウ下部)
+        # 5. 実行ボタン
         self.staged_run_button = ctk.CTkButton(
             self,
             text="出力先を選んで処理実行",
             command=self.run_staged_process,
             state="disabled"
         )
-        # .pack() -> .grid()
         self.staged_run_button.grid(
-            row=3, column=0, pady=10, padx=10, sticky="ew")
+            row=3, column=0, pady=10, padx=10, sticky="ew"
+        )
 
         # 実行ボタンの状態を初期更新
         self.update_staged_files_label()
@@ -252,6 +254,14 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         try:
             # メインウィンドウの bind_all を復元
             self.parent_app.bind_all("<Control-v>", lambda e: None)
+
+            # プレビューウィンドウも明示的に破棄する
+            if self.preview_popup:
+                try:
+                    self.preview_popup.destroy()
+                except Exception:
+                    pass
+
             self.grab_release()
             self.destroy()
         except Exception as e:
@@ -264,17 +274,17 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         ui_entries = []
         for row_frame in ui_row_frames:
             try:
-                entry = row_frame.winfo_children()[1]  # 2番目のウィジェット(Entry)
+                bottom_frame = row_frame.winfo_children()[1]
+                entry = bottom_frame.winfo_children()[1]
                 if isinstance(entry, ctk.CTkEntry):
                     ui_entries.append(entry)
             except IndexError:
                 pass
 
         if self.merge_files_checkbox.get():
-            # --- 統合がONの場合 ---
             self.staged_list_frame.configure(
-                label_text="処理対象リスト (1番目のファイル名が採用されます)")
-
+                label_text="処理対象リスト (1番目のファイル名が採用されます)"
+            )
             new_integrated_name = ""
 
             # 内部データ (staged_items) をループ
@@ -298,7 +308,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     if i < len(ui_entries):
                         ui_entries[i].configure(state="normal")
                         ui_entries[i].bind(
-                            "<KeyRelease>", self.sync_merge_name)
+                            "<KeyRelease>", self.sync_merge_name
+                        )
                 else:
                     # 2番目以降のアイテム
                     item["base_name_var"].set(new_integrated_name)
@@ -307,9 +318,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         ui_entries[i].configure(state="disabled")
                         ui_entries[i].unbind("<KeyRelease>")
         else:
-            # --- 統合がOFFの場合 ---
             self.staged_list_frame.configure(
-                label_text="処理対象リスト (ファイル名を編集可能)")
+                label_text="処理対象リスト (ファイル名を編集可能)"
+            )
 
             # 全アイテムのファイル名編集欄を「元の名前」に戻し＆有効化
             for i, item in enumerate(self.staged_items):
@@ -383,19 +394,26 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         }
         self.staged_items.append(item)
 
-        # --- UIに行を追加 ---
+        self._create_row_widget(item)
+        return True
+
+    def _create_row_widget(self, item):
+        """アイテムの行ウィジェットを生成して配置する"""
         row_frame = ctk.CTkFrame(self.staged_list_frame, fg_color="gray30")
+        row_frame.item = item
 
         # 上段: 元ファイル名 + 編集ボタン
         top_sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
         top_sub_frame.pack(side="top", fill="x", padx=5, pady=(2, 0))
 
         name_label = ctk.CTkLabel(
-            top_sub_frame, text=original_name,
+            top_sub_frame, text=item["original_name"],
             font=("", 10), text_color="gray70"
         )
         name_label.pack(side="left", fill="x", expand=True)
 
+        # 編集ボタン
+        item_data = item['data']
         is_editable = False
         if isinstance(item_data, Image.Image):
             is_editable = True
@@ -419,29 +437,45 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         bottom_sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
         bottom_sub_frame.pack(side="top", fill="x", padx=5, pady=(0, 5))
 
-        # プレビュー用のアイコンラベル
-        # ここにマウスを乗せたときだけポップアップする
+        # プレビュー兼移動用ハンドル
         preview_label = ctk.CTkLabel(
             bottom_sub_frame,
-            text="👁",             # 目のアイコン (または "View" 等)
+            text="👁",
             width=30,
             height=28,
             font=("", 16),
-            fg_color="#555555",   # 背景色をつけてボタンっぽくする
+            fg_color="#555555",
             corner_radius=6,
-            cursor="hand2"         # マウスカーソルを指マークに
+            cursor="fleur"
         )
         preview_label.pack(side="left", padx=(0, 5))
 
-        # バインド: このラベルに対してイベントを設定
+        # イベントバインド
         preview_label.bind(
             "<Enter>", lambda e, i=item: self._on_hover_enter(e, i)
         )
         preview_label.bind("<Leave>", self._on_hover_leave)
+        preview_label.bind(
+            "<Button-1>", lambda e, i=item: self._on_reorder_start(e, i)
+        )
+        preview_label.bind("<B1-Motion>", self._on_reorder_drag)
+        preview_label.bind("<ButtonRelease-1>", self._on_reorder_stop)
 
         name_entry = ctk.CTkEntry(
             bottom_sub_frame, textvariable=item["base_name_var"]
         )
+
+        if self.merge_files_checkbox.get():
+            if self.staged_items:
+                is_first = (self.staged_items[0] == item)
+            else:
+                is_first = False
+            if is_first:
+                name_entry.configure(state="normal")
+                name_entry.bind("<KeyRelease>", self.sync_merge_name)
+            else:
+                name_entry.configure(state="disabled")
+
         name_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         # 削除ボタン (右側)
@@ -453,87 +487,17 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         delete_btn.pack(side="right")
 
         row_frame.pack(fill="x", pady=5, padx=5)
-        return True
 
-    def _on_hover_enter(self, event, item):
-        """マウスオーバー時にプレビューポップアップを表示"""
-        if self.preview_popup:
-            self.preview_popup.destroy()
+    def _refresh_staged_list_ui(self):
+        """現在の staged_items の順序に従ってリストを再描画する"""
+        for widget in self.staged_list_frame.winfo_children():
+            widget.destroy()
 
-        # サムネイル取得
-        thumb = self._get_thumbnail(item)
-        if not thumb:
-            return
+        for item in self.staged_items:
+            self._create_row_widget(item)
 
-        # ポップアップ作成 (overrideredirectで枠なし)
-        self.preview_popup = ctk.CTkToplevel(self)
-        self.preview_popup.wm_overrideredirect(True)
-        self.preview_popup.wm_attributes("-topmost", True)
-
-        # 表示位置 (マウスの少し右下)
-        x = event.x_root + 20
-        y = event.y_root + 20
-        self.preview_popup.geometry(f"+{x}+{y}")
-
-        label = ctk.CTkLabel(self.preview_popup, text="", image=thumb)
-        label.pack()
-
-    def _on_hover_leave(self, event):
-        """マウスが離れたらポップアップを消す"""
-        if self.preview_popup:
-            self.preview_popup.destroy()
-            self.preview_popup = None
-
-    def _get_thumbnail(self, item):
-        """キャッシュを利用してサムネイル(CTKImage)を返す"""
-        item_id = id(item)  # オブジェクトIDをキーにする
-        if item_id in self.preview_image_cache:
-            return self.preview_image_cache[item_id]
-
-        data = item['data']
-        pil_img = None
-        max_size = (300, 300)
-
-        try:
-            if isinstance(data, Image.Image):
-                pil_img = data.copy()
-            elif isinstance(data, Path):
-                if data.suffix.lower() == ".pdf":
-                    # PDFなら1ページ目を画像化
-                    doc = fitz.open(data)
-                    pix = doc[0].get_pixmap(dpi=72)
-                    pil_img = Image.open(io.BytesIO(pix.tobytes("png")))
-                    doc.close()
-                elif data.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp"]:
-                    pil_img = Image.open(data)
-
-            if pil_img:
-                pil_img.thumbnail(max_size)
-                ctk_img = ctk.CTkImage(
-                    light_image=pil_img, dark_image=pil_img, size=pil_img.size
-                )
-                self.preview_image_cache[item_id] = ctk_img
-                return ctk_img
-        except Exception as e:
-            logger.error(f"Thumbnail error: {e}")
-
-        return None
-
-    def open_crop_editor(self, item):
-        """編集ボタン押下時"""
-
-        def on_save(new_pil_image):
-            # 編集後の画像を item['data'] に上書き保存
-            item['data'] = new_pil_image
-            # キャッシュをクリアしてプレビューを更新させる
-            item_id = id(item)
-            if item_id in self.preview_image_cache:
-                del self.preview_image_cache[item_id]
-
-            messagebox.showinfo("完了", "画像の変形を適用しました。", parent=self)
-
-        # エディタを開く
-        PerspectiveCropEditor(self, item['data'], on_save)
+        if self.merge_files_checkbox.get():
+            self.on_merge_toggle()
 
     def remove_staged_item(
             self,
@@ -588,7 +552,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                                     child_file.name
                                     ):
                                 added_files_count += 1
-
             self.update_staged_files_label()
             if added_files_count > 0:
                 self.parent_app.status_label.configure(
@@ -639,12 +602,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                             p.suffix.lower() in SUPPORTED_EXTENSIONS):
                         if self.add_staged_item(p, p.stem, p.name):
                             added_files_count += 1
-                    else:
-                        logger.warning(
-                            f"スキップ (無効なパスまたは非対応拡張子): {f}",
-                            extra={'sensitive': True}
-                        )
-
                 if added_files_count > 0:
                     self.update_staged_files_label()
                     self.parent_app.status_label.configure(
@@ -665,27 +622,156 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         """
         count = len(self.staged_items)
         self.staged_files_label.configure(text=f"処理対象ファイル: {count} 件")
-
-        if (count > 0 and self.parent_app.font_path and
-                Path(self.parent_app.font_path).is_file()):
+        if (
+                count > 0
+                and self.parent_app.font_path
+                and Path(self.parent_app.font_path).is_file()
+        ):
             self.staged_run_button.configure(state="normal")
         else:
             self.staged_run_button.configure(state="disabled")
 
-    def clear_staged_list_ui(self) -> None:
-        """ (未使用) UI上のリスト表示をすべてクリアします。 """
-        for widget in self.staged_list_frame.winfo_children():
-            widget.destroy()
+    # --- プレビュー制御メソッド (ウィンドウ再利用版) ---
+    def _ensure_preview_popup(self):
+        """プレビューウィンドウが存在しなければ作成し、あれば返す"""
+        if self.preview_popup is None or not self.preview_popup.winfo_exists():
+            self.preview_popup = ctk.CTkToplevel(self)
+            self.preview_popup.wm_overrideredirect(True)
+            self.preview_popup.wm_attributes("-topmost", True)
+
+            # 初期状態は非表示
+            self.preview_popup.withdraw()
+
+            # 画像表示用ラベル
+            self.preview_label = ctk.CTkLabel(self.preview_popup, text="")
+            self.preview_label.pack()
+
+    def _close_preview(self):
+        """プレビューウィンドウを非表示にする (破棄はしない)"""
+        if self.preview_popup and self.preview_popup.winfo_exists():
+            self.preview_popup.withdraw()
+
+    def _on_hover_enter(self, event, item):
+        """マウスオーバー時にプレビューを表示"""
+        thumb = self._get_thumbnail(item)
+        if not thumb:
+            return
+
+        # ウィンドウの準備
+        self._ensure_preview_popup()
+
+        # 画像を更新
+        self.preview_label.configure(image=thumb)
+
+        # 位置計算
+        x = event.x_root + 20
+        y = event.y_root + 20
+
+        # 画面はみ出し対策
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        if x + 300 > sw:
+            x = event.x_root - 320
+        if y + 300 > sh:
+            y = event.y_root - 320
+
+        self.preview_popup.geometry(f"+{x}+{y}")
+
+        # 表示して最前面へ
+        self.preview_popup.deiconify()
+        self.preview_popup.lift()
+
+    def _on_hover_leave(self, event):
+        """マウスが離れたら非表示"""
+        self._close_preview()
+
+    def _on_reorder_start(self, event, item):
+        """ドラッグ開始時はプレビューを隠す"""
+        self.drag_source_item = item
+        self._close_preview()
+
+    def _on_reorder_drag(self, event):
+        """ドラッグ中: 並び替え"""
+        if not self.drag_source_item:
+            return
+        x, y = event.x_root, event.y_root
+        target_widget = self.winfo_containing(x, y)
+        if not target_widget:
+            return
+
+        target_row = None
+        curr = target_widget
+        for _ in range(10):
+            if hasattr(curr, "item"):
+                target_row = curr
+                break
+            try:
+                parent_name = curr.winfo_parent()
+                if not parent_name:
+                    break
+                curr = self._nametowidget(parent_name)
+            except (KeyError, TypeError, AttributeError):
+                break
+
+        if target_row and hasattr(target_row, "item"):
+            target_item = target_row.item
+            if (
+                    target_item != self.drag_source_item
+                    and target_item in self.staged_items
+            ):
+                src_idx = self.staged_items.index(self.drag_source_item)
+                dst_idx = self.staged_items.index(target_item)
+                self.staged_items.pop(src_idx)
+                self.staged_items.insert(dst_idx, self.drag_source_item)
+                self._refresh_staged_list_ui()
+
+    def _on_reorder_stop(self, event):
+        """ドロップ (終了)"""
+        self.drag_source_item = None
+
+    def _get_thumbnail(self, item):
+        item_id = id(item)
+        if item_id in self.preview_image_cache:
+            return self.preview_image_cache[item_id]
+
+        data = item['data']
+        pil_img = None
+        max_size = (300, 300)
+
+        try:
+            if isinstance(data, Image.Image):
+                pil_img = data.copy()
+            elif isinstance(data, Path):
+                if data.suffix.lower() == ".pdf":
+                    doc = fitz.open(data)
+                    pix = doc[0].get_pixmap(dpi=72)
+                    pil_img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    doc.close()
+                elif data.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp"]:
+                    pil_img = Image.open(data)
+
+            if pil_img:
+                pil_img.thumbnail(max_size)
+                ctk_img = ctk.CTkImage(
+                    light_image=pil_img, dark_image=pil_img, size=pil_img.size
+                )
+                self.preview_image_cache[item_id] = ctk_img
+                return ctk_img
+        except Exception as e:
+            logger.error(f"Thumbnail error: {e}")
+        return None
+
+    def open_crop_editor(self, item):
+        def on_save(new_pil_image):
+            item['data'] = new_pil_image
+            item_id = id(item)
+            if item_id in self.preview_image_cache:
+                del self.preview_image_cache[item_id]
+            messagebox.showinfo("完了", "画像の変形を適用しました。", parent=self)
+
+        PerspectiveCropEditor(self, item['data'], on_save)
 
     def run_staged_process(self) -> None:
-        """
-        「処理実行」ボタンの処理。
-        (D&Dウィンドウ専用のパイプライン)
-
-        「統合」チェックボックスの状態に応じて、処理を分岐する。
-        - OFF: ファイルごとに正規化・メタデータ付与を行う。
-        - ON:  全ファイルを正規化・OCRした後、1つのPDFに連結し、最後にメタデータ付与を行う。
-        """
         if not self.staged_items:
             messagebox.showinfo("情報", "処理対象のファイルが指定されていません。", parent=self)
             return
@@ -713,15 +799,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         if not dest_folder:
             return
         dest_path = Path(dest_folder)
-        source_folders = {
-            item['data'].parent
-            for item in self.staged_items
-            if isinstance(item['data'], Path)
-        }
-        if dest_path in source_folders:
-            messagebox.showerror(
-                "エラー", "出力先は入力元と異なるフォルダを選択してください。", parent=self)
-            return
+
+        for item in self.staged_items:
+            if (
+                    isinstance(item['data'], Path)
+                    and item['data'].parent == dest_path
+            ):
+                messagebox.showerror(
+                    "エラー", "出力先は入力元と異なるフォルダを選択してください。", parent=self
+                )
+                return
 
         # 3. メタデータをUIから取得
         index_key_raw = self.index_key_combo.get()
@@ -739,17 +826,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         cited_keys_str = self.cited_keys_entry.get("1.0", "end-1c").strip()
         cited_keys_list = []
 
-        refs_qr_size_pt = self.parent_app.config_data.get(
-            'refs_qr_size', 75  # configからQRサイズを取得
-        )
+        refs_qr_size_pt = self.parent_app.config_data.get('refs_qr_size', 75)
 
         # Key (14桁以上の数字) を抽出するための正規表現
         key_regex = re.compile(r'(\d{14,})')
-
         if cited_keys_str:
-            # 1. カンマで分割 (複数のKey/リンクが入力された場合に対応)
             parts = re.split(r'[,\n]+', cited_keys_str)
-
             for part in parts:
                 part_cleaned = part.strip()
                 if not part_cleaned:
@@ -773,16 +855,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         sist_string_formal = None
         sist_string_readable = None
 
-        # 何か1つでも入力がある場合のみ、書誌情報文字列を構築
-        if (raw_sist_author or raw_sist_title or
-                raw_sist_site or raw_sist_date):
-
+        if (
+                raw_sist_author
+                or raw_sist_title
+                or raw_sist_site
+                or raw_sist_date
+        ):
             sist_author = raw_sist_author or "（著者不明）"
             sist_title = raw_sist_title or "（タイトル不明）"
             sist_site = raw_sist_site or "（サイト名不明）"
             sist_date = raw_sist_date or "（更新日不明）"
-
-            # D&D/ペーストの場合、URLは不明なため挿入しない
             sist_string_formal = (
                 f"{sist_author} . “{sist_title}” . {sist_site} . "
                 f"{sist_date} . (参照 {sist_view_date})"
@@ -836,11 +918,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     font_path, paper_width, paper_height,
                     enable_tesseract, paper_size_str,
                     key_rect_tuple, index_key_to_embed, text_color,
-                    comment_to_embed,
-                    sist_string_formal, sist_string_readable,
-                    cited_keys_list,
-                    refs_qr_size_pt,
-                    flatten_ink
+                    comment_to_embed, sist_string_formal, sist_string_readable,
+                    cited_keys_list, refs_qr_size_pt, flatten_ink
                 )
             else:
                 # --- [分岐 B: 統合処理] ---
@@ -848,22 +927,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     items_to_process, dest_path, temp_dir,
                     font_path, paper_width, paper_height,
                     enable_tesseract, paper_size_str,
-                    key_rect_tuple, index_key_to_embed,
-                    text_color, comment_to_embed,
+                    key_rect_tuple, index_key_to_embed, text_color,
+                    comment_to_embed,
                     sist_string_formal, sist_string_readable,
-                    cited_keys_list,
-                    refs_qr_size_pt,
-                    flatten_ink
+                    cited_keys_list, refs_qr_size_pt, flatten_ink
                 )
-
-            # 成功したら、このウィンドウを閉じる
             self.on_close()
 
         except Exception as e:
             messagebox.showerror("処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self)
-            self.parent_app.status_label.configure(
-                text=f"エラーが発生しました: {e}")
-
+            self.parent_app.status_label.configure(text=f"エラーが発生しました: {e}")
         finally:
             if temp_dir and temp_dir.exists():
                 try:
@@ -881,13 +954,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             refs_qr_size_pt,
             flatten_ink=True
             ):
-        """
-        個別ファイル処理パイプライン
-        """
         total_files = len(items_to_process)
         for i, item_tuple in enumerate(items_to_process):
             item_data, base_name, original_type = item_tuple
-
             status_prefix = f"処理中 ({i+1}/{total_files}):"
             self.parent_app.status_label.configure(
                 text=f"{status_prefix} {base_name}"
@@ -897,24 +966,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             final_output_pdf = dest_path / f"{base_name}.pdf"
             temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
             temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
-
             path_to_flatten: Path
 
-            # --- 1-A: MD -> PDF ---
             if (
-                    isinstance(item_data, Path) and
-                    item_data.suffix.lower() == ".md"
+                    isinstance(item_data, Path)
+                    and item_data.suffix.lower() == ".md"
             ):
-                self.parent_app.status_label.configure(
-                    text=f"{status_prefix} MD->PDF変換: {base_name}"
-                )
-                self.parent_app.update_idletasks()
                 try:
                     temp_md_pdf = temp_dir / f"md_{base_name}.pdf"
                     convert_document_to_pdf(
                         item_data, temp_md_pdf, paper_size_str
                     )
-                    item_data = temp_md_pdf  # 次の入力として上書き
+                    item_data = temp_md_pdf
                 except Exception as e:
                     logger.warning(f"警告: {base_name} のMarkdown変換に失敗: {e}")
                     messagebox.showerror(
@@ -923,7 +986,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
                     continue
 
-            # --- 1-B: 画像/PIL -> PDF ---
             if isinstance(item_data, Path):
                 if item_data.suffix.lower() != ".pdf":
                     convert_image_to_pdf(item_data, temp_converted_pdf)
@@ -934,10 +996,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 convert_pil_image_to_pdf(item_data, temp_converted_pdf)
                 path_to_flatten = temp_converted_pdf
 
-            # --- 2: フラット化 ---
-            self.parent_app.status_label.configure(
-                text=f"{status_prefix} フラット化中: {base_name}")
-            self.parent_app.update_idletasks()
             high_fidelity_flatten(
                 str(path_to_flatten),
                 str(temp_flattened_pdf),
@@ -950,7 +1008,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} 正規化中: {base_name}")
             self.parent_app.update_idletasks()
             normalize_pdf_to_papersize(
-                str(temp_flattened_pdf), str(final_output_pdf),
+                str(temp_flattened_pdf),
+                str(final_output_pdf),
                 paper_width, paper_height
             )
 
@@ -959,7 +1018,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} OCR埋込処理中: {base_name}")
             self.parent_app.update_idletasks()
             embed_ocr_text_in_pdf(
-                str(final_output_pdf), enable_tesseract,
+                str(final_output_pdf),
+                enable_tesseract,
                 font_path, 'jpn+jpn_vert'
             )
 
@@ -1040,8 +1100,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
             # --- 1-A: MD -> PDF ---
             if (
-                    isinstance(item_data, Path) and
-                    item_data.suffix.lower() == ".md"
+                    isinstance(item_data, Path)
+                    and item_data.suffix.lower() == ".md"
             ):
                 self.parent_app.status_label.configure(
                     text=f"{status_prefix} MD->PDF変換: {item_original_name}"
@@ -1055,7 +1115,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     item_data = temp_md_pdf
                 except Exception as e:
                     logger.error(
-                        f"警告: {item_original_name} のMarkdown変換に失敗: {e}")
+                        f"警告: {item_original_name} のMarkdown変換に失敗: {e}"
+                    )
                     continue
 
             # --- 1-B: 画像/PIL -> PDF ---
@@ -1085,8 +1146,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} 正規化中: {item_original_name}")
             self.parent_app.update_idletasks()
             normalize_pdf_to_papersize(
-                str(temp_flattened_pdf), str(normalized_part_pdf),
-                paper_width, paper_height
+                str(temp_flattened_pdf),
+                str(normalized_part_pdf),
+                paper_width,
+                paper_height
             )
 
             # --- 4: OCR (normalized_part_pdf に対して実行) ---
@@ -1094,8 +1157,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 text=f"{status_prefix} OCR埋込処理中: {item_original_name}")
             self.parent_app.update_idletasks()
             embed_ocr_text_in_pdf(
-                str(normalized_part_pdf), enable_tesseract,
-                font_path, 'jpn+jpn_vert'
+                str(normalized_part_pdf),
+                enable_tesseract,
+                font_path,
+                'jpn+jpn_vert'
             )
 
             # 連結リストに追加
@@ -1132,19 +1197,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.parent_app.update_idletasks()
 
         add_metadata_to_clip(
-            str(final_output_pdf),
-            font_path,
-            paper_width,
-            paper_height,
-            key_rect_tuple,
-            index_key_to_embed,
-            text_color,
-            comment_to_embed,
-            sist_string_formal,
-            sist_string_readable,
-            base_name=base_name,
-            cited_keys_list=cited_keys_list,
-            refs_qr_size_pt=refs_qr_size_pt
+            str(final_output_pdf), font_path, paper_width, paper_height,
+            key_rect_tuple, index_key_to_embed, text_color, comment_to_embed,
+            sist_string_formal, sist_string_readable, base_name=base_name,
+            cited_keys_list=cited_keys_list, refs_qr_size_pt=refs_qr_size_pt
         )
 
         messagebox.showinfo(
