@@ -1,4 +1,8 @@
+import io
 import customtkinter as ctk
+from PIL import Image
+from image_editor import PerspectiveCropEditor  # 新規作成したモジュール
+import fitz  # PDFプレビュー用
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import datetime
@@ -73,6 +77,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         self.parent_app = parent_app  # メインアプリ(Synapsen_Normalisierer)
         self.staged_items = []
+
+        # ポップアップウィンドウの参照保持用
+        self.preview_popup = None
+        self.preview_image_cache = {}  # アイテムごとのサムネイルキャッシュ
 
         self.title("D&D/ペーストで正規化")
         self.geometry("1000x800")
@@ -370,57 +378,162 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         item = {
             "data": item_data,
             "base_name_var": ctk.StringVar(value=base_name),
-            "original_name": original_name
+            "original_name": original_name,
+            "id": str(len(self.staged_items))
         }
         self.staged_items.append(item)
 
-        # --- UIにアイテム行を追加 ---
+        # --- UIに行を追加 ---
         row_frame = ctk.CTkFrame(self.staged_list_frame, fg_color="gray30")
 
-        # 元ファイル名ラベル (上部)
-        ctk.CTkLabel(
-            row_frame, text=original_name, font=("", 10), text_color="gray70"
-        ).pack(side="top", fill="x", padx=10, pady=(3, 0))
+        # 上段: 元ファイル名 + 編集ボタン
+        top_sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
+        top_sub_frame.pack(side="top", fill="x", padx=5, pady=(2, 0))
 
-        # 編集可能なファイル名エントリー (中央)
-        name_entry = ctk.CTkEntry(
-            row_frame, textvariable=item["base_name_var"]
+        name_label = ctk.CTkLabel(
+            top_sub_frame, text=original_name,
+            font=("", 10), text_color="gray70"
         )
+        name_label.pack(side="left", fill="x", expand=True)
 
-        if self.merge_files_checkbox.get():
-            integrated_name = ""
-            # このアイテムが1番目か？ (staged_itemsに追加されたばかりなので、len==1)
-            if len(self.staged_items) == 1:
-                # 1番目のアイテム
-                if not re.match(r"^\d{14}_", base_name):
-                    now = datetime.datetime.now()
-                    integrated_name = f"{now.strftime('%Y%m%d_%H%M%S')}_統合クリップ"
-                else:
-                    integrated_name = f"{base_name}_統合クリップ"
+        is_editable = False
+        if isinstance(item_data, Image.Image):
+            is_editable = True
+        elif (
+            isinstance(item_data, Path)
+            and item_data.suffix.lower() in [
+                ".png", ".jpg", ".jpeg", ".bmp"
+            ]
+        ):
+            is_editable = True
 
-                item["base_name_var"].set(integrated_name)
-                # 1番目のEntryは編集可能にし、同期イベントをバインド
-                name_entry.configure(state="normal")
-                name_entry.bind("<KeyRelease>", self.sync_merge_name)
-            else:
-                # 2個目以降のアイテム
-                integrated_name = self.staged_items[0]["base_name_var"].get()
-                item["base_name_var"].set(integrated_name)
-                # 2番目以降のEntryは無効
-                name_entry.configure(state="disabled")
+        if is_editable:
+            edit_btn = ctk.CTkButton(
+                top_sub_frame, text="変形/Crop", width=60, height=20,
+                font=("", 10), fg_color="#444",
+                command=lambda i=item: self.open_crop_editor(i)
+            )
+            edit_btn.pack(side="right", padx=5)
 
-        name_entry.pack(
-            side="left", fill="x", expand=True, padx=10, pady=(0, 5))
+        # 下段: [プレビュー] [エントリー] [削除ボタン]
+        bottom_sub_frame = ctk.CTkFrame(row_frame, fg_color="transparent")
+        bottom_sub_frame.pack(side="top", fill="x", padx=5, pady=(0, 5))
+
+        # プレビュー用のアイコンラベル
+        # ここにマウスを乗せたときだけポップアップする
+        preview_label = ctk.CTkLabel(
+            bottom_sub_frame,
+            text="👁",             # 目のアイコン (または "View" 等)
+            width=30,
+            height=28,
+            font=("", 16),
+            fg_color="#555555",   # 背景色をつけてボタンっぽくする
+            corner_radius=6,
+            cursor="hand2"         # マウスカーソルを指マークに
+        )
+        preview_label.pack(side="left", padx=(0, 5))
+
+        # バインド: このラベルに対してイベントを設定
+        preview_label.bind(
+            "<Enter>", lambda e, i=item: self._on_hover_enter(e, i)
+        )
+        preview_label.bind("<Leave>", self._on_hover_leave)
+
+        name_entry = ctk.CTkEntry(
+            bottom_sub_frame, textvariable=item["base_name_var"]
+        )
+        name_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         # 削除ボタン (右側)
         delete_btn = ctk.CTkButton(
-            row_frame, text="x", width=28, height=28,
+            bottom_sub_frame, text="x", width=28, height=28,
+            fg_color="#D9534F", hover_color="#C9302C",
             command=lambda i=item, rf=row_frame: self.remove_staged_item(i, rf)
         )
-        delete_btn.pack(side="right", padx=(0, 10), pady=(0, 5))
+        delete_btn.pack(side="right")
 
         row_frame.pack(fill="x", pady=5, padx=5)
         return True
+
+    def _on_hover_enter(self, event, item):
+        """マウスオーバー時にプレビューポップアップを表示"""
+        if self.preview_popup:
+            self.preview_popup.destroy()
+
+        # サムネイル取得
+        thumb = self._get_thumbnail(item)
+        if not thumb:
+            return
+
+        # ポップアップ作成 (overrideredirectで枠なし)
+        self.preview_popup = ctk.CTkToplevel(self)
+        self.preview_popup.wm_overrideredirect(True)
+        self.preview_popup.wm_attributes("-topmost", True)
+
+        # 表示位置 (マウスの少し右下)
+        x = event.x_root + 20
+        y = event.y_root + 20
+        self.preview_popup.geometry(f"+{x}+{y}")
+
+        label = ctk.CTkLabel(self.preview_popup, text="", image=thumb)
+        label.pack()
+
+    def _on_hover_leave(self, event):
+        """マウスが離れたらポップアップを消す"""
+        if self.preview_popup:
+            self.preview_popup.destroy()
+            self.preview_popup = None
+
+    def _get_thumbnail(self, item):
+        """キャッシュを利用してサムネイル(CTKImage)を返す"""
+        item_id = id(item)  # オブジェクトIDをキーにする
+        if item_id in self.preview_image_cache:
+            return self.preview_image_cache[item_id]
+
+        data = item['data']
+        pil_img = None
+        max_size = (300, 300)
+
+        try:
+            if isinstance(data, Image.Image):
+                pil_img = data.copy()
+            elif isinstance(data, Path):
+                if data.suffix.lower() == ".pdf":
+                    # PDFなら1ページ目を画像化
+                    doc = fitz.open(data)
+                    pix = doc[0].get_pixmap(dpi=72)
+                    pil_img = Image.open(io.BytesIO(pix.tobytes("png")))
+                    doc.close()
+                elif data.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp"]:
+                    pil_img = Image.open(data)
+
+            if pil_img:
+                pil_img.thumbnail(max_size)
+                ctk_img = ctk.CTkImage(
+                    light_image=pil_img, dark_image=pil_img, size=pil_img.size
+                )
+                self.preview_image_cache[item_id] = ctk_img
+                return ctk_img
+        except Exception as e:
+            logger.error(f"Thumbnail error: {e}")
+
+        return None
+
+    def open_crop_editor(self, item):
+        """編集ボタン押下時"""
+
+        def on_save(new_pil_image):
+            # 編集後の画像を item['data'] に上書き保存
+            item['data'] = new_pil_image
+            # キャッシュをクリアしてプレビューを更新させる
+            item_id = id(item)
+            if item_id in self.preview_image_cache:
+                del self.preview_image_cache[item_id]
+
+            messagebox.showinfo("完了", "画像の変形を適用しました。", parent=self)
+
+        # エディタを開く
+        PerspectiveCropEditor(self, item['data'], on_save)
 
     def remove_staged_item(
             self,
