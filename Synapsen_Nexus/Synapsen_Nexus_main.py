@@ -297,20 +297,26 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
     def create_widgets(self):
-        # --- トップフレーム ---
-        top_frame = ctk.CTkFrame(self)
-        top_frame.grid(
+        # --- トップコンテナ (全体を包むフレーム) ---
+        # row=0 に配置し、内部を2段構成にする
+        top_container = ctk.CTkFrame(self)
+        top_container.grid(
             row=0, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="ew"
-            )
-        top_frame.grid_columnconfigure(1, weight=1)
+        )
 
-        # ボタンを左側にまとめるフレーム
-        left_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        left_button_frame.pack(side="left", padx=5)
+        # ============================================================
+        # 【1段目】 検索バー行 (DB操作 / 検索入力 / 検索保存)
+        # ============================================================
+        row1_frame = ctk.CTkFrame(top_container, fg_color="transparent")
+        row1_frame.pack(side="top", fill="x", expand=True, pady=(5, 2), padx=5)
+
+        # --- [左側] 基本ボタン (DB, ヘルプ) ---
+        left_basic_frame = ctk.CTkFrame(row1_frame, fg_color="transparent")
+        left_basic_frame.pack(side="left", padx=(0, 5))
 
         # "DBを開く" ボタン
         ctk.CTkButton(
-            left_button_frame,
+            left_basic_frame,
             text="DB",
             command=self.load_database_dialog,
             width=50
@@ -318,14 +324,37 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 検索ヘルプボタン
         ctk.CTkButton(
-            left_button_frame,
+            left_basic_frame,
             text="？",
             command=self.show_search_help,
             width=30
-        ).pack(side="left", padx=(0, 5))
+        ).pack(side="left", padx=0)
 
-        # 検索バーコンテナ
-        search_container = ctk.CTkFrame(top_frame, fg_color="transparent")
+        # --- [右側] スマート検索 (検索保存, 呼び出し) ---
+        # 検索バーより先にpackして右端を確保する
+        smart_search_frame = ctk.CTkFrame(row1_frame, fg_color="transparent")
+        smart_search_frame.pack(side="right", padx=(5, 0))
+
+        self.save_search_button = ctk.CTkButton(
+            smart_search_frame,
+            text="検索保存",
+            command=self.search_manager.save_current_search,
+            width=80
+        )
+        self.save_search_button.pack(side="left", padx=(0, 5))
+
+        # 保存済み検索呼び出しボタン
+        self.saved_search_combo = ctk.CTkComboBox(
+            smart_search_frame,
+            values=["保存済み検索..."],
+            width=150,
+            command=self.search_manager.on_saved_search_selected
+        )
+        self.saved_search_combo.pack(side="left", padx=0)
+        self.saved_search_combo.set("保存済み検索...")
+
+        # --- [中央] 検索バー (残りのスペースを埋める) ---
+        search_container = ctk.CTkFrame(row1_frame, fg_color="transparent")
         search_container.pack(side="left", fill="x", expand=True, padx=5)
 
         self.search_entry = ctk.CTkEntry(
@@ -335,70 +364,101 @@ class Synapsen_Nexus(ctk.CTk):
                 " (tag:Python OR tag:C#))"
             )
         )
-        self.search_entry.pack(fill="x")
+        self.search_entry.pack(fill="x", expand=True)
 
-        # 右側ボタンフレーム
-        right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        right_button_frame.pack(side="right", padx=(5, 10))
+        # 検索バーのイベントバインド (既存維持)
+        self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
+        self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
+        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
+        self.search_entry.bind("<Down>", self.navigate_suggestions)
+        self.search_entry.bind("<Up>", self.navigate_suggestions)
+        self.search_entry.bind("<Return>", self.confirm_suggestion)
 
-        # ソート順切り替えボタン (初期表示: 古い順)
+        # ============================================================
+        # 【2段目】 ツールバー行 (ソート / アクション / ツール)
+        # ============================================================
+        row2_frame = ctk.CTkFrame(top_container, fg_color="transparent")
+        row2_frame.pack(side="top", fill="x", pady=(0, 5), padx=5)
+
+        # --- [左側] 表示・フィルタリング系 ---
+        view_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
+        view_tools_frame.pack(side="left", padx=0)
+
+        # ソート順切り替えボタン
         self.sort_button = ctk.CTkButton(
-            right_button_frame,
-            text="▲ 古い順",  # 初期表示
+            view_tools_frame,
+            text="▲ 古い順",
             command=self.toggle_sort_order,
             width=90,
             fg_color="#585a9c",
             hover_color="#494B83"
         )
-        self.sort_button.pack(side="left", padx=5)
+        self.sort_button.pack(side="left", padx=(0, 5))
 
         # 本文・メモ検索(FTS)
         self.fts_checkbox = ctk.CTkCheckBox(
-            right_button_frame, text="本文・メモ検索"
+            view_tools_frame, text="本文・メモ検索"
         )
-        self.fts_checkbox.pack(side="left", padx=5)
+        self.fts_checkbox.pack(side="left", padx=(0, 10))
         self.fts_checkbox.configure(command=self._trigger_search_now)
 
         # 選択数表示ラベル
         self.selection_info_label = ctk.CTkLabel(
-            right_button_frame,
+            view_tools_frame,
             text="選択: 0",
             font=("", 12, "bold"),
             text_color="gray",
-            width=60                # 固定幅を確保してレイアウト揺れを防ぐ
+            width=60
         )
-        self.selection_info_label.pack(side="left", padx=(10, 0))
+        self.selection_info_label.pack(side="left", padx=(0, 5))
+
+        # 選択解除ボタン
+        self.clear_selection_button = ctk.CTkButton(
+            view_tools_frame,
+            text="×",
+            command=self.clear_selection,
+            width=30,
+            fg_color="#6C757D",
+            hover_color="#5A6268"
+        )
+        self.clear_selection_button.pack(side="left", padx=0)
+
+        # 分区切り線（視覚的な区切り）
+        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
+
+        # --- [中央～右] アクション系 ---
+        action_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
+        action_tools_frame.pack(side="left", padx=0)
 
         # グラフメニュー
         self.graph_menu_var = ctk.StringVar(value="グラフ表示")
-
         self.graph_menu = ctk.CTkOptionMenu(
-            right_button_frame,
+            action_tools_frame,
             variable=self.graph_menu_var,
             values=["全体 (Global)", "関連 (Local)", "選択 (Selected)"],
             command=self.handle_graph_menu,
-            width=140,
+            width=130,
             fg_color="#585a9c",
             button_color="#494B83"
         )
-        self.graph_menu.pack(side="left", padx=(5, 0))
+        self.graph_menu.pack(side="left", padx=(0, 5))
 
         # リンクコピーボタン
         self.copy_links_button = ctk.CTkButton(
-            right_button_frame,
+            action_tools_frame,
             text="リンクコピー",
             command=self.copy_selected_links,
             width=90,
-            fg_color="#28a745",    # 緑色 (コピー系のアクション色)
+            fg_color="#28a745",
             hover_color="#218838",
             state="disabled"
         )
-        self.copy_links_button.pack(side="left", padx=(5, 0))
+        self.copy_links_button.pack(side="left", padx=(0, 5))
 
         # エクスポートメニュー
         self.export_menu_var = ctk.StringVar(value="エクスポート")
         self.export_menu = ctk.CTkOptionMenu(
-            right_button_frame,
+            action_tools_frame,
             variable=self.export_menu_var,
             values=[
                 "データ (CSV/TXT)",
@@ -407,79 +467,49 @@ class Synapsen_Nexus(ctk.CTk):
                 "MOC (Markdown)"
             ],
             command=self.handle_export_menu,
-            width=140,
-            fg_color="#17a2b8",  # シアン系 (出力・情報アクションとして区別)
+            width=130,
+            fg_color="#17a2b8",
             button_color="#138496"
         )
-        self.export_menu.pack(side="left", padx=(5, 0))
+        self.export_menu.pack(side="left", padx=(0, 5))
 
-        # 選択解除ボタン
-        self.clear_selection_button = ctk.CTkButton(
-            right_button_frame,
-            text="×",
-            command=self.clear_selection,
-            width=30,
-            fg_color="#6C757D",
-            hover_color="#5A6268"
-        )
-        self.clear_selection_button.pack(side="left", padx=(2, 0))
+        # 分区切り線
+        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
+
+        # --- [右側] ツール系 ---
+        extra_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
+        extra_tools_frame.pack(side="left", padx=0)
 
         # ランダムノートボタン
         self.random_note_button = ctk.CTkButton(
-            right_button_frame,
+            extra_tools_frame,
             text="閃き (R)",
             command=self.show_random_note,
-            width=80,
+            width=70,
             fg_color="#585a9c",
             hover_color="#494B83"
         )
-        self.random_note_button.pack(side="left", padx=(5, 0))
+        self.random_note_button.pack(side="left", padx=(0, 5))
 
         # キャンバスボタン
         self.canvas_button = ctk.CTkButton(
-            right_button_frame,
+            extra_tools_frame,
             text="キャンバス",
             command=self.open_canvas,
             width=80,
-            fg_color="#e0a800",  # 黄色系
+            fg_color="#e0a800",
             hover_color="#c69500"
         )
-        self.canvas_button.pack(side="left", padx=(5, 0))
+        self.canvas_button.pack(side="left", padx=0)
 
-        # スマート検索UI
-        smart_search_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        smart_search_frame.pack(side="right", padx=5)
-
-        self.save_search_button = ctk.CTkButton(
-            smart_search_frame,
-            text="検索保存",
-            command=self.search_manager.save_current_search,
-            width=80
-        )
-        self.save_search_button.pack(side="left", padx=(5, 0))
-
-        # 保存済み検索呼び出しボタン
-        self.saved_search_combo = ctk.CTkComboBox(
-            smart_search_frame,
-            values=["保存済み検索..."],
-            width=150,
-            command=self.search_manager.on_saved_search_selected
-        )
-        self.saved_search_combo.pack(side="left", padx=5)
-        self.saved_search_combo.set("保存済み検索...")
-
-        # 検索バーのイベントバインド
-        self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
-        self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
-        self.search_entry.bind("<Down>", self.navigate_suggestions)
-        self.search_entry.bind("<Up>", self.navigate_suggestions)
-        self.search_entry.bind("<Return>", self.confirm_suggestion)
+        # ============================================================
+        # その他のUI要素 (初期化)
+        # ============================================================
 
         # オートコンプリート用の非表示フレーム
         self.autocomplete_frame = ctk.CTkScrollableFrame(self, label_text="")
 
-        # --- 左パネル ---
+        # --- 左パネル (フィルタ・リスト) ---
         self.left_panel = ctk.CTkFrame(self, fg_color="transparent")
         self.left_panel.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.left_panel.grid_rowconfigure(2, weight=1)
@@ -517,7 +547,7 @@ class Synapsen_Nexus(ctk.CTk):
             )
         self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
 
-        # --- 右パネル ---
+        # --- 右パネル (詳細・プレビュー) ---
         self.details_frame = ctk.CTkFrame(self)
         self.details_frame.grid(
             row=1, column=1, padx=(0, 10), pady=10, sticky="nsew"
@@ -622,8 +652,8 @@ class Synapsen_Nexus(ctk.CTk):
             text="詳細プレビューで開く",
             command=self.open_current_note_in_preview,
             state="disabled",
-            fg_color="#00695C",    # 濃い緑
-            hover_color="#004D40"  # さらに濃い緑
+            fg_color="#00695C",
+            hover_color="#004D40"
         )
         self.open_preview_button.pack(side="left", padx=10)
 
@@ -639,8 +669,8 @@ class Synapsen_Nexus(ctk.CTk):
             self.edit_button_frame,
             text="DBから削除",
             command=self.confirm_delete_note,
-            fg_color="#D9534F",  # 赤色
-            hover_color="#C9302C",  # 濃い赤色
+            fg_color="#D9534F",
+            hover_color="#C9302C",
             state="disabled"
         )
         self.delete_button.pack(side="left", padx=10)
