@@ -24,7 +24,7 @@ if str(normalisierer_dir) not in sys.path:
     sys.path.append(str(normalisierer_dir))
 
 try:
-    from pdf_utils import (
+    from pdf_utils import (  # type: ignore
         convert_document_to_pdf,
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
@@ -164,19 +164,19 @@ class StickyNoteDialog(ctk.CTkToplevel):
         if self._custom_icon_path:
             try:
                 self.iconbitmap(self._custom_icon_path)
-            except:
+            except Exception:
                 pass
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
             try:
                 super().iconbitmap(default=self._custom_icon_path)
-            except:
+            except Exception:
                 pass
         else:
             try:
                 super().iconbitmap(*args, **kwargs)
-            except:
+            except Exception:
                 pass
 
     def on_ok(self):
@@ -252,19 +252,19 @@ class ConversionDialog(ctk.CTkToplevel):
         if self._custom_icon_path:
             try:
                 self.iconbitmap(self._custom_icon_path)
-            except:
+            except Exception:
                 pass
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
             try:
                 super().iconbitmap(default=self._custom_icon_path)
-            except:
+            except Exception:
                 pass
         else:
             try:
                 super().iconbitmap(*args, **kwargs)
-            except:
+            except Exception:
                 pass
 
     def on_ok(self):
@@ -345,19 +345,19 @@ class CanvasHelpWindow(ctk.CTkToplevel):
         if self._custom_icon_path:
             try:
                 self.iconbitmap(self._custom_icon_path)
-            except:
+            except Exception:
                 pass
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
             try:
                 super().iconbitmap(default=self._custom_icon_path)
-            except:
+            except Exception:
                 pass
         else:
             try:
                 super().iconbitmap(*args, **kwargs)
-            except:
+            except Exception:
                 pass
 
 
@@ -574,19 +574,19 @@ class CanvasWindow(ctk.CTkToplevel):
         if self._custom_icon_path:
             try:
                 self.iconbitmap(self._custom_icon_path)
-            except:
+            except Exception:
                 pass
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
             try:
                 super().iconbitmap(default=self._custom_icon_path)
-            except:
+            except Exception:
                 pass
         else:
             try:
                 super().iconbitmap(*args, **kwargs)
-            except:
+            except Exception:
                 pass
 
     def _get_font_path_from_config(self):
@@ -612,7 +612,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 config = configparser.ConfigParser()
                 config.read(config_path, encoding='utf-8')
                 return config.get(section, key, fallback=fallback)
-        except:
+        except Exception:
             pass
         return fallback
 
@@ -1073,7 +1073,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 (k1, k2, k2, k1)
             )
             return cur.fetchone() is not None
-        except:
+        except Exception:
             return False
         finally:
             if conn:
@@ -1198,7 +1198,10 @@ class CanvasWindow(ctk.CTkToplevel):
                         self.update_connections(t, k)
                     elif t == "sticky":
                         s = next(
-                            (x for x in self.stickies_on_canvas if str(id(x)) == k),
+                            (
+                                x for x in self.stickies_on_canvas
+                                if str(id(x)) == k
+                            ),
                             None
                         )
                         if s:
@@ -1210,7 +1213,10 @@ class CanvasWindow(ctk.CTkToplevel):
                             self.update_connections(t, k)
                     elif t == "shape":
                         s = next(
-                            (x for x in self.shapes_on_canvas if str(id(x)) == k),
+                            (
+                                x for x in self.shapes_on_canvas
+                                if str(id(x)) == k
+                            ),
                             None
                         )
                         if s:
@@ -1416,7 +1422,8 @@ class CanvasWindow(ctk.CTkToplevel):
                 selected_stickies = [
                     i[1] for i in self.selected_items if i[0] == "sticky"
                 ]
-                if len(selected_stickies) > 1 and str(id(obj)) in selected_stickies:
+                is_obj_selected = str(id(obj)) in selected_stickies
+                if len(selected_stickies) > 1 and is_obj_selected:
                     menu.add_command(
                         label="まとめてPDFを作成",
                         command=self._convert_selected_stickies_pipeline
@@ -1574,7 +1581,10 @@ class CanvasWindow(ctk.CTkToplevel):
         for t, k in self.selected_items:
             if t == "sticky":
                 s = next(
-                    (x for x in self.stickies_on_canvas if str(id(x)) == k),
+                    (
+                        x for x in self.stickies_on_canvas
+                        if str(id(x)) == k
+                    ),
                     None
                 )
                 if s:
@@ -1688,7 +1698,7 @@ class CanvasWindow(ctk.CTkToplevel):
             )
             try:
                 key_rect_tuple = tuple(map(float, key_rect_str.split(',')))
-            except:
+            except Exception:
                 key_rect_tuple = (0, 13, 391, 73)
 
             add_metadata_to_clip(
@@ -1984,12 +1994,16 @@ class CanvasWindow(ctk.CTkToplevel):
             page.insert_font(
                 fontname="msgothic", fontfile=r"C:\Windows\Fonts\msgothic.ttc"
             )
-        except:
+        except Exception:
             pass
 
         shape = page.new_shape()
-        tx = lambda v: v - min_x + margin
-        ty = lambda v: v - min_y + margin
+
+        def tx(v):
+            return v - min_x + margin
+
+        def ty(v):
+            return v - min_y + margin
 
         for s in self.stickies_on_canvas:
             rtx, rty = tx(s["x"]/scale), ty(s["y"]/scale)
