@@ -1,5 +1,6 @@
 import shutil
 import customtkinter as ctk
+from canvas_window import CanvasWindow
 import threading
 from tkinter import filedialog, messagebox
 import pandas as pd
@@ -214,6 +215,9 @@ class Synapsen_Nexus(ctk.CTk):
 
             # 読み込んだ設定をクラス属性にセット
             self.pdf_root_folder = config_data.get('pdf_root_folder', Path(''))
+            self.nexus_output_folder = config_data.get(
+                'nexus_output_folder', Path('Nexus_Output')
+            )
             self.browser_path = config_data.get('browser_path', None)
             self.key_icons = config_data.get('key_icons', {})
             self.key_colors = config_data.get('key_colors', {})
@@ -417,6 +421,17 @@ class Synapsen_Nexus(ctk.CTk):
             hover_color="#494B83"
         )
         self.random_note_button.pack(side="left", padx=(5, 0))
+
+        # キャンバスボタン
+        self.canvas_button = ctk.CTkButton(
+            right_button_frame,
+            text="キャンバス",
+            command=self.open_canvas,
+            width=80,
+            fg_color="#e0a800",  # 黄色系
+            hover_color="#c69500"
+        )
+        self.canvas_button.pack(side="left", padx=(5, 0))
 
         # スマート検索UI
         smart_search_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
@@ -1311,6 +1326,16 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showerror(
                 "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self)
 
+    def open_canvas(self):
+        """キャンバスウィンドウを開く"""
+        if (
+                hasattr(self, 'canvas_window')
+                and self.canvas_window.winfo_exists()
+        ):
+            self.canvas_window.focus()
+            return
+        self.canvas_window = CanvasWindow(self)
+
     # --- UI更新・表示メソッド ---
     def update_results_list(self, df_to_show):
         """
@@ -1634,10 +1659,14 @@ class Synapsen_Nexus(ctk.CTk):
         if key_to_open:
             self.open_preview_window(key_to_open, default_view_mode='full')
 
-    def open_preview_window(self, key, default_view_mode='compact'):
+    def open_preview_window(
+        self, key,
+        default_view_mode='compact',
+        ui_master=None
+    ):
         """
         指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
-        (★ default_view_mode 引数を追加)
+        ui_master: キャンバス等、別のウィンドウから呼び出す場合にそのウィンドウを指定
         """
         if self.df is None or self.db_conn is None:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
@@ -1649,7 +1678,7 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showwarning("ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。")
             return
 
-        # 2. memo と full_text を DB から取得 (低速だが1件のみ)
+        # 2. memo と full_text を DB から取得
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
@@ -1666,9 +1695,10 @@ class Synapsen_Nexus(ctk.CTk):
             logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
             note_data = target_note_row.iloc[0]
 
-        # 3. プレビューウィンドウのインスタンスを作成
-        # ★ default_view_mode を渡す
-        preview_win = NotePreviewWindow(self, note_data, default_view_mode)
+        # 3. プレビューウィンドウのインスタンスを作成 (ui_masterを渡す)
+        preview_win = NotePreviewWindow(
+            self, note_data, default_view_mode, ui_master=ui_master
+        )
         preview_win.focus()
 
     def show_details(self, row_data):

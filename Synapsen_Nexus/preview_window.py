@@ -24,7 +24,11 @@ class NotePreviewWindow(ctk.CTkToplevel):
     メインウィンドウから独立して表示され、ノートの詳細とPDFへの
     ショートカットを提供する。
     """
-    def __init__(self, parent_app, note_data, default_view_mode='compact'):
+    def __init__(
+            self, parent_app,
+            note_data, default_view_mode='compact',
+            ui_master=None
+    ):
         """
         NotePreviewWindowを初期化する。
 
@@ -37,7 +41,10 @@ class NotePreviewWindow(ctk.CTkToplevel):
                 表示するノートのデータ（DataFrameの1行）。
             default_view_mode (str, optional):
                 縮小表示(リンクからの呼び出し)か拡大表示(メインウィンドウからの詳細表示)か
+            ui_master (DigitalCommonplaceBook):
+                呼び出し元、ui_master が指定されていればそれを親(master)にする、なければ parent_app
         """
+        master_window = ui_master if ui_master else parent_app
         super().__init__(parent_app)
         self.parent_app = parent_app  # メインアプリ本体
         self.note_data = note_data
@@ -68,7 +75,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         title = self.note_data.get('title', 'N/A')
         self.title(f"プレビュー: {title}")
-        self.transient(parent_app)
+        self.transient(master_window)
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 

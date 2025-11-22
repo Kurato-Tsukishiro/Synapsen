@@ -71,6 +71,22 @@ def load_app_config(base_path):
         else:
             config_data['pdf_root_folder'] = None
 
+        # [nexus_output_folder]
+        nexus_out_str = parser.get(
+            'Paths', 'nexus_output_folder',
+            fallback='Nexus_Output'
+        )
+        if nexus_out_str:
+            nexus_out_path = Path(os.path.expandvars(nexus_out_str))
+            if not nexus_out_path.is_absolute():
+                nexus_out_path = config_path.parent / nexus_out_path
+            config_data['nexus_output_folder'] = nexus_out_path.resolve()
+        else:
+            # 未設定の場合は実行ファイル直下の Nexus_Output をデフォルトとする
+            config_data['nexus_output_folder'] = (
+                config_path.parent / "Nexus_Output"
+            )
+
         # [browser_path]
         browser_path_str = parser.get('Paths', 'browser_path', fallback='')
         if browser_path_str and browser_path_str.lower() != 'Default':
