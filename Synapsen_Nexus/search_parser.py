@@ -83,13 +83,15 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
             'date': 'date',
             'time': 'time',
             'tag': 'tags',
-            'tags': 'tags',             # 'tag'でも'tags'でも検索可
+            'tags': 'tags',                # 'tag'でも'tags'でも検索可
             'memo': 'memo',
             'cpkey': 'commonplace_key',
             'indexkey': 'commonplace_key',
-            'ikey': 'commonplace_key',  # IndexKeyのエイリアス
+            'ikey': 'commonplace_key',     # IndexKeyのエイリアス
             'fulltext': 'full_text',
-            'text': 'full_text'         # fulltextのエイリアス
+            'text': 'full_text',           # fulltextのエイリアス
+            'filename': 'merged_pdf_filename',
+            'file': 'merged_pdf_filename'  # filenameのエイリアス
     }
 
     target_column = None
@@ -279,6 +281,12 @@ def evaluate_simple_term(df, term, include_full_text=False, db_conn=None):
                 term_condition = pd.Series([False] * len(df), index=df.index)
         elif target_column in df.columns:
             # .str.contains() を使用して部分一致検索
+            term_condition = df[target_column].str.contains(
+                search_value, case=False, na=False, regex=False
+            )
+        elif target_column in df.columns:
+            # .str.contains() を使用して部分一致検索
+            # filename:2024 などで検索した場合、ここが実行され merged_pdf_filename 列が検索されます
             term_condition = df[target_column].str.contains(
                 search_value, case=False, na=False, regex=False
             )
