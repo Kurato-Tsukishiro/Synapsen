@@ -91,6 +91,8 @@ class Synapsen_Nexus(ctk.CTk):
         self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
 
+        self.sort_ascending = True          # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+
         self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
 
         self._current_search_id = 0  # 検索リクエストのID
@@ -338,6 +340,17 @@ class Synapsen_Nexus(ctk.CTk):
         # 右側ボタンフレーム
         right_button_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         right_button_frame.pack(side="right", padx=(5, 10))
+
+        # ソート順切り替えボタン (初期表示: 古い順)
+        self.sort_button = ctk.CTkButton(
+            right_button_frame,
+            text="▲ 古い順",  # 初期表示
+            command=self.toggle_sort_order,
+            width=90,
+            fg_color="#585a9c",
+            hover_color="#494B83"
+        )
+        self.sort_button.pack(side="left", padx=5)
 
         # 本文・メモ検索(FTS)
         self.fts_checkbox = ctk.CTkCheckBox(
@@ -646,6 +659,18 @@ class Synapsen_Nexus(ctk.CTk):
 
         # カスタムクラス (SearchHelpWindow) をインスタンス化する
         self.help_window = SearchHelpWindow(self)
+
+    def toggle_sort_order(self):
+        """ソート順（昇順/降順）を切り替え、検索を再実行する"""
+        self.sort_ascending = not self.sort_ascending
+
+        if self.sort_ascending:
+            self.sort_button.configure(text="▲ 古い順")
+        else:
+            self.sort_button.configure(text="▼ 新しい順")
+
+        # ソート順を変えたら即座に再検索してリストを更新
+        self._trigger_search_now()
 
     # --- グラフメニューのハンドラ ---
     def handle_graph_menu(self, choice):
@@ -1042,6 +1067,7 @@ class Synapsen_Nexus(ctk.CTk):
         # 1. UIからの検索条件取得（これはメインスレッドで行う必要がある）
         query_text = self.search_entry.get().strip()
         include_full_text = self.fts_checkbox.get()
+        current_ascending = self.sort_ascending  # 現在のソート設定を取得
 
         # IndexKey フィルターの状態取得
         selected_filter_keys = []
@@ -1070,7 +1096,8 @@ class Synapsen_Nexus(ctk.CTk):
                 search_id,
                 query_text, include_full_text,
                 selected_filter_keys,
-                self.loaded_db_path
+                self.loaded_db_path,
+                current_ascending
             ),
             daemon=True
         )
@@ -1081,7 +1108,8 @@ class Synapsen_Nexus(ctk.CTk):
             search_id,
             query_text, include_full_text,
             selected_filter_keys,
-            db_path
+            db_path,
+            ascending_flag
     ):
         """
         バックグラウンドスレッドで実行される検索ロジック。
@@ -1091,6 +1119,7 @@ class Synapsen_Nexus(ctk.CTk):
             include_full_text (bool): 本文・メモ検索を含めるか。
             selected_filter_keys (list): 選択されたIndexKeyフィルターのリスト。
             db_path (Path): FTS用のDBファイルパス。
+            ascending_flag (bool): ソート順。DefaultはTrueで昇順。
         """
         try:
             # (A) ベースDF (メモリ上のメタデータ)
@@ -1179,6 +1208,13 @@ class Synapsen_Nexus(ctk.CTk):
             # --- 4. 【重要】最終的な絞り込み ---
             final_mask = key_filter_mask & query_mask & orphan_mask
             filtered_df = base_df[final_mask]
+
+            if not filtered_df.empty:
+                # 受け取った ascending_flag を使用してソート
+                filtered_df = filtered_df.sort_values(
+                    by='key',
+                    ascending=ascending_flag
+                )
 
             # --- 5. メインスレッドに結果を渡す ---
             self.after(
