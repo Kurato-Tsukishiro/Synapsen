@@ -217,138 +217,287 @@ Nexusから起動し、ノートをホワイトボード上に自由に配置し
 
 4.  **`config.ini` の設定:**
     * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
-    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[Extraction]` や `[CommonplaceKeys]` は、リリースに同梱されている `config.ini` のデフォルト設定から**変更不要**です。
-    * ※ **テンプレートを使わない場合**は、ご自身で `[Extraction]` の座標を調べるか、D&D機能によって正規化するか、`Ersteller` でノートごとに手動でIndex Keyを登録する必要があります。
+    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[CommonplaceKeys]` などの設定はデフォルトのままで動作します。
+
+    **【重要】パスの指定方法について:**
+    `config.ini` 内のパス指定には、以下の3種類の記述方法が使用できます。環境に合わせて柔軟に設定してください。
+
+    * **絶対パス (Absolute Path)**
+        * 例: `C:\Users\Username\Documents\Synapsen\Tags.txt`
+        * ドライブレターから始まる完全なパスです。場所が固定されているファイル（フォントファイルなど）の指定に適しています。
+    * **相対パス (Relative Path)**
+        * 例: `./PDF_Files` または `Resources\Tags.txt`
+        * `config.ini` があるフォルダを基準としたパスです。ツール一式をUSBメモリに入れて持ち運ぶ場合や、フォルダごと移動させる場合に便利です。
+    * **環境変数 (Environment Variables)**
+        * 例: `%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP.otf`
+        * Windowsの環境変数（`%USERPROFILE%`, `%APPDATA%` など）を使用できます。ユーザーごとにパスが異なる場合でも、設定ファイルを共有しやすくなります。
 
     **`config.ini` の設定項目 (空のテンプレート):**
     ```ini
-    [Paths] # 絶対パス 又は config.ini からの相対パスを指定
-    # 事前定義タグを保存しているテキストファイルのパス
-    tags_data_path = 
     
-    # Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
-    # Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" を使用して下さい
-    font_path = 
-    
-    # Nexusでの情報表示に使用するマスターDBのパス
+    ; ==============================================================================
+    ; Synapsen Configuration File
+    ; ==============================================================================
+
+    ; ------------------------------------------------------------------------------
+    ; [Paths] ファイル・フォルダパス設定
+    ; ------------------------------------------------------------------------------
+    [Paths]
+    ; --- データベースとフォルダ構成 ---
+    ; Nexusでの情報表示に使用するマスターDBのパス
     database_path = 
-    
-    # Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
+
+    ; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
     pdf_root_folder = 
 
-    # サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
-    # 空欄の場合 検索がスキップされます
-    pdf_archive_folder = 
+    ; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
+    ; 空欄の場合 検索がスキップされます
+    pdf_archive_folder =
 
-    # Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
+    ; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
     nexus_output_folder = 
-    
-    [Automation]
-    # Synapse Ersteller で統合PDFを生成した際、
-    # [Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false) (主にDebug用設定)
-    auto_append_to_default_db = 
-    
-    # 上記有効時、目次情報を個別で「保存」するか (true/false)
-    create_individual_csv = 
-    
-    # Normalisierer で Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
-    # false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-    # Tesseract-OCR をPCにインストールしていない場合は false にしてください。
-    enable_tesseract_ocr = 
-    
-    # Normalisierer で ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
-    # true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
-    # false (デフォルト): インクを注釈のまま維持します。QUADERNO (クアデルノ)等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
-    flatten_ink_annotations = 
-    
-    [LaTeX]
-    # 正規化及び統合の用紙サイズの指定 (A4/A5)
-    paper_size = 
-    
-    # PDF生成時に使用するフォント名
-    # font = Noto Sans JP
-    font = 
-    
-    # PDFのプロパティに表示される著者名
-    author = 
-    
-    # PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
-    title_prefix = 
-    
-    [Extraction]
-    # Erstrller で読み取り Index Keyを取得する範囲 (DotLegalPadテンプレートの座標)
-    key_rect = 
-    
+
+    ; --- リソースファイル ---
+    ; 事前定義タグを保存しているテキストファイルのパス
+    tags_data_path = 
+
+    ; Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
+    ; Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" 等を指定
+    font_path = 
+
+    ; --- 外部アプリケーション ---
+    ; PDFを開くブラウザの絶対パス
+    ; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
+    ; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
+    browser_path = 
+
+
+    ; ------------------------------------------------------------------------------
+    ; [CommonplaceKeys] & Visuals
+    ; ノートの分類（Index Key）とその見た目の定義
+    ; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
+    ; ------------------------------------------------------------------------------
     [CommonplaceKeys]
-    # Index Key の設定 (DotLegalPadテンプレートの選択肢はこれと一致させる)
+    ; 使用する Index Key のリスト
     options = 
-    
+
     [KeyIcons]
-    # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
+    ; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
     
+
     [KeyColors]
-    # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
+    ; アイコンや枠線の色 (16進数カラーコード)
     
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Automation] 自動処理設定
+    ; Normalisierer (正規化) および Ersteller (統合) の挙動制御
+    ; ------------------------------------------------------------------------------
+    [Automation]
+    ; --- Normalisierer (正規化) 設定 ---
+
+    ; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
+    ; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+    ; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
+    enable_tesseract_ocr = 
+
+    ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
+    ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
+    ; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
+    flatten_ink_annotations = 
+
+    ; --- Ersteller (統合) 設定 ---
+
+    ; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
+    auto_append_to_default_db = 
+
+    ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
+    create_individual_csv = 
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Extraction] 読み取り設定
+    ; PDFからのメタデータ抽出パラメータ
+    ; ------------------------------------------------------------------------------
+    [Extraction]
+    ; Erstrller で「座標読み取り」によって Index Key を取得する範囲
+    ; (左, 上, 右, 下) のポイント座標
+    key_rect = 
+
+    ; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
+    ; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
+    refs_qr_size = 
+
+
+    ; ------------------------------------------------------------------------------
+    ; [LaTeX] PDF生成設定
+    ; Ersteller が統合PDFを作成する際のスタイル設定
+    ; ------------------------------------------------------------------------------
+    [LaTeX]
+    ; 正規化及び統合の用紙サイズの指定 (A4/A5)
+    paper_size = 
+
+    ; PDF生成時に使用するフォント名 (LaTeX環境にインストールされているフォント名)
+    ; font = Noto Sans JP
+    font = 
+
+    ; PDFのプロパティに表示される著者名
+    author = 
+
+    ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
+    title_prefix = 
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Search] 検索設定
+    ; Nexus での検索・入力補完の挙動
+    ; ------------------------------------------------------------------------------
     [Search]
-    # オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
-    # true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
-    # false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
+    ; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
+    ; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
+    ; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
     include_all_tags_for_autocomplete = 
 
     ```
 
+    **`config.ini` の設定例 (推奨構成):**
     <details>
-    <summary><b>▼ クリックして推奨設定例 (`config.ini` のデフォルト値) を表示</b></summary>
-    
+    <summary><b>▼ クリックして表示</b></summary>
+
     ```ini
-    [Paths] 
-    tags_data_path = PDFTags.txt
-    font_path = C:\windows\fonts\msgothic.ttc
+    ; ==============================================================================
+    ; Synapsen Configuration File
+    ; ==============================================================================
+
+    ; ------------------------------------------------------------------------------
+    ; [Paths] ファイル・フォルダパス設定
+    ; ------------------------------------------------------------------------------
+    [Paths]
+    ; --- データベースとフォルダ構成 ---
+    ; Nexusでの情報表示に使用するマスターDBのパス
     database_path = Synapsen_Master.db
+
+    ; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
     pdf_root_folder = ./
-    pdf_archive_folder = 
+
+    ; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
+    ; 空欄の場合 検索がスキップされます
+    pdf_archive_folder =
+
+    ; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
     nexus_output_folder = Nexus_Output
-    
-    [Automation]
-    auto_append_to_default_db = true
-    create_individual_csv = false
-    enable_tesseract_ocr = false
-    flatten_ink_annotations = false
-    
-    [LaTeX]
-    paper_size = A4
-    font = MS UI Gothic
-    author = Synapsen Ersteller
-    title_prefix = 月刊 統合ノート
-    
-    [Extraction]
-    # Erstrller で読み取り Index Keyを取得する範囲
-    key_rect = 0, 13, 391, 73
-    
+
+    ; --- リソースファイル ---
+    ; 事前定義タグを保存しているテキストファイルのパス
+    tags_data_path = PDFTags.txt
+
+    ; Normaliiererが(フォームのテキスト化で)使用するフォントファイルのフルパス
+    ; Noto San JP を使用する場合は "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.otf" 等を指定
+    font_path = C:\windows\fonts\msgothic.ttc
+
+    ; --- 外部アプリケーション ---
+    ; PDFを開くブラウザの絶対パス
+    ; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
+    ; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
+    browser_path = C:\Program Files\Google\Chrome\Application\chrome.exe
+
+
+    ; ------------------------------------------------------------------------------
+    ; [CommonplaceKeys] & Visuals
+    ; ノートの分類（Index Key）とその見た目の定義
+    ; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
+    ; ------------------------------------------------------------------------------
     [CommonplaceKeys]
-    # Index Key の設定
+    ; 使用する Index Key のリスト
     options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
-    
+
     [KeyIcons]
-    # = の左側にキー、右側に表示したいアイコン（Unicode絵文字など）を記述
+    ; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
     タスク = ♥
     アイデア = ♥
     思考・考察 = ♥
     コミュニケーション = ♥
     学習・情報収集 = ♥
     日常・その他 = ♥
-    
+
     [KeyColors]
-    # = の左側にキー、右側に表示したい色（16進数カラーコード）を記述
-    # アプリ内のリスト表示・統合ノートのヘッダーおよび索引で使用されます
+    ; アイコンや枠線の色 (16進数カラーコード)
     タスク = #FE0000
     アイデア = #FFFF02
     思考・考察 = #8802FF
     コミュニケーション = #02FF01
     学習・情報収集 = #02FFFF
     日常・その他 = #F2F2F2
-    
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Automation] 自動処理設定
+    ; Normalisierer (正規化) および Ersteller (統合) の挙動制御
+    ; ------------------------------------------------------------------------------
+    [Automation]
+    ; --- Normalisierer (正規化) 設定 ---
+
+    ; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
+    ; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+    ; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
+    enable_tesseract_ocr = false
+
+    ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
+    ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
+    ; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
+    flatten_ink_annotations = false
+
+    ; --- Ersteller (統合) 設定 ---
+
+    ; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
+    auto_append_to_default_db = true
+
+    ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
+    create_individual_csv = false
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Extraction] 読み取り設定
+    ; PDFからのメタデータ抽出パラメータ
+    ; ------------------------------------------------------------------------------
+    [Extraction]
+    ; Erstrller で「座標読み取り」によって Index Key を取得する範囲
+    ; (左, 上, 右, 下) のポイント座標
+    key_rect = 0, 13, 391, 73
+
+    ; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
+    ; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
+    refs_qr_size = 75
+
+
+    ; ------------------------------------------------------------------------------
+    ; [LaTeX] PDF生成設定
+    ; Ersteller が統合PDFを作成する際のスタイル設定
+    ; ------------------------------------------------------------------------------
+    [LaTeX]
+    ; 正規化及び統合の用紙サイズの指定 (A4/A5)
+    paper_size = A4
+
+    ; PDF生成時に使用するフォント名 (LaTeX環境にインストールされているフォント名)
+    ; font = Noto Sans JP
+    font = MS UI Gothic
+
+    ; PDFのプロパティに表示される著者名
+    author = Synapsen Ersteller
+
+    ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
+    title_prefix = 月刊 統合ノート
+
+
+    ; ------------------------------------------------------------------------------
+    ; [Search] 検索設定
+    ; Nexus での検索・入力補完の挙動
+    ; ------------------------------------------------------------------------------
     [Search]
+    ; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
+    ; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
+    ; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
     include_all_tags_for_autocomplete = true
 
     ```
