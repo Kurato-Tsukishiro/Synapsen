@@ -950,7 +950,7 @@ class CanvasWindow(ctk.CTkToplevel):
             if self.bg_color == "#2b2b2b":
                 col = "white"
             else:
-                "black"
+                col = "black"
 
         lw = max(1, int(self.base_line_width * self.current_scale))
 
@@ -959,9 +959,21 @@ class CanvasWindow(ctk.CTkToplevel):
             fill=col, width=lw, arrow=tk.LAST,
             tags=("connection",)
         )
-        self.canvas.tag_lower(lid, "note")
-        self.canvas.tag_lower(lid, "sticky")
-        self.canvas.tag_raise(lid, "grid")
+        try:
+            self.canvas.tag_lower(lid, "note")
+        except tk.TclError:
+            pass  # ノートがない場合は何もしない
+
+        try:
+            self.canvas.tag_lower(lid, "sticky")
+        except tk.TclError:
+            pass  # 付箋がない場合は何もしない
+
+        try:
+            self.canvas.tag_raise(lid, "grid")
+        except tk.TclError:
+            # グリッドは通常存在しますが、念のため安全策
+            self.canvas.tag_lower(lid)
 
         self.connections_on_canvas.append({
             "id": lid, "from_key": f_key, "to_key": t_key,
@@ -1658,7 +1670,6 @@ class CanvasWindow(ctk.CTkToplevel):
             md_text = (
                 f"{style_tag}\n{meta_comment}\n"
                 f"# {title}\n\n"
-                f"# **Index Key:** {index_key}\n\n"
                 f"# [内容]\n{content}"
             )
 
