@@ -275,7 +275,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
         ) = get_pdf_document_for_note(
             self.note_data,
             self.parent_app.loaded_db_path,
-            self.parent_app.pdf_root_folder
+            self.parent_app.pdf_root_folder,
+            pdf_archive_folder=self.parent_app.pdf_archive_folder
         )
 
         # 1ページ目 (相対インデックス 0) を表示

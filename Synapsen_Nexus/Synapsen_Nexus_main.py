@@ -78,7 +78,8 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- アプリケーションの状態変数 ---
         self.df = None                      # ノートデータを保持するDataFrame
-        self.pdf_root_folder = None         # config.iniから読み込むPDFのルートパス
+        self.pdf_root_folder = None         # 統合PDFが存在する(メイン)フォルダのルートパス
+        self.pdf_archive_folder = None      # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス  # noqa: E501
         self.loaded_db_path = None          # 現在開いているDBのパス
         self.db_conn = None                 # SQLiteのDB接続オブジェクト
 
@@ -217,6 +218,10 @@ class Synapsen_Nexus(ctk.CTk):
 
             # 読み込んだ設定をクラス属性にセット
             self.pdf_root_folder = config_data.get('pdf_root_folder', Path(''))
+            self.pdf_archive_folder = config_data.get(
+                'pdf_archive_folder',
+                None
+            )
             self.nexus_output_folder = config_data.get(
                 'nexus_output_folder', Path('Nexus_Output')
             )
@@ -424,7 +429,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.clear_selection_button.pack(side="left", padx=0)
 
         # 分区切り線（視覚的な区切り）
-        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
+        ctk.CTkLabel(
+            row2_frame,
+            text="|",
+            text_color="gray"
+        ).pack(side="left", padx=5)
 
         # --- [中央～右] アクション系 ---
         action_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
@@ -474,7 +483,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.export_menu.pack(side="left", padx=(0, 5))
 
         # 分区切り線
-        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
+        ctk.CTkLabel(
+            row2_frame,
+            text="|",
+            text_color="gray"
+        ).pack(side="left", padx=5)
 
         # --- [右側] ツール系 ---
         extra_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
@@ -1807,7 +1820,8 @@ class Synapsen_Nexus(ctk.CTk):
             row_data,
             self.loaded_db_path,
             self.pdf_root_folder,
-            max_width=max_preview_width
+            max_width=max_preview_width,
+            pdf_archive_folder=self.pdf_archive_folder
         )
 
         if pil_image:
@@ -1956,7 +1970,8 @@ class Synapsen_Nexus(ctk.CTk):
             row_data,
             self.loaded_db_path,
             self.pdf_root_folder,
-            self.browser_path
+            self.browser_path,
+            pdf_archive_folder=self.pdf_archive_folder
         )
 
     # --- グラフ生成メソッド ---
@@ -1993,7 +2008,8 @@ class Synapsen_Nexus(ctk.CTk):
                 self.loaded_db_path,
                 self.pdf_root_folder,
                 output_path=output_path,
-                db_conn=self.db_conn
+                db_conn=self.db_conn,
+                pdf_archive_folder=self.pdf_archive_folder
             )
 
             # 4. ブラウザで表示 (ファイル保存モードでない場合)
@@ -2101,7 +2117,8 @@ class Synapsen_Nexus(ctk.CTk):
                 mode=mode,
                 include_pdf=include_pdf,
                 loaded_db_path=self.loaded_db_path,
-                pdf_root_folder=self.pdf_root_folder
+                pdf_root_folder=self.pdf_root_folder,
+                pdf_archive_folder=self.pdf_archive_folder
             )
 
             msg = f"エクスポート完了:\n{result_path}"
@@ -2137,7 +2154,9 @@ class Synapsen_Nexus(ctk.CTk):
         # ExportManager の merge_pdf を直接利用
         if (
                 self.exporter.merge_pdf(
-                    target_df, Path(save_path), self.pdf_root_folder)
+                    target_df, Path(save_path), self.pdf_root_folder,
+                    pdf_archive_folder=self.pdf_archive_folder
+                )
         ):
             messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
         else:

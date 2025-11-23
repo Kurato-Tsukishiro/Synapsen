@@ -59,17 +59,30 @@ def load_app_config(base_path):
 
         config_data = {}
 
-        # [Paths]
+        # --- [Paths] セクションの読み込み ---
+        # 1. pdf_root_folder
         pdf_root_path_str = parser.get('Paths', 'pdf_root_folder', fallback='')
         if pdf_root_path_str:
-            # 環境変数を展開（%LOCALAPPDATA% など）
             pdf_root_path = Path(os.path.expandvars(pdf_root_path_str))
             if not pdf_root_path.is_absolute():
-                # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 pdf_root_path = config_path.parent / pdf_root_path
             config_data['pdf_root_folder'] = pdf_root_path.resolve()
         else:
             config_data['pdf_root_folder'] = None
+
+        # 2. pdf_archive_folder
+        pdf_archive_str = parser.get(
+            'Paths',
+            'pdf_archive_folder',
+            fallback=''
+        )
+        if pdf_archive_str:
+            pdf_archive_path = Path(os.path.expandvars(pdf_archive_str))
+            if not pdf_archive_path.is_absolute():
+                pdf_archive_path = config_path.parent / pdf_archive_path
+            config_data['pdf_archive_folder'] = pdf_archive_path.resolve()
+        else:
+            config_data['pdf_archive_folder'] = None
 
         # [nexus_output_folder]
         nexus_out_str = parser.get(
@@ -124,7 +137,7 @@ def load_app_config(base_path):
         else:
             config_data['commonplace_keys_options'] = []
 
-        # [Search] セクションの読み込み
+        # [Search]
         if parser.has_section('Search'):
             config_data[
                 'include_all_tags_for_autocomplete'] = parser.getboolean(
@@ -134,7 +147,7 @@ def load_app_config(base_path):
             # セクションがない場合のデフォルト値
             config_data['include_all_tags_for_autocomplete'] = True
 
-        # タグリストの読み込み ([Paths] 'tags_data_path')
+        # tags_data_path
         config_data['predefined_tags'] = []
         tags_path_from_config = parser.get(
             'Paths', 'tags_data_path', fallback=''
@@ -152,18 +165,14 @@ def load_app_config(base_path):
                         tags_list = []
                         for line in f:
                             stripped_line = line.strip()
-
-                            # まず空行でないかチェック
-                            if stripped_line:
-                                # 次にコメント行でないかチェック
-                                if not stripped_line.startswith('#'):
-                                    tags_list.append(stripped_line)
-
+                            # 空行やコメント行でないかチェック
+                            if stripped_line and not stripped_line.startswith('#'):  # noqa: E501
+                                tags_list.append(stripped_line)
                         config_data['predefined_tags'] = sorted(tags_list)
             except Exception as e:
                 logger.error(f"tags.txtの読み込み中にエラー: {e}")
 
-        # デフォルトDBパスの読み込み ([Paths] 'database_path')
+        # database_path
         default_db_path_str = parser.get(
             'Paths', 'database_path', fallback=''
             )
@@ -173,7 +182,7 @@ def load_app_config(base_path):
             if not db_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 db_path = config_path.parent / db_path
-            config_data['database_path'] = db_path.resolve()  # <-- キーを変更
+            config_data['database_path'] = db_path.resolve()
         else:
             config_data['database_path'] = None
 
@@ -489,6 +498,47 @@ def build_references_display(
             text_label.bind("<Button-1>", preview_command)
 
 
+def find_file_in_paths(filename: str, search_dirs: list[Path]) -> Path | None:
+    """
+    指定されたファイル名を、複数の検索ディレクトリから探す。
+    1. 各ディレクトリの直下を検索
+    2. 各ディレクトリのサブディレクトリを再帰検索 (rglob)
+    の順で優先して探す。
+
+    Args:
+        filename (str): 検索するファイル名 (例: "20240101_Memo.pdf")
+        search_dirs (list[Path]): 検索対象のディレクトリリスト (優先度順)
+
+    Returns:
+        Path | None: 見つかったファイルのパス。見つからなければNone。
+    """
+    if not filename:
+        return None
+
+    target_name = Path(filename).name
+
+    # 1. 高速検索: 各ディレクトリの直下をチェック
+    for folder in search_dirs:
+        if folder and folder.is_dir():
+            candidate = folder / target_name
+            if candidate.is_file():
+                return candidate
+
+    # 2. 詳細検索: 各ディレクトリ以下を再帰的に検索
+    # (直下で見つからなかった場合のみ実行)
+    for folder in search_dirs:
+        if folder and folder.is_dir():
+            try:
+                # rglobはイテレータを返す。最初に見つかった1つを返す
+                found = next(folder.rglob(target_name), None)
+                if found:
+                    return found
+            except Exception as e:
+                logger.warning(f"サブフォルダ検索中にエラー ({folder}): {e}")
+
+    return None
+
+
 def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
     """
     PDF URIを config.ini で指定されたブラウザ (優先)
@@ -548,10 +598,12 @@ def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
 
 def open_pdf_viewer(
         row_data, loaded_db_path, pdf_root_folder,
-        browser_path: str | None = None
+        browser_path: str | None = None,
+        pdf_archive_folder: Path | None = None
 ):
     """
-    ノートデータに基づき、統合PDFまたは元のPDFを開く。
+    ノートデータに基づきPDFを開く。
+    サブフォルダおよびアーカイブフォルダ検索に対応。
 
     Args:
         row_data (pd.Series):
@@ -559,44 +611,67 @@ def open_pdf_viewer(
         loaded_db_path (str or Path):
             現在読み込まれているデータベースのパス (統合PDFの基準パスとして使用)。
         pdf_root_folder (str or Path):
-            config.iniで指定された元のPDFのルートフォルダパス。
+            config.iniで指定された統合PDFのメインのルートフォルダパス。
         browser_path (str | None, optional):
             config.iniで指定されたPDFを開くブラウザの(絶対)パス
+        pdf_archive_folder (Path | None):
+            config.iniで指定された統合PDFのサブのルートフォルダパス。
     """
+    # 検索パスリストの構築
+    search_paths = []
+    # 1. メインフォルダ (最優先: クアデルノ同期フォルダなど)
+    if pdf_root_folder:
+        search_paths.append(Path(pdf_root_folder))
+    # 2. アーカイブフォルダ (次点: 過去ファイル置き場)
+    if pdf_archive_folder:
+        search_paths.append(Path(pdf_archive_folder))
+    # 3. DBのあるフォルダ (最後: 統合PDFがDBと同じ場所にある場合などの保険)
+    if loaded_db_path:
+        search_paths.append(Path(loaded_db_path).parent)
+
     merged_pdf_filename = row_data.get('merged_pdf_filename')
     start_page = row_data.get('merged_start_page')
 
-    # 1. 統合PDF (merged_pdf) が指定されている場合
-    # pd.isna() で start_page が空 (NaN) でないことも確認
+    # 1. 統合PDFの検索
+    target_pdf_path = None
+    page_number = 1
+
     if merged_pdf_filename and not pd.isna(start_page) and start_page != '':
-        if not loaded_db_path:
-            messagebox.showerror("エラー", "データベースが読み込まれていないため、PDFの場所を特定できません。")
-            return
+        # ファイルを探す
+        found_path = find_file_in_paths(merged_pdf_filename, search_paths)
+        if found_path:
+            target_pdf_path = found_path
+            try:
+                page_number = int(start_page)
+            except (ValueError, TypeError):
+                page_number = 1
+        else:
+            logger.warning(f"統合PDFが見つかりません: {merged_pdf_filename}")
 
-        # 統合PDFはDBファイルと同じディレクトリにあると想定
-        pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
+    # 2. 統合PDFが見つからない場合、元ファイルを探す
+    if target_pdf_path is None:
+        original_filename = row_data.get('filepath')
+        if original_filename:
+            found_path = find_file_in_paths(original_filename, search_paths)
+            if found_path:
+                target_pdf_path = found_path
+                page_number = 1
 
-        if not pdf_path.is_file():
-            messagebox.showerror("ファイルエラー", f"統合PDFが見つかりません: {pdf_path}")
-            return
+    # 3. PDFを開く
+    if target_pdf_path:
         try:
-            page_number = int(start_page)
-            # PDFをページ指定で開くURI
-            file_uri = f"{pdf_path.as_uri()}#page={page_number}"
+            file_uri = f"{target_pdf_path.as_uri()}#page={page_number}"
             _open_pdf_in_browser(file_uri, browser_path)
-        except (ValueError, TypeError):
-            messagebox.showerror("データエラー", "ページ番号が無効です。")
         except Exception as e:
-            # (エラーは _open_pdf_in_browser 内で処理される)
             messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
-            pass
-
-    # 2. 統合PDFがない場合、元のPDF (original_pdf) を試みる
     else:
-        _open_original_pdf(row_data, pdf_root_folder, browser_path)
+        messagebox.showerror("ファイルエラー", "PDFファイルが見つかりません。\n(検索パス内を確認してください)")
 
 
-def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
+def get_pdf_uri_for_note(
+    row_data, loaded_db_path, pdf_root_folder,
+    pdf_archive_folder: Path | None = None
+):
     """
     ノートデータに基づき、PDFを開くための file:// URI を生成して返す。
     (open_pdf_viewer のロジックを再利用)
@@ -605,51 +680,50 @@ def get_pdf_uri_for_note(row_data, loaded_db_path, pdf_root_folder):
         str or None: "file:///path/to/doc.pdf#page=5" 形式のURI。
                      失敗した場合は None。
     """
+    # 検索パスリストの構築
+    search_paths = []
+    # 1. メインフォルダ (最優先: クアデルノ同期フォルダなど)
+    if pdf_root_folder:
+        search_paths.append(Path(pdf_root_folder))
+    # 2. アーカイブフォルダ (次点: 過去ファイル置き場)
+    if pdf_archive_folder:
+        search_paths.append(Path(pdf_archive_folder))
+    # 3. DBのあるフォルダ (最後: 統合PDFがDBと同じ場所にある場合などの保険)
+    if loaded_db_path:
+        search_paths.append(Path(loaded_db_path).parent)
+
     merged_pdf_filename = row_data.get('merged_pdf_filename')
     start_page_str = row_data.get('merged_start_page')
 
-    pdf_path = None
+    target_path = None
     page_number = 1  # 1-indexed
 
-    # 1. 統合PDF (merged_pdf) が指定されている場合
+    # 1. 統合PDFを探す
     if (
-            merged_pdf_filename and
-            not pd.isna(start_page_str) and
-            start_page_str != ''
+            merged_pdf_filename
+            and not pd.isna(start_page_str)
+            and start_page_str != ''
     ):
-        if loaded_db_path:
-            pdf_path = Path(loaded_db_path).parent / merged_pdf_filename
-
-        if not pdf_path or not pdf_path.is_file():
-            pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
-        else:
+        found = find_file_in_paths(merged_pdf_filename, search_paths)
+        if found:
+            target_path = found
             try:
                 page_number = int(start_page_str)
             except (ValueError, TypeError):
                 page_number = 1
 
-    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
-    if pdf_path is None:
-        if not pdf_root_folder or not Path(pdf_root_folder).is_dir():
-            return None  # 元PDFのルートも不明
+    # 2. 元ファイルを探す
+    if target_path is None:
+        original_filename = row_data.get('filepath')
+        if original_filename:
+            found = find_file_in_paths(original_filename, search_paths)
+            if found:
+                target_path = found
+                page_number = 1
 
-        filename = row_data.get('filepath')
-        if not filename:
-            return None  # 元PDFのファイルパスも不明
-
-        pdf_path = Path(pdf_root_folder) / Path(filename).name
-        page_number = 1  # 元PDFは常に1ページ目
-
-        if not pdf_path.is_file():
-            return None  # 元PDFが見つからない
-
-    # 3. URIを構築
-    try:
-        # ページ指定で開くURI
-        file_uri = f"{pdf_path.as_uri()}#page={page_number}"
-        return file_uri
-    except Exception:
-        return None
+    if target_path:
+        return f"{target_path.as_uri()}#page={page_number}"
+    return None
 
 
 def update_note_in_db(
@@ -731,46 +805,12 @@ def delete_note_from_db(conn: sqlite3.Connection, key: str):
         raise Exception(f"DB削除関数(delete_note_from_db)でエラー: {e}")
 
 
-def _open_original_pdf(row_data, pdf_root_folder):
-    """
-    元のPDFファイルを開く（open_pdf_viewerの内部ヘルパー）。
-
-    Args:
-        row_data (pd.Series): 対象のノートデータ。
-        pdf_root_folder (str or Path): 元のPDFのルートフォルダパス。
-    """
-    if not pdf_root_folder or not Path(pdf_root_folder).is_dir():
-        messagebox.showwarning(
-            "設定不足",
-            "config.iniで指定された 'pdf_root_folder' が見つかりません。" +
-            f"\nパス: {pdf_root_folder}"
-        )
-        return
-
-    filename = row_data.get('filepath')
-    if not filename:
-        messagebox.showerror("データエラー", "元のファイルパス (filepath列) がデータに含まれていません。")
-        return
-
-    # 'filepath' 列のファイル名だけを抽出し、configの'pdf_root_folder'と結合する
-    pdf_path = Path(pdf_root_folder) / Path(filename).name
-
-    if not pdf_path.is_file():
-        messagebox.showerror("ファイルエラー", f"元のPDFファイルが見つかりません: {pdf_path}")
-        return
-    try:
-        _open_pdf_in_browser(pdf_path.as_uri())
-    except Exception as e:
-        # (エラーは _open_pdf_in_browser 内で処理される)
-        messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
-        pass
-
-
 def get_pdf_page_image(
     row_data: pd.Series,
     loaded_db_path: Path,
     pdf_root_folder: Path,
-    max_width: int = 400
+    max_width: int = 400,
+    pdf_archive_folder: Path | None = None
 ):
     """
     ノートデータに基づき、該当するPDFの1ページ目（または指定ページ）を
@@ -781,64 +821,63 @@ def get_pdf_page_image(
         loaded_db_path (Path): 読み込まれているDBのパス。
         pdf_root_folder (Path): 元のPDFのルートフォルダパス。
         max_width (int): プレビュー画像の最大幅。
+        pdf_archive_folder (Path | None):
+            config.iniで指定された統合PDFのサブのルートフォルダパス。
 
     Returns:
         Image.Image or None: 取得・リサイズされたPillowイメージ。
                              失敗した場合は None。
     """
+    # 検索パスリストの構築
+    search_paths = []
+    # 1. メインフォルダ (最優先: クアデルノ同期フォルダなど)
+    if pdf_root_folder:
+        search_paths.append(Path(pdf_root_folder))
+    # 2. アーカイブフォルダ (次点: 過去ファイル置き場)
+    if pdf_archive_folder:
+        search_paths.append(Path(pdf_archive_folder))
+    # 3. DBのあるフォルダ (最後: 統合PDFがDBと同じ場所にある場合などの保険)
+    if loaded_db_path:
+        search_paths.append(Path(loaded_db_path).parent)
+
     pdf_path = None
-    page_num_to_open = 0  # 0-indexed
+    page_num_to_open = 0
 
     merged_pdf_filename = row_data.get('merged_pdf_filename')
     start_page_str = row_data.get('merged_start_page')
 
-    # 1. 統合PDF (merged_pdf) が指定されているか
-    if merged_pdf_filename and not pd.isna(
-            start_page_str) and start_page_str != '':
-        if loaded_db_path:
-            pdf_path = loaded_db_path.parent / merged_pdf_filename
+    # 1. 統合PDF検索
+    if (
+            merged_pdf_filename
+            and not pd.isna(start_page_str)
+            and start_page_str != ''
+    ):
+        found = find_file_in_paths(merged_pdf_filename, search_paths)
+        if found:
+            pdf_path = found
             try:
-                # merged_start_page は 1-indexed なので、0-indexed に変換
                 page_num_to_open = int(start_page_str) - 1
             except ValueError:
                 page_num_to_open = 0
 
-        if not pdf_path or not pdf_path.is_file():
-            logger.error(
-                f"[Preview Error] 統合PDFが見つかりません: {pdf_path}",
-                extra={'sensitive': True}
-            )
-            pdf_path = None  # 見つからなければ元のPDFを探すフォールバック
-
-    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
+    # 2. 元ファイル検索
     if pdf_path is None:
-        if not pdf_root_folder or not pdf_root_folder.is_dir():
-            logger.error("[Preview Error] pdf_root_folder が未設定または存在しません。")
-            return None
+        original_filename = row_data.get('filepath')
+        if original_filename:
+            found = find_file_in_paths(original_filename, search_paths)
+            if found:
+                pdf_path = found
+                page_num_to_open = 0
 
-        filename = row_data.get('filepath')
-        if not filename:
-            logger.error("[Preview Error] filepath がデータに含まれていません。")
-            return None
+    if not pdf_path:
+        return None
 
-        pdf_path = pdf_root_folder / Path(filename).name
-        page_num_to_open = 0  # 元のPDFは常に1ページ目 (index 0)
-
-        if not pdf_path.is_file():
-            logger.error(
-                f"[Preview Error] 元のPDFファイルが見つかりません: {pdf_path}",
-                extra={'sensitive': True}
-            )
-            return None
-
-    # 3. PyMuPDFでPDFを開き、ページを画像化
+    # 3. 画像化 (以下既存ロジックと同じ)
     doc = None
     try:
         doc = fitz.open(pdf_path)
         if not (0 <= page_num_to_open < len(doc)):
             logger.error(f"[Preview Error] 無効なページ番号: {page_num_to_open}")
-            if doc:
-                doc.close()
             return None
 
         page = doc[page_num_to_open]
@@ -850,28 +889,20 @@ def get_pdf_page_image(
         # Pixmapからバイトデータを取得
         img_data = pix.tobytes("png")
         if not img_data:
-            if doc:
-                doc.close()
             return None
 
-        # バイトデータからPillowイメージを開く
         pil_image = Image.open(io.BytesIO(img_data))
 
-        # 4. アスペクト比を維持してリサイズ
         if pil_image.width > max_width:
             scale = max_width / pil_image.width
             new_height = int(pil_image.height * scale)
             pil_image = pil_image.resize(
                 (max_width, new_height), Image.Resampling.LANCZOS
             )
-
         return pil_image
 
     except Exception as e:
-        logger.error(
-            f"[Preview Error] PDFの画像化に失敗 ({pdf_path}): {e}",
-            extra={'sensitive': True}
-        )
+        logger.error(f"PDF画像化エラー: {e}")
         return None
     finally:
         if doc:
@@ -881,7 +912,8 @@ def get_pdf_page_image(
 def get_pdf_document_for_note(
     row_data: pd.Series,
     loaded_db_path: Path,
-    pdf_root_folder: Path
+    pdf_root_folder: Path,
+    pdf_archive_folder: Path | None = None
 ) -> tuple[fitz.Document | None, int, int]:
     """
     ノートデータに紐づくPDFドキュメント(fitz)と、
@@ -894,6 +926,18 @@ def get_pdf_document_for_note(
             start_page_index: 表示すべき開始ページ (0-indexed)
             total_pages: このノートの総ページ数 (統合PDFの場合は pages 列の値)
     """
+    # 検索パスリストの構築
+    search_paths = []
+    # 1. メインフォルダ (最優先: クアデルノ同期フォルダなど)
+    if pdf_root_folder:
+        search_paths.append(Path(pdf_root_folder))
+    # 2. アーカイブフォルダ (次点: 過去ファイル置き場)
+    if pdf_archive_folder:
+        search_paths.append(Path(pdf_archive_folder))
+    # 3. DBのあるフォルダ (最後: 統合PDFがDBと同じ場所にある場合などの保険)
+    if loaded_db_path:
+        search_paths.append(Path(loaded_db_path).parent)
+
     pdf_path = None
     start_page_index = 0  # 0-indexed
     total_pages = 0
@@ -901,43 +945,33 @@ def get_pdf_document_for_note(
     merged_pdf_filename = row_data.get('merged_pdf_filename')
     start_page_str = row_data.get('merged_start_page')
 
-    # 1. 統合PDF (merged_pdf) が指定されているか
+    # 1. 統合PDF検索
     if (
-        merged_pdf_filename and
-        loaded_db_path and
-        not pd.isna(start_page_str) and
-        start_page_str != ''
+            merged_pdf_filename
+            and not pd.isna(start_page_str)
+            and start_page_str != ''
     ):
-        pdf_path = loaded_db_path.parent / merged_pdf_filename
-        if not pdf_path.is_file():
-            pdf_path = None  # 見つからなければ元のPDFを探す
-        else:
+        found = find_file_in_paths(merged_pdf_filename, search_paths)
+        if found:
+            pdf_path = found
             try:
-                # 1-indexed -> 0-indexed
                 start_page_index = int(start_page_str) - 1
             except ValueError:
                 start_page_index = 0
 
-    # 2. 統合PDFがない (または見つからない) 場合、元のPDF (original_pdf) を試みる
+    # 2. 元ファイル検索
     if pdf_path is None:
-        if not pdf_root_folder or not pdf_root_folder.is_dir():
-            logger.debug("[utils] pdf_root_folder が未設定または存在しません。")
-            return (None, 0, 0)
-        filename = row_data.get('filepath')
-        if not filename:
-            logger.debug("[utils] filepath がデータに含まれていません。")
-            return (None, 0, 0)
+        original_filename = row_data.get('filepath')
+        if original_filename:
+            found = find_file_in_paths(original_filename, search_paths)
+            if found:
+                pdf_path = found
+                start_page_index = 0
 
-        pdf_path = pdf_root_folder / Path(filename).name
-        start_page_index = 0  # 元のPDFは常に 0 から
-        if not pdf_path.is_file():
-            logger.debug(
-                f"[utils] 元のPDFファイルが見つかりません: {pdf_path}",
-                extra={'sensitive': True}
-            )
-            return (None, 0, 0)
+    if not pdf_path:
+        return (None, 0, 0)
 
-    # 3. PyMuPDFでPDFを開く
+    # 3. ドキュメントオープン
     try:
         doc = fitz.open(pdf_path)
         doc_total_pages = len(doc)

@@ -10,6 +10,7 @@ import sys
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
 import fitz  # PyMuPDF (プレースホルダー生成用に追加)
+from utils import find_file_in_paths
 
 # グラフ出力のためにGraphManagerを利用
 from graph_manager import GraphManager
@@ -39,7 +40,8 @@ class ExportManager:
         mode="search_results",
         include_pdf=False,
         loaded_db_path=None,
-        pdf_root_folder=None
+        pdf_root_folder=None,
+        pdf_archive_folder=None
     ):
         """
         検索結果のエクスポート処理を実行する。
@@ -82,7 +84,8 @@ class ExportManager:
                 self.merge_pdf(
                     target_df,
                     pdf_save_path, pdf_root_folder,
-                    loaded_db_path
+                    loaded_db_path,
+                    pdf_archive_folder
                 )
 
             return True, final_export_dir
@@ -103,12 +106,25 @@ class ExportManager:
     def merge_pdf(
             self, target_df,
             save_path, pdf_root_folder,
-            loaded_db_path=None
+            loaded_db_path=None,
+            pdf_archive_folder=None
     ):
         """
         DataFrame内のPDFを結合し、しおりを付けて保存する。
         統合PDF -> 元PDF -> フォールバック(代替ページ) の順で取得を試みる。
         """
+        # 検索パスリストの構築
+        search_paths = []
+        # 1. メインフォルダ (最優先: クアデルノ同期フォルダなど)
+        if pdf_root_folder:
+            search_paths.append(Path(pdf_root_folder))
+        # 2. アーカイブフォルダ (次点: 過去ファイル置き場)
+        if pdf_archive_folder:
+            search_paths.append(Path(pdf_archive_folder))
+        # 3. DBのあるフォルダ (最後: 統合PDFがDBと同じ場所にある場合などの保険)
+        if loaded_db_path:
+            search_paths.append(Path(loaded_db_path).parent)
+
         writer = PdfWriter()
         processed_count = 0
         current_page_index = 0
@@ -128,7 +144,6 @@ class ExportManager:
 
             # --- 戦略 A: 統合PDF (月刊ノート) から取得 ---
             merged_filename = row.get('merged_pdf_filename')
-            merged_start_page_str = row.get('merged_start_page')
             try:
                 page_count = int(row.get('pages', 0))
             except Exception as e:
@@ -139,29 +154,22 @@ class ExportManager:
             source_type = None  # "merged" or "original" or "fallback"
             start_p = 0
 
-            # 1. 統合PDFのパスを確認
-            if loaded_db_path and merged_filename:
-                potential_path = Path(loaded_db_path).parent / merged_filename
-                if (
-                        potential_path.is_file()
-                        and merged_start_page_str
-                        and str(merged_start_page_str).isdigit()
-                ):
-                    pdf_source_path = potential_path
-                    # DBは1始まり、pypdfは0始まりなので -1
-                    start_p = int(merged_start_page_str) - 1
+            # 1. 統合PDFを探す
+            merged_filename = row.get('merged_pdf_filename')
+            if merged_filename:
+                found = find_file_in_paths(merged_filename, search_paths)
+                if found:
+                    pdf_source_path = found
+                    start_p = int(row.get('merged_start_page', 1)) - 1
                     source_type = "merged"
 
-            # 2. 統合PDFがなければ、元のPDFを確認
+            # 2. 元ファイルを探す
             if not pdf_source_path:
                 filepath_str = row.get('filepath', '')
                 if filepath_str:
-                    potential_path = Path(filepath_str)
-                    if not potential_path.is_absolute() and pdf_root_folder:
-                        potential_path = Path(pdf_root_folder) / potential_path
-
-                    if potential_path.is_file():
-                        pdf_source_path = potential_path
+                    found = find_file_in_paths(filepath_str, search_paths)
+                    if found:
+                        pdf_source_path = found
                         start_p = 0
                         source_type = "original"
 

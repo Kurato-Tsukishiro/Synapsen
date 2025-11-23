@@ -20,7 +20,8 @@ class GraphManager:
         loaded_db_path,
         pdf_root_folder,
         output_path=None,
-        db_conn=None  # NexusからDB接続を受け取る
+        db_conn=None,
+        pdf_archive_folder=None
     ):
         """
         DataFrameからネットワークグラフを生成し、HTMLファイルとして保存する。
@@ -83,7 +84,8 @@ class GraphManager:
 
             # PDFへのURIを取得
             file_uri = get_pdf_uri_for_note(
-                row, loaded_db_path, pdf_root_folder
+                row, loaded_db_path, pdf_root_folder,
+                pdf_archive_folder=pdf_archive_folder
             )
 
             tooltip = f"Key: {key}\nIndex: {cp_key}"
