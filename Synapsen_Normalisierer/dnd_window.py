@@ -81,18 +81,23 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # ポップアップウィンドウの参照保持用
         self.preview_popup = None
+        self.preview_timer = None      # プレビュー遅延表示用のタイマー
         self.preview_label = None      # ラベルウィジェットの参照を保持
         self.preview_image_cache = {}  # アイテムごとのサムネイルキャッシュ
+        self.hovering_item = None      # 現在ホバー中のアイテムを管理する変数
         self.drag_source_item = None
 
         self.title("D&D/ペーストで正規化")
         self.geometry("1000x800")
 
-        if self.parent_app.icon_path:
-            try:
-                self.iconbitmap(default=str(self.parent_app.icon_path))
-            except Exception as e:
-                logger.error(f"Icon set error (DND Window): {e}")
+        self._custom_icon_path = None
+        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+            self._custom_icon_path = str(parent_app.icon_path)
+            # ウィンドウ生成直後のリセットを防ぐため、少し遅延させて適用
+            self.after(
+                200,
+                lambda: self.iconbitmap(default=self._custom_icon_path)
+            )
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.transient(parent_app)
@@ -245,6 +250,22 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # 実行ボタンの状態を初期更新
         self.update_staged_files_label()
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        CustomTkinterがアイコンをリセットするのを防ぐためのオーバーライドメソッド。
+        """
+        # 設定済みのアイコンパスがあれば、引数を無視してそれを適用する
+        if hasattr(self, "_custom_icon_path") and self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
     def on_close(self) -> None:
         """
@@ -646,14 +667,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.preview_label = ctk.CTkLabel(self.preview_popup, text="")
             self.preview_label.pack()
 
-    def _close_preview(self):
-        """プレビューウィンドウを非表示にする (破棄はしない)"""
-        if self.preview_popup and self.preview_popup.winfo_exists():
-            self.preview_popup.withdraw()
+    def _perform_preview_show(self, item):
+        """予約実行されるプレビュー表示の実処理"""
+        # 実行の瞬間に、まだそのアイテム上にいるか最終確認
+        if self.hovering_item != item:
+            return
 
-    def _on_hover_enter(self, event, item):
-        """マウスオーバー時にプレビューを表示"""
         thumb = self._get_thumbnail(item)
+
+        # サムネイル生成（重い処理）の間にマウスが外れていないか再度確認
+        if self.hovering_item != item:
+            return
+
         if not thumb:
             return
 
@@ -663,17 +688,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         # 画像を更新
         self.preview_label.configure(image=thumb)
 
-        # 位置計算
-        x = event.x_root + 20
-        y = event.y_root + 20
+        # 現在のマウス位置を取得 (event.x_root ではなく現在のポインタ位置を使う)
+        x, y = self.winfo_pointerxy()
+        x += 20
+        y += 20
 
         # 画面はみ出し対策
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         if x + 300 > sw:
-            x = event.x_root - 320
+            x -= 320
         if y + 300 > sh:
-            y = event.y_root - 320
+            y -= 320
 
         self.preview_popup.geometry(f"+{x}+{y}")
 
@@ -681,8 +707,35 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.preview_popup.deiconify()
         self.preview_popup.lift()
 
+    def _close_preview(self):
+        """プレビューウィンドウを非表示にする (破棄はしない)"""
+        if self.preview_popup and self.preview_popup.winfo_exists():
+            self.preview_popup.withdraw()
+
+    def _on_hover_enter(self, event, item):
+        """マウスオーバー時にプレビュー表示をスケジュールする"""
+        self.hovering_item = item
+
+        # 既存のタイマーがあればキャンセル (連打防止)
+        if self.preview_timer:
+            self.after_cancel(self.preview_timer)
+            self.preview_timer = None
+
+        # 0.2秒 (200ms) 後にプレビュー処理を実行するように予約
+        # これにより、素早く通り過ぎただけの時は処理が走らない
+        self.preview_timer = self.after(
+            200, lambda: self._perform_preview_show(item)
+        )
+
     def _on_hover_leave(self, event):
-        """マウスが離れたら非表示"""
+        """マウスが離れたらプレビューをキャンセル・非表示にする"""
+        self.hovering_item = None
+
+        # 予約されていた表示処理をキャンセル
+        if self.preview_timer:
+            self.after_cancel(self.preview_timer)
+            self.preview_timer = None
+
         self._close_preview()
 
     def _on_reorder_start(self, event, item):
