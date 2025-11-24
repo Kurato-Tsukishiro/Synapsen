@@ -10,21 +10,32 @@
 
 # --- タグの例 ---
 
-# 分野
-Program
-ReadingNote
+# --- Zettelkasten Types ---
+## Fleeting: 走り書き, Literature: 読書メモ, Source: 情報源
+Type_Fleeting
+Type_Literature
+Type_Source
 
-# 状態
-ToDo
-ReadLater
-InProgress
+## MOC: 目次ノート
+Type_MOC
+## Permanent: FleetingやLiteratureを元に、自分の言葉で再構築した知識。
+Type_Permanent
 
-# 内容
-## Program
-Program_C#
-Program_Python
+# --- Workflow Status ---
+## Inbox: 未処理, WIP: 編集中, Review: 要復習・後で見返す, Done: 実行済み
 
-# ReadingNote
-ReadingNote_自己啓発
-ReadingNote_メモ・ノート術
-ReadingNote_ライティングテクニック
+Status_Inbox
+Status_WIP
+Status_Review
+Status_Done
+
+## Task: 期日付き作業, ToDo: 期日無し作業
+Status_Task
+Status_ToDo
+
+# --- Concepts ---
+Idea
+Question
+Evidence
+
+# --- Contents ---
