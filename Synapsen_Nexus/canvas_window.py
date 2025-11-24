@@ -29,7 +29,7 @@ try:
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
         add_metadata_to_clip,
-        embed_processing_flag
+        embed_processing_flag,
     )
 except ImportError:
     pass
@@ -45,6 +45,7 @@ if str(root_dir) not in sys.path:
 
 try:
     from logging_setup import setup_logging
+
     # アプリ名を指定して初期化
     setup_logging("Synapsen_Normalisierer")
     logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
@@ -53,29 +54,28 @@ except ImportError:
     print("Warning: logging_setup.py not found. Logging disabled.")
 
     class MockLogger:
-        def info(self, msg): print(f"[INFO] {msg}")
+        def info(self, msg):
+            print(f"[INFO] {msg}")
 
         def error(self, msg, exc_info=None):
             print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
 
-        def warning(self, msg): print(f"[WARN] {msg}")
+        def warning(self, msg):
+            print(f"[WARN] {msg}")
 
     logger = MockLogger()
 # ==============================================================================
 
 
 class StickyNoteDialog(ctk.CTkToplevel):
-    def __init__(
-        self, parent,
-        title_val="", content_val="", color_val="#FFFFA5"
-    ):
+    def __init__(self, parent, title_val="", content_val="", color_val="#FFFFA5"):
         super().__init__(parent)
         self.title("付箋の編集")
         self.geometry("450x450")
 
         # アイコン設定 (遅延適用)
         self._custom_icon_path = None
-        if hasattr(parent, '_custom_icon_path') and parent._custom_icon_path:
+        if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
             self._custom_icon_path = parent._custom_icon_path
             self.after(200, lambda: self._apply_icon())
 
@@ -87,9 +87,9 @@ class StickyNoteDialog(ctk.CTkToplevel):
         self.grid_rowconfigure(5, weight=1)
 
         # --- 色選択 ---
-        ctk.CTkLabel(
-            self, text="色:", anchor="w"
-        ).grid(row=0, column=0, padx=10, pady=(10, 2), sticky="ew")
+        ctk.CTkLabel(self, text="色:", anchor="w").grid(
+            row=0, column=0, padx=10, pady=(10, 2), sticky="ew"
+        )
 
         color_frame = ctk.CTkFrame(self, fg_color="transparent")
         color_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
@@ -100,7 +100,7 @@ class StickyNoteDialog(ctk.CTkToplevel):
             ("レッド", "#FFD1D1"),
             ("グリーン", "#D1FFD1"),
             ("ホワイト", "#FFFFF0"),
-            ("グレー", "#E0E0E0")
+            ("グレー", "#E0E0E0"),
         ]
 
         for i, (name, code) in enumerate(colors):
@@ -118,28 +118,24 @@ class StickyNoteDialog(ctk.CTkToplevel):
                 fg_color=code,
                 border_color="gray",
                 text_color=text_color,
-                width=80
+                width=80,
             )
             r, c = divmod(i, 3)
             btn.grid(row=r, column=c, padx=5, pady=5, sticky="w")
 
         # --- テキスト入力 ---
-        ctk.CTkLabel(
-            self, text="タイトル (改行不可):", anchor="w"
-        ).grid(row=2, column=0, padx=10, pady=(5, 2), sticky="ew")
-        self.title_entry = ctk.CTkEntry(self)
-        self.title_entry.grid(
-            row=3, column=0, padx=10, pady=(0, 10), sticky="ew"
+        ctk.CTkLabel(self, text="タイトル (改行不可):", anchor="w").grid(
+            row=2, column=0, padx=10, pady=(5, 2), sticky="ew"
         )
+        self.title_entry = ctk.CTkEntry(self)
+        self.title_entry.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="ew")
         self.title_entry.insert(0, title_val)
 
-        ctk.CTkLabel(
-            self, text="内容:", anchor="w"
-        ).grid(row=4, column=0, padx=10, pady=(0, 2), sticky="ew")
-        self.content_textbox = ctk.CTkTextbox(self)
-        self.content_textbox.grid(
-            row=5, column=0, padx=10, pady=(0, 10), sticky="nsew"
+        ctk.CTkLabel(self, text="内容:", anchor="w").grid(
+            row=4, column=0, padx=10, pady=(0, 2), sticky="ew"
         )
+        self.content_textbox = ctk.CTkTextbox(self)
+        self.content_textbox.grid(row=5, column=0, padx=10, pady=(0, 10), sticky="nsew")
         self.content_textbox.insert("1.0", content_val)
 
         # ボタン
@@ -151,14 +147,11 @@ class StickyNoteDialog(ctk.CTkToplevel):
             text="キャンセル",
             width=80,
             fg_color="gray",
-            command=self.destroy
+            command=self.destroy,
         ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            btn_frame,
-            text="OK",
-            width=80,
-            command=self.on_ok
-        ).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="OK", width=80, command=self.on_ok).pack(
+            side="left", padx=5
+        )
 
     def _apply_icon(self):
         if self._custom_icon_path:
@@ -180,12 +173,7 @@ class StickyNoteDialog(ctk.CTkToplevel):
                 pass
 
     def on_ok(self):
-        raw_title = (
-            self.title_entry.get().
-            replace("\n", " ").
-            replace("\r", "").
-            strip()
-        )
+        raw_title = self.title_entry.get().replace("\n", " ").replace("\r", "").strip()
         raw_content = self.content_textbox.get("1.0", "end-1c")
         color = self.selected_color.get()
         self.result = (raw_title, raw_content, color)
@@ -194,13 +182,14 @@ class StickyNoteDialog(ctk.CTkToplevel):
 
 class ConversionDialog(ctk.CTkToplevel):
     """付箋をノートに変換する際に、タイトルとIndexKeyを指定するダイアログ"""
+
     def __init__(self, parent, default_title, key_options):
         super().__init__(parent)
         self.title("ノートに変換")
         self.geometry("400x250")
 
         self._custom_icon_path = None
-        if hasattr(parent, '_custom_icon_path') and parent._custom_icon_path:
+        if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
             self._custom_icon_path = parent._custom_icon_path
             self.after(200, lambda: self._apply_icon())
 
@@ -210,24 +199,18 @@ class ConversionDialog(ctk.CTkToplevel):
 
         self.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            self, text="タイトル:", anchor="w"
-        ).grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
-        self.title_entry = ctk.CTkEntry(self)
-        self.title_entry.grid(
-            row=1, column=0, padx=20, pady=(0, 15), sticky="ew"
+        ctk.CTkLabel(self, text="タイトル:", anchor="w").grid(
+            row=0, column=0, padx=20, pady=(20, 5), sticky="ew"
         )
+        self.title_entry = ctk.CTkEntry(self)
+        self.title_entry.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="ew")
         self.title_entry.insert(0, default_title)
 
-        ctk.CTkLabel(
-            self,
-            text="Index Key (分類):",
-            anchor="w"
-        ).grid(row=2, column=0, padx=20, pady=(0, 5), sticky="ew")
-        self.key_combo = ctk.CTkComboBox(self, values=self.key_options)
-        self.key_combo.grid(
-            row=3, column=0, padx=20, pady=(0, 20), sticky="ew"
+        ctk.CTkLabel(self, text="Index Key (分類):", anchor="w").grid(
+            row=2, column=0, padx=20, pady=(0, 5), sticky="ew"
         )
+        self.key_combo = ctk.CTkComboBox(self, values=self.key_options)
+        self.key_combo.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
         if self.key_options:
             self.key_combo.set(self.key_options[0])
 
@@ -239,14 +222,11 @@ class ConversionDialog(ctk.CTkToplevel):
             text="キャンセル",
             width=80,
             fg_color="gray",
-            command=self.destroy
+            command=self.destroy,
         ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            btn_frame,
-            text="変換実行",
-            width=80,
-            command=self.on_ok
-        ).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="変換実行", width=80, command=self.on_ok).pack(
+            side="left", padx=5
+        )
 
     def _apply_icon(self):
         if self._custom_icon_path:
@@ -282,7 +262,7 @@ class CanvasHelpWindow(ctk.CTkToplevel):
         self.title("Canvas ヘルプ")
         self.geometry("600x650")
 
-        if hasattr(parent, '_custom_icon_path') and parent._custom_icon_path:
+        if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
             self._custom_icon_path = parent._custom_icon_path
             self.after(200, lambda: self._apply_icon())
 
@@ -373,7 +353,7 @@ class CanvasWindow(ctk.CTkToplevel):
 
         # --- アイコン設定 (初期化) ---
         self._custom_icon_path = None
-        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+        if hasattr(parent_app, "icon_path") and parent_app.icon_path:
             self._custom_icon_path = str(parent_app.icon_path)
             self.after(200, lambda: self._apply_icon())
 
@@ -393,12 +373,14 @@ class CanvasWindow(ctk.CTkToplevel):
 
         self.current_mode = "select"
         self.drag_data = {
-            "x": 0, "y": 0,
-            "start_x": 0, "start_y": 0,
+            "x": 0,
+            "y": 0,
+            "start_x": 0,
+            "start_y": 0,
             "temp_id": None,
             "start_item": None,
             "rubberband_id": None,
-            "moved": False
+            "moved": False,
         }
 
         self.font_path = self._get_font_path_from_config()
@@ -412,44 +394,31 @@ class CanvasWindow(ctk.CTkToplevel):
             text="開く",
             width=50,
             command=self.load_from_file,
-            fg_color="#585a9c"
+            fg_color="#585a9c",
         ).pack(side="left", padx=2)
         ctk.CTkButton(
-            self.toolbar,
-            text="保存",
-            width=50,
-            command=self.save_canvas
+            self.toolbar, text="保存", width=50, command=self.save_canvas
         ).pack(side="left", padx=2)
         ctk.CTkButton(
-            self.toolbar,
-            text="別名保存",
-            width=60,
-            command=self.save_as_file
+            self.toolbar, text="別名保存", width=60, command=self.save_as_file
         ).pack(side="left", padx=2)
-        ctk.CTkLabel(
-            self.toolbar,
-            text="|"
-        ).pack(side="left", padx=5)
+        ctk.CTkLabel(self.toolbar, text="|").pack(side="left", padx=5)
         ctk.CTkButton(
             self.toolbar,
             text="PDF出力",
             width=60,
             command=self.export_canvas_dialog,
             fg_color="#00695C",
-            hover_color="#004D40"
+            hover_color="#004D40",
         ).pack(side="left", padx=2)
 
-        ctk.CTkLabel(
-            self.toolbar, text="| ズーム:"
-        ).pack(side="left", padx=5)
+        ctk.CTkLabel(self.toolbar, text="| ズーム:").pack(side="left", padx=5)
         ctk.CTkButton(
-            self.toolbar, text="-", width=30,
-            command=self._zoom_out_btn
+            self.toolbar, text="-", width=30, command=self._zoom_out_btn
         ).pack(side="left", padx=2)
-        ctk.CTkButton(
-            self.toolbar, text="+", width=30,
-            command=self._zoom_in_btn
-        ).pack(side="left", padx=2)
+        ctk.CTkButton(self.toolbar, text="+", width=30, command=self._zoom_in_btn).pack(
+            side="left", padx=2
+        )
 
         ctk.CTkLabel(self.toolbar, text="| ツール:").pack(side="left", padx=5)
 
@@ -459,7 +428,7 @@ class CanvasWindow(ctk.CTkToplevel):
             self.toolbar,
             textvariable=self.status_label_var,
             font=("", 12, "bold"),
-            text_color="gray"
+            text_color="gray",
         )
 
         def set_mode(mode, label_text):
@@ -471,52 +440,67 @@ class CanvasWindow(ctk.CTkToplevel):
                 self._clear_selection()
 
         self.mode_buttons["select"] = ctk.CTkButton(
-            self.toolbar, text="選択", width=50,
-            command=lambda: set_mode("select", "選択/移動")
+            self.toolbar,
+            text="選択",
+            width=50,
+            command=lambda: set_mode("select", "選択/移動"),
         )
         self.mode_buttons["select"].pack(side="left", padx=2)
         self.mode_buttons["connect"] = ctk.CTkButton(
-            self.toolbar, text="⇔ 接続", width=50,
-            command=lambda: set_mode("connect", "ノート接続 (リンク)")
+            self.toolbar,
+            text="⇔ 接続",
+            width=50,
+            command=lambda: set_mode("connect", "ノート接続 (リンク)"),
         )
         self.mode_buttons["connect"].pack(side="left", padx=2)
         self.mode_buttons["sticky"] = ctk.CTkButton(
-            self.toolbar, text="付箋", width=50,
-            command=lambda: set_mode("sticky", "付箋作成")
+            self.toolbar,
+            text="付箋",
+            width=50,
+            command=lambda: set_mode("sticky", "付箋作成"),
         )
         self.mode_buttons["sticky"].pack(side="left", padx=2)
         self.mode_buttons["rect"] = ctk.CTkButton(
-            self.toolbar, text="□ 枠", width=50,
-            command=lambda: set_mode("rect", "枠線")
+            self.toolbar,
+            text="□ 枠",
+            width=50,
+            command=lambda: set_mode("rect", "枠線"),
         )
         self.mode_buttons["rect"].pack(side="left", padx=2)
         self.mode_buttons["line"] = ctk.CTkButton(
-            self.toolbar, text="／ 線", width=50,
-            command=lambda: set_mode("line", "線 (Path)")
+            self.toolbar,
+            text="／ 線",
+            width=50,
+            command=lambda: set_mode("line", "線 (Path)"),
         )
         self.mode_buttons["line"].pack(side="left", padx=2)
 
         ctk.CTkLabel(self.toolbar, text="|").pack(side="left", padx=5)
         ctk.CTkButton(
-            self.toolbar, text="OR検索", width=70,
+            self.toolbar,
+            text="OR検索",
+            width=70,
             command=self.send_or_search_to_nexus,
-            fg_color="#E0a800", hover_color="#D09800", text_color="black"
+            fg_color="#E0a800",
+            hover_color="#D09800",
+            text_color="black",
         ).pack(side="left", padx=2)
 
         # 右側ボタン
         ctk.CTkButton(
-            self.toolbar, text="全消去", width=60,
-            fg_color="#D9534F", hover_color="#C9302C",
-            command=self.clear_canvas
+            self.toolbar,
+            text="全消去",
+            width=60,
+            fg_color="#D9534F",
+            hover_color="#C9302C",
+            command=self.clear_canvas,
         ).pack(side="right", padx=5)
         ctk.CTkButton(
-            self.toolbar, text="ノート追加",
-            command=self.add_selected_notes
+            self.toolbar, text="ノート追加", command=self.add_selected_notes
         ).pack(side="right", padx=5)
-        ctk.CTkButton(
-            self.toolbar, text="？", width=30,
-            command=self.show_help
-        ).pack(side="right", padx=5)
+        ctk.CTkButton(self.toolbar, text="？", width=30, command=self.show_help).pack(
+            side="right", padx=5
+        )
 
         self.status_label.pack(side="right", padx=15)
         set_mode("select", "選択/移動")
@@ -524,25 +508,24 @@ class CanvasWindow(ctk.CTkToplevel):
         self.canvas_frame = ctk.CTkFrame(self)
         self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        if (ctk.get_appearance_mode() == "Dark"):
+        if ctk.get_appearance_mode() == "Dark":
             self.bg_color = "#2b2b2b"
         else:
             self.bg_color = "#f0f0f0"
-        if (ctk.get_appearance_mode() == "Dark"):
+        if ctk.get_appearance_mode() == "Dark":
             self.grid_color = "#3a3a3a"
         else:
             self.grid_color = "#e0e0e0"
 
         self.canvas = tk.Canvas(
-            self.canvas_frame, bg=self.bg_color, highlightthickness=0)
+            self.canvas_frame, bg=self.bg_color, highlightthickness=0
+        )
         hbar = tk.Scrollbar(
-            self.canvas_frame, orient=tk.HORIZONTAL,
-            command=self.canvas.xview
+            self.canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview
         )
         hbar.pack(side=tk.BOTTOM, fill=tk.X)
         vbar = tk.Scrollbar(
-            self.canvas_frame, orient=tk.VERTICAL,
-            command=self.canvas.yview
+            self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview
         )
         vbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.config(xscrollcommand=hbar.set, yscrollcommand=vbar.set)
@@ -562,8 +545,8 @@ class CanvasWindow(ctk.CTkToplevel):
         self.load_canvas_data(self.default_save_file)
 
         self.lift()
-        self.attributes('-topmost', True)
-        self.after(500, lambda: self.attributes('-topmost', False))
+        self.attributes("-topmost", True)
+        self.after(500, lambda: self.attributes("-topmost", False))
         self.focus_force()
 
     def show_help(self):
@@ -594,13 +577,13 @@ class CanvasWindow(ctk.CTkToplevel):
 
     def _get_font_path_from_config(self):
         try:
-            config_path = self.parent_app.base_path / 'config.ini'
+            config_path = self.parent_app.base_path / "config.ini"
             if not config_path.is_file():
-                config_path = self.parent_app.base_path.parent / 'config.ini'
+                config_path = self.parent_app.base_path.parent / "config.ini"
             if config_path.is_file():
                 config = configparser.ConfigParser()
-                config.read(config_path, encoding='utf-8')
-                font_path_str = config.get('Paths', 'font_path', fallback='')
+                config.read(config_path, encoding="utf-8")
+                font_path_str = config.get("Paths", "font_path", fallback="")
                 return Path(os.path.expandvars(font_path_str))
         except Exception:
             pass
@@ -608,12 +591,12 @@ class CanvasWindow(ctk.CTkToplevel):
 
     def _get_config_value(self, section, key, fallback):
         try:
-            config_path = self.parent_app.base_path / 'config.ini'
+            config_path = self.parent_app.base_path / "config.ini"
             if not config_path.is_file():
-                config_path = self.parent_app.base_path.parent / 'config.ini'
+                config_path = self.parent_app.base_path.parent / "config.ini"
             if config_path.is_file():
                 config = configparser.ConfigParser()
-                config.read(config_path, encoding='utf-8')
+                config.read(config_path, encoding="utf-8")
                 return config.get(section, key, fallback=fallback)
         except Exception:
             pass
@@ -625,25 +608,36 @@ class CanvasWindow(ctk.CTkToplevel):
 
         for x in range(0, int(width * self.current_scale), int(scaled_step)):
             self.canvas.create_line(
-                x, 0, x, height * self.current_scale,
-                fill=self.grid_color, tags=("grid",)
+                x,
+                0,
+                x,
+                height * self.current_scale,
+                fill=self.grid_color,
+                tags=("grid",),
             )
         for y in range(0, int(height * self.current_scale), int(scaled_step)):
             self.canvas.create_line(
-                0, y, width * self.current_scale, y,
-                fill=self.grid_color, tags=("grid",)
+                0,
+                y,
+                width * self.current_scale,
+                y,
+                fill=self.grid_color,
+                tags=("grid",),
             )
         self.canvas.tag_lower("grid")
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _on_shift_mousewheel(self, event):
-        self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+        self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def _zoom_in_btn(self): self.zoom(1.1)
-    def _zoom_out_btn(self): self.zoom(0.9)
+    def _zoom_in_btn(self):
+        self.zoom(1.1)
+
+    def _zoom_out_btn(self):
+        self.zoom(0.9)
 
     def _on_zoom_wheel(self, event):
         if event.delta > 0:
@@ -658,21 +652,16 @@ class CanvasWindow(ctk.CTkToplevel):
             center_y = self.canvas.winfo_height() / 2
         canvas_x = self.canvas.canvasx(center_x)
         canvas_y = self.canvas.canvasy(center_y)
-        self.canvas.scale(
-            "all",
-            canvas_x, canvas_y,
-            scale_factor, scale_factor
-        )
+        self.canvas.scale("all", canvas_x, canvas_y, scale_factor, scale_factor)
         self.current_scale *= scale_factor
         self._apply_zoom_style()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _apply_zoom_style(self):
-        new_note_font = (
-            "", max(6, int(self.base_font_size_note * self.current_scale))
-        )
+        new_note_font = ("", max(6, int(self.base_font_size_note * self.current_scale)))
         new_sticky_font = (
-            "", max(8, int(self.base_font_size_sticky * self.current_scale))
+            "",
+            max(8, int(self.base_font_size_sticky * self.current_scale)),
         )
         base_width = max(1, int(self.base_line_width * self.current_scale))
         selected_width = max(2, int(4 * self.current_scale))
@@ -682,8 +671,9 @@ class CanvasWindow(ctk.CTkToplevel):
             self.canvas.itemconfigure(text_id, font=new_note_font)
             is_sel = ("note", key) in self.selected_items
             self.canvas.itemconfigure(
-                rect_id, width=selected_width if is_sel else base_width,
-                outline="#585a9c" if is_sel else "white"
+                rect_id,
+                width=selected_width if is_sel else base_width,
+                outline="#585a9c" if is_sel else "white",
             )
 
         for sticky in self.stickies_on_canvas:
@@ -693,7 +683,7 @@ class CanvasWindow(ctk.CTkToplevel):
             self.canvas.itemconfigure(
                 rect_id,
                 width=selected_width if is_sel else 0,
-                outline="#585a9c" if is_sel else ""
+                outline="#585a9c" if is_sel else "",
             )
 
         for s in self.shapes_on_canvas:
@@ -704,8 +694,10 @@ class CanvasWindow(ctk.CTkToplevel):
                     c = "#585a9c" if is_sel else "red"
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 else:
-                    c = "#585a9c" if is_sel else (
-                        "white" if self.bg_color == "#2b2b2b" else "black"
+                    c = (
+                        "#585a9c"
+                        if is_sel
+                        else ("white" if self.bg_color == "#2b2b2b" else "black")
                     )
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
@@ -764,15 +756,12 @@ class CanvasWindow(ctk.CTkToplevel):
             rect_id = info["ids"][0]
             if ("note", key) in self.selected_items:
                 self.canvas.itemconfigure(
-                    rect_id, outline=sel_col,
-                    width=selected_width
+                    rect_id, outline=sel_col, width=selected_width
                 )
                 self.canvas.tag_raise(rect_id)
                 self.canvas.tag_raise(info["ids"][1])
             else:
-                self.canvas.itemconfigure(
-                    rect_id, outline="white", width=base_width
-                )
+                self.canvas.itemconfigure(rect_id, outline="white", width=base_width)
 
         # 付箋の処理 (ハンドル描画を追加)
         for sticky in self.stickies_on_canvas:
@@ -791,10 +780,14 @@ class CanvasWindow(ctk.CTkToplevel):
                 x1, y1, x2, y2 = self.canvas.coords(rect_id)
 
                 # ハンドル (四角形) を作成
-                hid = self.canvas.create_rectangle(                # noqa: F841
-                    x2 - handle_size, y2 - handle_size, x2, y2,
-                    fill="gray", outline="white",
-                    tags=("resize_handle", f"handle_{sticky_key}")
+                hid = self.canvas.create_rectangle(  # noqa: F841
+                    x2 - handle_size,
+                    y2 - handle_size,
+                    x2,
+                    y2,
+                    fill="gray",
+                    outline="white",
+                    tags=("resize_handle", f"handle_{sticky_key}"),
                 )
                 # sticky_key を紐付けておくことで、クリック時に親を特定できる
 
@@ -809,18 +802,22 @@ class CanvasWindow(ctk.CTkToplevel):
                     c = sel_col if is_sel else "red"
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 else:
-                    c = sel_col if is_sel else (
-                        "white" if self.bg_color == "#2b2b2b" else "black"
+                    c = (
+                        sel_col
+                        if is_sel
+                        else ("white" if self.bg_color == "#2b2b2b" else "black")
                     )
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
     def send_or_search_to_nexus(self):
         keys = [k for t, k in self.selected_items if t == "note"]
         if not keys:
-            messagebox.showinfo("情報", "検索対象のノートが選択されていません。", parent=self)
+            messagebox.showinfo(
+                "情報", "検索対象のノートが選択されていません。", parent=self
+            )
             return
         query_string = " OR ".join([f"[[{key}]]" for key in keys])
-        self.parent_app.search_entry.delete(0, 'end')
+        self.parent_app.search_entry.delete(0, "end")
         self.parent_app.search_entry.insert(0, query_string)
         self.parent_app.perform_search()
         self.parent_app.lift()
@@ -830,20 +827,20 @@ class CanvasWindow(ctk.CTkToplevel):
     def add_selected_notes(self):
         selected_keys = self.parent_app.selected_keys
         if not selected_keys:
-            messagebox.showinfo("情報", "Nexus本体でノートを選択してください。", parent=self)
+            messagebox.showinfo(
+                "情報", "Nexus本体でノートを選択してください。", parent=self
+            )
             return
         df = self.parent_app.df
         start_x = self.canvas.canvasx(100)
         start_y = self.canvas.canvasy(100)
         added = 0
-        for _, row in df[df['key'].isin(selected_keys)].iterrows():
-            key = row['key']
+        for _, row in df[df["key"].isin(selected_keys)].iterrows():
+            key = row["key"]
             if key in self.notes_on_canvas:
                 continue
             self.create_note_item(
-                key,
-                row['title'], row.get('commonplace_key', ''),
-                start_x, start_y
+                key, row["title"], row.get("commonplace_key", ""), start_x, start_y
             )
             start_x += 30 * self.current_scale
             start_y += 30 * self.current_scale
@@ -852,32 +849,45 @@ class CanvasWindow(ctk.CTkToplevel):
             self.save_canvas()
 
     def create_note_item(self, key, title, cp_key, x, y):
+        # x, y は論理座標(スケール1.0)として受け取る
         color = self.parent_app.key_colors.get(cp_key.lower(), "#aaaaaa")
-        w, h = 160 * self.current_scale, 80 * self.current_scale
+
+        # 描画用サイズ・座標計算 (画面表示用)
+        sw, sh = 160 * self.current_scale, 80 * self.current_scale
+        sx, sy = x * self.current_scale, y * self.current_scale
+
         fs = max(6, int(self.base_font_size_note * self.current_scale))
         lw = max(1, int(self.base_line_width * self.current_scale))
 
         rid = self.canvas.create_rectangle(
-            x, y, x+w, y+h,
-            fill=color, outline="white",
-            width=lw, tags=("note", key)
+            sx,
+            sy,
+            sx + sw,
+            sy + sh,
+            fill=color,
+            outline="white",
+            width=lw,
+            tags=("note", key),
         )
-        dt = (title[:20] + '..') if len(title) > 20 else title
+        dt = (title[:20] + "..") if len(title) > 20 else title
         tid = self.canvas.create_text(
-            x+w/2, y+h/2,
+            sx + sw / 2,
+            sy + sh / 2,
             text=dt,
-            width=w-(10*self.current_scale),
+            width=sw - (10 * self.current_scale),
             fill="black",
             font=("", fs),
             tags=("note", key),
-            justify="center"
+            justify="center",
         )
+
+        # 内部データには論理座標 (x, y) をそのまま保存
         self.notes_on_canvas[key] = {
             "x": x,
             "y": y,
             "title": title,
             "cp_key": cp_key,
-            "ids": (rid, tid)
+            "ids": (rid, tid),
         }
 
     def _create_sticky_display_text(self, title, content):
@@ -888,53 +898,58 @@ class CanvasWindow(ctk.CTkToplevel):
         return f"{title}\n{content}"
 
     def create_sticky_item(
-            self,
-            x, y,
-            title="", content="",
-            bg_color="#FFFFA5",
-            w=None, h=None
+        self, x, y, title="", content="", bg_color="#FFFFA5", w=180, h=120
     ):
-        # デフォルトサイズの設定 (現在のスケールを考慮)
-        if w is None:
-            w = 180 * self.current_scale
-        if h is None:
-            h = 120 * self.current_scale
+        # 描画用サイズ・座標計算
+        sw, sh = w * self.current_scale, h * self.current_scale
+        sx, sy = x * self.current_scale, y * self.current_scale
+
+        # パディングもスケールさせる (論理10px)
+        pad = 10 * self.current_scale
 
         fs = max(8, int(self.base_font_size_sticky * self.current_scale))
-
         display_text = self._create_sticky_display_text(title, content)
 
         sid = self.canvas.create_rectangle(
-            x+5, y+5, x+w+5, y+h+5,
-            fill="gray50", outline="", tags=("sticky_shadow",)
+            sx + 5,
+            sy + 5,
+            sx + sw + 5,
+            sy + sh + 5,
+            fill="gray50",
+            outline="",
+            tags=("sticky_shadow",),
         )
         rid = self.canvas.create_rectangle(
-            x, y, x+w, y+h,
+            sx,
+            sy,
+            sx + sw,
+            sy + sh,
             fill=bg_color,
             outline="",
             width=0,
-            tags=("sticky",)
+            tags=("sticky",),
         )
         tid = self.canvas.create_text(
-            x+10, y+10,
+            sx + pad,
+            sy + pad,
             text=display_text,
-            width=w-20,  # テキストの折り返し幅も可変に
+            width=sw - (pad * 2),
             anchor="nw",
             font=("", fs),
             fill="black",
-            tags=("sticky",)
+            tags=("sticky",),
         )
 
         item = {
             "x": x,
             "y": y,
-            "w": w,  # 保存
-            "h": h,  # 保存
+            "w": w,
+            "h": h,  # 論理座標を保存
             "title": title,
             "content": content,
             "bg_color": bg_color,
             "ids": (rid, tid),
-            "shadow_id": sid
+            "shadow_id": sid,
         }
 
         real_tag = f"sticky_{id(item)}"
@@ -950,19 +965,15 @@ class CanvasWindow(ctk.CTkToplevel):
         t_type, t_key = to_item
         for c in self.connections_on_canvas:
             if (
-                    (
-                        c["from_key"] == f_key
-                        and c["to_key"] == t_key
-                        and c["from_type"] == f_type
-                        and c["to_type"] == t_type
-                    )
-                    or
-                    (
-                        c["from_key"] == t_key
-                        and c["to_key"] == f_key
-                        and c["from_type"] == t_type
-                        and c["to_type"] == f_type
-                    )
+                c["from_key"] == f_key
+                and c["to_key"] == t_key
+                and c["from_type"] == f_type
+                and c["to_type"] == t_type
+            ) or (
+                c["from_key"] == t_key
+                and c["to_key"] == f_key
+                and c["from_type"] == t_type
+                and c["to_type"] == f_type
             ):
                 return
 
@@ -986,9 +997,7 @@ class CanvasWindow(ctk.CTkToplevel):
         lw = max(1, int(self.base_line_width * self.current_scale))
 
         lid = self.canvas.create_line(
-            x1, y1, x2, y2,
-            fill=col, width=lw, arrow=tk.LAST,
-            tags=("connection",)
+            x1, y1, x2, y2, fill=col, width=lw, arrow=tk.LAST, tags=("connection",)
         )
         try:
             self.canvas.tag_lower(lid, "note")
@@ -1006,46 +1015,42 @@ class CanvasWindow(ctk.CTkToplevel):
             # グリッドは通常存在しますが、念のため安全策
             self.canvas.tag_lower(lid)
 
-        self.connections_on_canvas.append({
-            "id": lid, "from_key": f_key, "to_key": t_key,
-            "from_type": f_type, "to_type": t_type
-        })
+        self.connections_on_canvas.append(
+            {
+                "id": lid,
+                "from_key": f_key,
+                "to_key": t_key,
+                "from_type": f_type,
+                "to_type": t_type,
+            }
+        )
 
     def _get_connection_coords(self, f_type, f_key, t_type, t_key):
         def get_bbox(type_, key_):
             if type_ == "note":
                 if key_ in self.notes_on_canvas:
-                    return self.canvas.bbox(
-                        self.notes_on_canvas[key_]["ids"][0]
-                    )
+                    return self.canvas.bbox(self.notes_on_canvas[key_]["ids"][0])
             elif type_ == "sticky":
                 for s in self.stickies_on_canvas:
                     if str(id(s)) == key_:
                         return self.canvas.bbox(s["ids"][0])
             return None
+
         b1 = get_bbox(f_type, f_key)
         b2 = get_bbox(t_type, t_key)
         if not b1 or not b2:
             return None
         return (
-            (b1[0]+b1[2])/2,
-            (b1[1]+b1[3])/2,
-            (b2[0]+b2[2])/2,
-            (b2[1]+b2[3])/2
+            (b1[0] + b1[2]) / 2,
+            (b1[1] + b1[3]) / 2,
+            (b2[0] + b2[2]) / 2,
+            (b2[1] + b2[3]) / 2,
         )
 
     def update_connections(self, type_, key_):
         for c in self.connections_on_canvas:
-            if (
-                (
-                    c["from_type"] == type_
-                    and c["from_key"] == key_
-                )
-                or
-                (
-                    c["to_type"] == type_
-                    and c["to_key"] == key_
-                )
+            if (c["from_type"] == type_ and c["from_key"] == key_) or (
+                c["to_type"] == type_ and c["to_key"] == key_
             ):
                 coords = self._get_connection_coords(
                     c["from_type"], c["from_key"], c["to_type"], c["to_key"]
@@ -1053,37 +1058,34 @@ class CanvasWindow(ctk.CTkToplevel):
                 if coords:
                     self.canvas.coords(c["id"], *coords)
 
-    def create_shape_item(
-        self, shape_type,
-        x=0, y=0, w=0, h=0, text="",
-        x2=0, y2=0
-    ):
+    def create_shape_item(self, shape_type, x=0, y=0, w=0, h=0, text="", x2=0, y2=0):
         lw = max(1, int(self.base_line_width * self.current_scale))
+
+        # 描画用座標変換
+        sx, sy = x * self.current_scale, y * self.current_scale
+        sw, sh = w * self.current_scale, h * self.current_scale
+        sx2, sy2 = x2 * self.current_scale, y2 * self.current_scale
+
         if shape_type == "rect":
             iid = self.canvas.create_rectangle(
-                x, y, x+w, y+h,
-                outline="red", width=lw, dash=(4, 4), tags=("shape", "rect")
+                sx,
+                sy,
+                sx + sw,
+                sy + sh,
+                outline="red",
+                width=lw,
+                dash=(4, 4),
+                tags=("shape", "rect"),
             )
             self.shapes_on_canvas.append(
-                {
-                    "id": iid,
-                    "type": "rect",
-                    "x": x,
-                    "y": y,
-                    "w": w,
-                    "h": h
-                }
+                {"id": iid, "type": "rect", "x": x, "y": y, "w": w, "h": h}  # 論理座標
             )
-            self.canvas.addtag_withtag(
-                f"shape_{id(self.shapes_on_canvas[-1])}",
-                iid
-            )
+            self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
 
         elif shape_type == "line":
             col = "white" if self.bg_color == "#2b2b2b" else "black"
             iid = self.canvas.create_line(
-                x, y, x2, y2,
-                fill=col, width=lw, tags=("shape", "line")
+                sx, sy, sx2, sy2, fill=col, width=lw, tags=("shape", "line")
             )
             self.shapes_on_canvas.append(
                 {
@@ -1092,13 +1094,10 @@ class CanvasWindow(ctk.CTkToplevel):
                     "x1": x,
                     "y1": y,
                     "x2": x2,
-                    "y2": y2
+                    "y2": y2,  # 論理座標
                 }
             )
-            self.canvas.addtag_withtag(
-                f"shape_{id(self.shapes_on_canvas[-1])}",
-                iid
-            )
+            self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
 
     def _check_db_link_exists(self, k1, k2):
         if not self.parent_app.loaded_db_path:
@@ -1113,7 +1112,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 "SELECT 1 FROM note_links WHERE "
                 "(source_key=? AND target_key=?) "
                 "OR (source_key=? AND target_key=?) LIMIT 1",
-                (k1, k2, k2, k1)
+                (k1, k2, k2, k1),
             )
             return cur.fetchone() is not None
         except Exception:
@@ -1125,11 +1124,19 @@ class CanvasWindow(ctk.CTkToplevel):
     # --- Event Handlers ---
     def on_canvas_click(self, event):
         cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-        self.drag_data["start_x"], self.drag_data["start_y"] = cx, cy
+
+        # 【重要】ドラッグ移動量計算用 (直前の座標)
+        self.drag_data["x"] = cx
+        self.drag_data["y"] = cy
+
+        # 【重要】ラバーバンド/シェイプ生成の始点用
+        self.drag_data["start_x"] = cx
+        self.drag_data["start_y"] = cy
+
         self.drag_data["moved"] = False
 
-        # --- 追加: リサイズハンドルのクリック判定 ---
-        clicked_items = self.canvas.find_overlapping(cx-1, cy-1, cx+1, cy+1)
+        # --- リサイズ判定やアイテム選択ロジック ---
+        clicked_items = self.canvas.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1)
         for item in clicked_items:
             tags = self.canvas.gettags(item)
             if "resize_handle" in tags:
@@ -1137,13 +1144,11 @@ class CanvasWindow(ctk.CTkToplevel):
                 for t in tags:
                     if t.startswith("handle_"):
                         sticky_id = t.split("_")[1]
-                        self.drag_data["start_item"] = (
-                            "sticky_resize", sticky_id
-                        )
+                        self.drag_data["start_item"] = ("sticky_resize", sticky_id)
                         self.current_mode = "resize_sticky"  # 一時的にモード変更
                         return
 
-        items = self.canvas.find_overlapping(cx-1, cy-1, cx+1, cy+1)
+        items = self.canvas.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1)
         target = None
 
         for item in reversed(items):
@@ -1155,10 +1160,7 @@ class CanvasWindow(ctk.CTkToplevel):
                         break
             elif "sticky" in tags:
                 for s in self.stickies_on_canvas:
-                    if (
-                        s["ids"][0] == item
-                        or s["ids"][1] == item
-                    ):
+                    if s["ids"][0] == item or s["ids"][1] == item:
                         target = ("sticky", str(id(s)))
                         break
             elif "shape" in tags:
@@ -1175,11 +1177,8 @@ class CanvasWindow(ctk.CTkToplevel):
             if target and target[0] in ("note", "sticky"):
                 self.drag_data["start_item"] = target
                 col = "white" if self.bg_color == "#2b2b2b" else "black"
-                self.drag_data["temp_id"] = (
-                    self.canvas.create_line(
-                        cx, cy, cx, cy,
-                        fill=col, width=2, dash=(2, 2)
-                    )
+                self.drag_data["temp_id"] = self.canvas.create_line(
+                    cx, cy, cx, cy, fill=col, width=2, dash=(2, 2)
                 )
             return
 
@@ -1196,11 +1195,8 @@ class CanvasWindow(ctk.CTkToplevel):
             else:
                 if not is_shift:
                     self._clear_selection()
-                self.drag_data["rubberband_id"] = (
-                    self.canvas.create_rectangle(
-                        cx, cy, cx, cy,
-                        outline="#585a9c", dash=(2, 2)
-                    )
+                self.drag_data["rubberband_id"] = self.canvas.create_rectangle(
+                    cx, cy, cx, cy, outline="#585a9c", dash=(2, 2)
                 )
 
         elif self.current_mode == "sticky":
@@ -1209,99 +1205,193 @@ class CanvasWindow(ctk.CTkToplevel):
             if dialog.result:
                 title, content, color = dialog.result
                 if title or content:
-                    self.create_sticky_item(
-                        cx, cy, title, content, bg_color=color
-                    )
+                    self.create_sticky_item(cx, cy, title, content, bg_color=color)
                     self.save_canvas()
 
         elif self.current_mode in ("rect", "line"):
             if self.current_mode == "rect":
-                self.drag_data["temp_id"] = (
-                    self.canvas.create_rectangle(
-                        cx, cy, cx, cy,
-                        outline="red"
-                    )
+                self.drag_data["temp_id"] = self.canvas.create_rectangle(
+                    cx, cy, cx, cy, outline="red"
                 )
             elif self.current_mode == "line":
-                self.drag_data["temp_id"] = (
-                    self.canvas.create_line(
-                        cx, cy, cx, cy,
-                        fill="white"
-                    )
+                self.drag_data["temp_id"] = self.canvas.create_line(
+                    cx, cy, cx, cy, fill="white"
                 )
 
     def on_canvas_drag(self, event):
         cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
-        dx, dy = cx - self.drag_data["start_x"], cy - self.drag_data["start_y"]
+
+        # 差分計算
+        dx = cx - self.drag_data["x"]
+        dy = cy - self.drag_data["y"]
+
         self.drag_data["moved"] = True
 
-        # --- 追加: リサイズ処理 ---
+        # 論理座標系への変換 (移動用)
+        ldx = dx / self.current_scale
+        ldy = dy / self.current_scale
+
+        # 1. リサイズ処理 (ここを全面的に修正)
         if self.current_mode == "resize_sticky":
             target_type, target_key = self.drag_data["start_item"]
             if target_type == "sticky_resize":
-                # 対象の付箋データを取得
-                target_sticky = next(
-                    (
-                        s for s in self.stickies_on_canvas if (
-                            str(id(s)) == target_key
-                        )
-                    ), None
+                sticky_iter = (
+                    s for s in self.stickies_on_canvas if str(id(s)) == target_key
                 )
+                target_sticky = next(sticky_iter, None)
                 if target_sticky:
-                    # 最小サイズ制限
-                    min_size = 50 * self.current_scale
 
-                    new_w = max(min_size, target_sticky["w"] + dx)
-                    new_h = max(min_size, target_sticky["h"] + dy)
+                    # 1. 現在の描画座標（左上）を取得
+                    # これにより、ズームやパンで移動していても「見た目通りの位置」が基準になります
+                    rect_id = target_sticky["ids"][0]
+                    curr_coords = self.canvas.coords(rect_id)  # [x1, y1, x2, y2]
+                    x1, y1 = curr_coords[0], curr_coords[1]
 
-                    # 内部データを更新 (まだ確定ではないが、描画のために更新)
-                    target_sticky["w"] = new_w
-                    target_sticky["h"] = new_h
+                    # 2. 現在の見た目のサイズを取得
+                    current_screen_w = curr_coords[2] - x1
+                    current_screen_h = curr_coords[3] - y1
 
-                    x = target_sticky["x"]
-                    y = target_sticky["y"]
+                    # 3. マウス移動量(dx, dy)を加算して新しいサイズを決定
+                    # (最小サイズ制限: 論理50px相当)
+                    min_screen_size = 50 * self.current_scale
+                    new_screen_w = max(min_screen_size, current_screen_w + dx)
+                    new_screen_h = max(min_screen_size, current_screen_h + dy)
 
-                    # 1. 本体の矩形更新
+                    # 4. 内部データ(論理サイズ)を更新
+                    # (見た目のサイズをスケールで割って論理値に戻して保存)
+                    target_sticky["w"] = new_screen_w / self.current_scale
+                    target_sticky["h"] = new_screen_h / self.current_scale
+
+                    # 5. 描画の更新
+                    # 5-1. 本体の更新
                     self.canvas.coords(
-                        target_sticky["ids"][0],
-                        x, y, x + new_w, y + new_h
+                        rect_id, x1, y1, x1 + new_screen_w, y1 + new_screen_h
                     )
 
-                    # 2. 影の更新
+                    # 5-2. 影の更新
                     self.canvas.coords(
                         target_sticky["shadow_id"],
-                        x+5, y+5, x + new_w + 5, y + new_h + 5
+                        x1 + 5,
+                        y1 + 5,
+                        x1 + new_screen_w + 5,
+                        y1 + new_screen_h + 5,
                     )
 
-                    # 3. テキストの折り返し幅更新
-                    # (幅が変わったので折り返し位置も調整)
+                    # 5-3. テキスト (パディング計算含む)
+                    pad = 10 * self.current_scale
+                    self.canvas.coords(target_sticky["ids"][1], x1 + pad, y1 + pad)
                     self.canvas.itemconfigure(
-                        target_sticky["ids"][1],
-                        width=new_w - 20
+                        target_sticky["ids"][1], width=new_screen_w - (pad * 2)
                     )
 
-                    # 4. ハンドルの移動 (再描画ではなく移動)
+                    # 5-4. ハンドル
                     # 現在のハンドルIDを探す
                     handle_tag = f"handle_{target_key}"
                     handle_id = self.canvas.find_withtag(handle_tag)
                     if handle_id:
-                        handle_size = 10 * self.current_scale
+                        hs = 10 * self.current_scale
                         self.canvas.coords(
                             handle_id,
-                            x + new_w - handle_size, y + new_h - handle_size,
-                            x + new_w, y + new_h
+                            x1 + new_screen_w - hs,
+                            y1 + new_screen_h - hs,
+                            x1 + new_screen_w,
+                            y1 + new_screen_h,
                         )
 
-                    # 座標更新のため start_x/y を現在のマウス位置に更新
-                    self.drag_data["start_x"] = cx
-                    self.drag_data["start_y"] = cy
+            # リサイズ時はマウス位置を更新
+            self.drag_data["x"] = cx
+            self.drag_data["y"] = cy
             return
+
+        # 2. 接続線の仮描画
+        if self.current_mode == "connect":
+            if self.drag_data["temp_id"]:
+                # 始点は start_x (クリック位置) を使用
+                self.canvas.coords(
+                    self.drag_data["temp_id"],
+                    self.drag_data["start_x"],
+                    self.drag_data["start_y"],
+                    cx,
+                    cy,
+                )
+            return
+
+        # 3. 移動処理
+        if self.current_mode == "select":
+            if self.selected_items:
+                for t, k in self.selected_items:
+                    # 見た目の移動 (スクリーン座標 dx, dy を使用)
+                    # 内部データの更新 (論理座標 ldx, ldy を使用)
+
+                    if t == "note":
+                        info = self.notes_on_canvas[k]
+                        self.canvas.move(info["ids"][0], dx, dy)
+                        self.canvas.move(info["ids"][1], dx, dy)
+                        info["x"] += ldx
+                        info["y"] += ldy
+                        self.update_connections(t, k)
+                    elif t == "sticky":
+                        s = next(
+                            (x for x in self.stickies_on_canvas if str(id(x)) == k),
+                            None,
+                        )
+                        if s:
+                            self.canvas.move(s["ids"][0], dx, dy)
+                            self.canvas.move(s["ids"][1], dx, dy)
+                            self.canvas.move(s["shadow_id"], dx, dy)
+                            s["x"] += ldx
+                            s["y"] += ldy
+                            self.update_connections(t, k)
+
+                            hid = self.canvas.find_withtag(f"handle_{k}")
+                            if hid:
+                                self.canvas.move(hid, dx, dy)
+
+                    elif t == "shape":
+                        s = next(
+                            (x for x in self.shapes_on_canvas if str(id(x)) == k), None
+                        )
+                        if s:
+                            self.canvas.move(s["id"], dx, dy)
+                            if s["type"] == "line":
+                                s["x1"] += ldx
+                                s["y1"] += ldy
+                                s["x2"] += ldx
+                                s["y2"] += ldy
+                            else:
+                                s["x"] += ldx
+                                s["y"] += ldy
+
+                # 移動完了後に現在位置を保存
+                self.drag_data["x"] = cx
+                self.drag_data["y"] = cy
+
+            elif self.drag_data["rubberband_id"]:
+                # ラバーバンドは start_x (クリック位置) を基準にする
+                self.canvas.coords(
+                    self.drag_data["rubberband_id"],
+                    self.drag_data["start_x"],
+                    self.drag_data["start_y"],
+                    cx,
+                    cy,
+                )
+
+        # 4. シェイプ作成
+        elif self.current_mode in ("rect", "line"):
+            if self.drag_data["temp_id"]:
+                self.canvas.coords(
+                    self.drag_data["temp_id"],
+                    self.drag_data["start_x"],
+                    self.drag_data["start_y"],
+                    cx,
+                    cy,
+                )
 
     def on_canvas_release(self, event):
         if self.current_mode == "resize_sticky":
-            self.current_mode = "select"      # モードを戻す
+            self.current_mode = "select"  # モードを戻す
             self.drag_data["start_item"] = None
-            self.save_canvas()                # 保存
+            self.save_canvas()  # 保存
             self._update_selection_visuals()  # ハンドル位置などを綺麗に再描画
             return
 
@@ -1314,7 +1404,7 @@ class CanvasWindow(ctk.CTkToplevel):
                     min(bbox[0], bbox[2]),
                     min(bbox[1], bbox[3]),
                     max(bbox[0], bbox[2]),
-                    max(bbox[1], bbox[3])
+                    max(bbox[1], bbox[3]),
                 )
                 enclosed = self.canvas.find_enclosed(x1, y1, x2, y2)
                 for item in enclosed:
@@ -1326,15 +1416,11 @@ class CanvasWindow(ctk.CTkToplevel):
                     elif "sticky" in tags:
                         for t in tags:
                             if t.startswith("sticky_"):
-                                self.selected_items.add(
-                                    ("sticky", t.split("_")[1])
-                                )
+                                self.selected_items.add(("sticky", t.split("_")[1]))
                     elif "shape" in tags:
                         for t in tags:
                             if t.startswith("shape_"):
-                                self.selected_items.add(
-                                    ("shape", t.split("_")[1])
-                                )
+                                self.selected_items.add(("shape", t.split("_")[1]))
 
             self.canvas.delete(self.drag_data["rubberband_id"])
             self.drag_data["rubberband_id"] = None
@@ -1349,7 +1435,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 self.canvas.delete(self.drag_data["temp_id"])
                 self.drag_data["temp_id"] = None
             if self.drag_data["start_item"]:
-                items = self.canvas.find_overlapping(cx-1, cy-1, cx+1, cy+1)
+                items = self.canvas.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1)
                 end_target = None
                 for item in reversed(items):
                     tags = self.canvas.gettags(item)
@@ -1377,12 +1463,20 @@ class CanvasWindow(ctk.CTkToplevel):
         if self.current_mode in ("rect", "line") and self.drag_data["temp_id"]:
             self.canvas.delete(self.drag_data["temp_id"])
             if abs(cx - self.drag_data["start_x"]) > 5:
+                # 作成時の座標を論理座標に変換して渡す
+                lx1 = self.drag_data["start_x"] / self.current_scale
+                ly1 = self.drag_data["start_y"] / self.current_scale
+                lx2 = cx / self.current_scale
+                ly2 = cy / self.current_scale
+
                 self.create_shape_item(
                     self.current_mode,
-                    self.drag_data["start_x"], self.drag_data["start_y"],
-                    x2=cx, y2=cy,
-                    w=abs(cx-self.drag_data["start_x"]),
-                    h=abs(cy-self.drag_data["start_y"])
+                    x=lx1,
+                    y=ly1,
+                    x2=lx2,
+                    y2=ly2,
+                    w=abs(lx2 - lx1),
+                    h=abs(ly2 - ly1),
                 )
                 self.save_canvas()
 
@@ -1404,7 +1498,7 @@ class CanvasWindow(ctk.CTkToplevel):
                     self,
                     title_val=target.get("title", ""),
                     content_val=target.get("content", ""),
-                    color_val=target.get("bg_color", "#FFFFA5")
+                    color_val=target.get("bg_color", "#FFFFA5"),
                 )
                 self.wait_window(dialog)
                 if dialog.result:
@@ -1414,9 +1508,7 @@ class CanvasWindow(ctk.CTkToplevel):
                     target["bg_color"] = col
 
                     display_text = self._create_sticky_display_text(t, c)
-                    self.canvas.itemconfigure(
-                        target["ids"][1], text=display_text
-                    )
+                    self.canvas.itemconfigure(target["ids"][1], text=display_text)
                     self.canvas.itemconfigure(target["ids"][0], fill=col)
                     self.save_canvas()
 
@@ -1432,9 +1524,9 @@ class CanvasWindow(ctk.CTkToplevel):
                     target_conn = c
                     break
             if (
-                    target_conn
-                    and target_conn["from_type"] == "note"
-                    and target_conn["to_type"] == "note"
+                target_conn
+                and target_conn["from_type"] == "note"
+                and target_conn["to_type"] == "note"
             ):
                 self._handle_connection_double_click(target_conn)
 
@@ -1472,7 +1564,7 @@ class CanvasWindow(ctk.CTkToplevel):
             if type_ == "sticky":
                 menu.add_command(
                     label="PDFを作成 (保存のみ)",
-                    command=lambda: self._convert_sticky_to_note_pipeline(obj)
+                    command=lambda: self._convert_sticky_to_note_pipeline(obj),
                 )
                 selected_stickies = [
                     i[1] for i in self.selected_items if i[0] == "sticky"
@@ -1481,35 +1573,28 @@ class CanvasWindow(ctk.CTkToplevel):
                 if len(selected_stickies) > 1 and is_obj_selected:
                     menu.add_command(
                         label="まとめてPDFを作成",
-                        command=self._convert_selected_stickies_pipeline
+                        command=self._convert_selected_stickies_pipeline,
                     )
 
             elif (
-                    type_ == "connection"
-                    and obj["from_type"] == "note"
-                    and obj["to_type"] == "note"
+                type_ == "connection"
+                and obj["from_type"] == "note"
+                and obj["to_type"] == "note"
             ):
-                is_linked = self._check_db_link_exists(
-                    obj["from_key"], obj["to_key"]
-                )
+                is_linked = self._check_db_link_exists(obj["from_key"], obj["to_key"])
                 if is_linked:
                     menu.add_command(
                         label="リンク解除",
-                        command=lambda: self._handle_connection_double_click(
-                            obj
-                        )
+                        command=lambda: self._handle_connection_double_click(obj),
                     )
                 else:
                     menu.add_command(
                         label="リンク作成",
-                        command=lambda: self._handle_connection_double_click(
-                            obj
-                        )
+                        command=lambda: self._handle_connection_double_click(obj),
                     )
 
             menu.add_command(
-                label="削除",
-                command=lambda: self._delete_item(type_, obj)
+                label="削除", command=lambda: self._delete_item(type_, obj)
             )
             menu.post(event.x_root, event.y_root)
 
@@ -1591,8 +1676,7 @@ class CanvasWindow(ctk.CTkToplevel):
         if link_str not in current_memo:
             new_memo = current_memo.strip() + f"\n{link_str}\n"
             cursor.execute(
-                "UPDATE notes SET memo = ? WHERE key = ?",
-                (new_memo, target_key)
+                "UPDATE notes SET memo = ? WHERE key = ?", (new_memo, target_key)
             )
             _update_note_links(cursor, target_key, new_memo)
 
@@ -1607,8 +1691,7 @@ class CanvasWindow(ctk.CTkToplevel):
         if new_memo != current_memo:
             cursor.execute(
                 "UPDATE notes SET memo = ? WHERE key = ?",
-                (new_memo.strip(),
-                 target_key)
+                (new_memo.strip(), target_key),
             )
             _update_note_links(cursor, target_key, new_memo.strip())
 
@@ -1616,7 +1699,7 @@ class CanvasWindow(ctk.CTkToplevel):
     def _convert_sticky_to_note_pipeline(self, sticky_obj):
         default_title = sticky_obj.get("title", "NOTITLE")
 
-        if hasattr(self.parent_app, 'commonplace_keys_options'):
+        if hasattr(self.parent_app, "commonplace_keys_options"):
             key_options = self.parent_app.commonplace_keys_options
         else:
             key_options = []
@@ -1635,20 +1718,14 @@ class CanvasWindow(ctk.CTkToplevel):
         targets = []
         for t, k in self.selected_items:
             if t == "sticky":
-                s = next(
-                    (
-                        x for x in self.stickies_on_canvas
-                        if str(id(x)) == k
-                    ),
-                    None
-                )
+                s = next((x for x in self.stickies_on_canvas if str(id(x)) == k), None)
                 if s:
                     targets.append(s)
 
         if not targets:
             return
 
-        if hasattr(self.parent_app, 'commonplace_keys_options'):
+        if hasattr(self.parent_app, "commonplace_keys_options"):
             key_options = self.parent_app.commonplace_keys_options
         else:
             key_options = []
@@ -1663,21 +1740,15 @@ class CanvasWindow(ctk.CTkToplevel):
                 c_ = s.get("content", "")
                 combined_content += f"## {t_}\n{c_}\n\n"
 
-            self._process_md_pdf_creation(
-                title, combined_content, key, "#FFFFA5"
-            )
+            self._process_md_pdf_creation(title, combined_content, key, "#FFFFA5")
 
     def _process_md_pdf_creation(self, title, content, index_key, bg_color):
-        now_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        safe_title = re.sub(
-            r'[\\/:\*\?"<>\|]',
-            '_',
-            title if title else "NOTITLE"
-        )
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
         base_name = f"{now_str}_{safe_title}"
 
         # 設定した nexus_output_folder を使用
-        if hasattr(self.parent_app, 'nexus_output_folder'):
+        if hasattr(self.parent_app, "nexus_output_folder"):
             save_dir = self.parent_app.nexus_output_folder
         else:
             save_dir = Path("Nexus_Output")
@@ -1689,7 +1760,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 messagebox.showerror(
                     "エラー",
                     f"保存先フォルダを作成できません:\n{save_dir}\n{e}",
-                    parent=self
+                    parent=self,
                 )
                 return
 
@@ -1711,9 +1782,7 @@ class CanvasWindow(ctk.CTkToplevel):
             meta_comment = "\n\n"
 
             md_text = (
-                f"{style_tag}\n{meta_comment}\n"
-                f"# {title}\n\n"
-                f"# [内容]\n{content}"
+                f"{style_tag}\n{meta_comment}\n" f"# {title}\n\n" f"# [内容]\n{content}"
             )
 
             with open(md_path, "w", encoding="utf-8") as f:
@@ -1724,35 +1793,26 @@ class CanvasWindow(ctk.CTkToplevel):
             temp_flat = temp_dir / f"flat_{base_name}.pdf"
 
             # self.font_path を使用 (config_dataエラー回避)
-            if (self.font_path):
+            if self.font_path:
                 font_path = self.font_path
             else:
                 font_path = r"C:\Windows\Fonts\msgothic.ttc"
 
             convert_document_to_pdf(md_path, temp_pdf, paper_size_str="A4")
             high_fidelity_flatten(
-                str(temp_pdf),
-                str(temp_flat),
-                str(font_path),
-                flatten_ink=False
+                str(temp_pdf), str(temp_flat), str(font_path), flatten_ink=False
             )
             normalize_pdf_to_papersize(
-                str(temp_flat),
-                str(pdf_path),
-                595.276, 841.89,
-                target_format="A4"
+                str(temp_flat), str(pdf_path), 595.276, 841.89, target_format="A4"
             )
             embed_processing_flag(str(pdf_path))
 
             # QRコードの埋め込み
-            key_rect_str = (
-                self._get_config_value(
-                    'Extraction',
-                    'key_rect', '0, 13, 391, 73'
-                )
+            key_rect_str = self._get_config_value(
+                "Extraction", "key_rect", "0, 13, 391, 73"
             )
             try:
-                key_rect_tuple = tuple(map(float, key_rect_str.split(',')))
+                key_rect_tuple = tuple(map(float, key_rect_str.split(",")))
             except Exception:
                 key_rect_tuple = (0, 13, 391, 73)
 
@@ -1765,14 +1825,13 @@ class CanvasWindow(ctk.CTkToplevel):
                 index_key_to_embed=index_key,
                 text_color=(0, 0, 0),
                 comment_to_embed="",
-                base_name=base_name   # ユニークID生成用
+                base_name=base_name,  # ユニークID生成用
             )
 
-            shutil.rmtree(temp_dir)   # ここでMDファイルごと一時フォルダを削除
+            shutil.rmtree(temp_dir)  # ここでMDファイルごと一時フォルダを削除
 
             messagebox.showinfo(
-                "完了", f"ファイルを生成しました:\n{pdf_path.name}",
-                parent=self
+                "完了", f"ファイルを生成しました:\n{pdf_path.name}", parent=self
             )
 
         except Exception as e:
@@ -1787,16 +1846,11 @@ class CanvasWindow(ctk.CTkToplevel):
             self.stickies_on_canvas.remove(obj)
             sid = str(id(obj))
             to_rem = [
-                c for c in self.connections_on_canvas if (
-                    (
-                        c["from_type"] == "sticky"
-                        and c["from_key"] == sid
-                    )
-                    or
-                    (
-                        c["to_type"] == "sticky"
-                        and c["to_key"] == sid
-                    )
+                c
+                for c in self.connections_on_canvas
+                if (
+                    (c["from_type"] == "sticky" and c["from_key"] == sid)
+                    or (c["to_type"] == "sticky" and c["to_key"] == sid)
                 )
             ]
             for c in to_rem:
@@ -1820,78 +1874,68 @@ class CanvasWindow(ctk.CTkToplevel):
         if ("note", key) in self.selected_items:
             self.selected_items.remove(("note", key))
         to_rem = [
-            c for c in self.connections_on_canvas if (
-                c["from_key"] == key
-                or c["to_key"] == key
-            )
+            c
+            for c in self.connections_on_canvas
+            if (c["from_key"] == key or c["to_key"] == key)
         ]
         for c in to_rem:
             self.canvas.delete(c["id"])
             self.connections_on_canvas.remove(c)
 
     # --- ファイルIO ---
-    def save_canvas(self): self._save_to_json(self.default_save_file)
+    def save_canvas(self):
+        self._save_to_json(self.default_save_file)
 
     def save_as_file(self):
         file_path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON Files", "*.json")],
             title="キャンバスを保存",
-            parent=self
+            parent=self,
         )
         if file_path:
             self._save_to_json(Path(file_path))
             messagebox.showinfo(
-                "完了",
-                f"保存しました: {Path(file_path).name}",
-                parent=self
+                "完了", f"保存しました: {Path(file_path).name}", parent=self
             )
 
     def _save_to_json(self, path):
-        scale = self.current_scale
         data = {
             "notes": {
-                k:
-                    {
-                        "x": v["x"]/scale,
-                        "y": v["y"]/scale,
-                        "title": v["title"],
-                        "cp_key": v["cp_key"]
-                    } for k, v in self.notes_on_canvas.items()
-                },
+                k: {
+                    "x": v["x"],
+                    "y": v["y"],
+                    "title": v["title"],
+                    "cp_key": v["cp_key"],
+                }
+                for k, v in self.notes_on_canvas.items()
+            },
             "stickies": [
                 {
-                    "x": s["x"]/scale,
-                    "y": s["y"]/scale,
-                    "w": s["w"]/scale,
-                    "h": s["h"]/scale,
+                    "x": s["x"],
+                    "y": s["y"],
+                    "w": s["w"],
+                    "h": s["h"],
                     "title": s.get("title", ""),
                     "content": s.get("content", ""),
-                    "bg_color": s["bg_color"]
-                } for s in self.stickies_on_canvas],
+                    "bg_color": s["bg_color"],
+                }
+                for s in self.stickies_on_canvas
+            ],
             "shapes": [],
             "connections": [
                 {
                     "from_key": c["from_key"],
                     "to_key": c["to_key"],
                     "from_type": c["from_type"],
-                    "to_type": c["to_type"]
-                } for c in self.connections_on_canvas
-            ]
+                    "to_type": c["to_type"],
+                }
+                for c in self.connections_on_canvas
+            ],
         }
         for s in self.shapes_on_canvas:
             item = s.copy()
             del item["id"]
-            if item["type"] == "line":
-                item["x1"] /= scale
-                item["y1"] /= scale
-                item["x2"] /= scale
-                item["y2"] /= scale
-            else:
-                item["x"] /= scale
-                item["y"] /= scale
-                item["w"] = (item.get("w", 0)/scale)
-                item["h"] = (item.get("h", 0)/scale)
             data["shapes"].append(item)
 
         try:
@@ -1902,16 +1946,12 @@ class CanvasWindow(ctk.CTkToplevel):
 
     def load_from_file(self):
         file_path = filedialog.askopenfilename(
-            filetypes=[("JSON Files", "*.json")],
-            title="キャンバスを開く",
-            parent=self
+            filetypes=[("JSON Files", "*.json")], title="キャンバスを開く", parent=self
         )
         if file_path:
             if self.notes_on_canvas or self.stickies_on_canvas:
                 if not messagebox.askyesno(
-                    "確認",
-                    "現在のキャンバスをクリアして読み込みますか？",
-                    parent=self
+                    "確認", "現在のキャンバスをクリアして読み込みますか？", parent=self
                 ):
                     return
             self.load_canvas_data(Path(file_path))
@@ -1925,9 +1965,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 data = json.load(f)
             for k, v in data.get("notes", {}).items():
                 self.create_note_item(
-                    k,
-                    v["title"], v.get("cp_key", ""),
-                    v["x"], v["y"]
+                    k, v["title"], v.get("cp_key", ""), v["x"], v["y"]
                 )
 
             for s in data.get("stickies", []):
@@ -1946,9 +1984,13 @@ class CanvasWindow(ctk.CTkToplevel):
                 loaded_h = s.get("h", 120) * self.current_scale
 
                 self.create_sticky_item(
-                    s["x"], s["y"],
-                    t, c, bg_color=s.get("bg_color", "#FFFFA5"),
-                    w=loaded_w, h=loaded_h
+                    s["x"],
+                    s["y"],
+                    t,
+                    c,
+                    bg_color=s.get("bg_color", "#FFFFA5"),
+                    w=loaded_w,
+                    h=loaded_h,
                 )
 
             for s in data.get("shapes", []):
@@ -1964,10 +2006,7 @@ class CanvasWindow(ctk.CTkToplevel):
             for c in data.get("connections", []):
                 ft = c.get("from_type", "note")
                 tt = c.get("to_type", "note")
-                self.create_connection_item(
-                    (ft, c["from_key"]),
-                    (tt, c["to_key"])
-                )
+                self.create_connection_item((ft, c["from_key"]), (tt, c["to_key"]))
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         except Exception as e:
             logger.error(f"Canvas load error: {e}")
@@ -1993,47 +2032,42 @@ class CanvasWindow(ctk.CTkToplevel):
             defaultextension=".pdf",
             filetypes=[("PDF Document", "*.pdf")],
             title="PDFとして保存",
-            parent=self
+            parent=self,
         )
         if not file_path:
             return
         try:
             self._export_to_file(Path(file_path))
             messagebox.showinfo(
-                "完了",
-                f"出力が完了しました:\n{Path(file_path).name}",
-                parent=self
+                "完了", f"出力が完了しました:\n{Path(file_path).name}", parent=self
             )
         except Exception as e:
             messagebox.showerror("エラー", f"出力に失敗しました:\n{e}", parent=self)
 
     def _hex_to_rgb(self, hex_color):
-        hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+        hex_color = hex_color.lstrip("#")
+        return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
     def _export_to_file(self, output_path):
-        scale = self.current_scale
         min_x, min_y, max_x, max_y = (
-            float('inf'),
-            float('inf'),
-            float('-inf'),
-            float('-inf')
+            float("inf"),
+            float("inf"),
+            float("-inf"),
+            float("-inf"),
         )
 
         def update_bounds(x, y, w, h):
             nonlocal min_x, min_y, max_x, max_y
             min_x = min(min_x, x)
             min_y = min(min_y, y)
-            max_x = max(max_x, x+w)
-            max_y = max(max_y, y+h)
+            max_x = max(max_x, x + w)
+            max_y = max(max_y, y + h)
 
         for info in self.notes_on_canvas.values():
-            update_bounds(info["x"]/scale, info["y"]/scale, 160, 80)
+            update_bounds(info["x"], info["y"], 160, 80)
         for s in self.stickies_on_canvas:
-            update_bounds(
-                s["x"]/scale, s["y"]/scale, s["w"]/scale, s["h"]/scale
-            )
-        if min_x == float('inf'):
+            update_bounds(s["x"], s["y"], s["w"], s["h"])
+        if min_x == float("inf"):
             min_x = 0
             min_y = 0
             max_x = 100
@@ -2046,7 +2080,7 @@ class CanvasWindow(ctk.CTkToplevel):
         doc.set_metadata(
             {
                 "keywords": "Synapsen:Whiteboard; Synapsen:SkipNormalization",
-                "creator": "Synapsen Canvas"
+                "creator": "Synapsen Canvas",
             }
         )
 
@@ -2066,44 +2100,36 @@ class CanvasWindow(ctk.CTkToplevel):
             return v - min_y + margin
 
         for s in self.stickies_on_canvas:
-            rtx, rty = tx(s["x"]/scale), ty(s["y"]/scale)
-            w, h = s["w"]/scale, s["h"]/scale
-            shape.draw_rect(fitz.Rect(rtx+5, rty+5, rtx+w+5, rty+h+5))
+            rtx, rty = tx(s["x"]), ty(s["y"])
+            w, h = s["w"], s["h"]
+            shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
             shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
-            shape.draw_rect(fitz.Rect(rtx, rty, rtx+w, rty+h))
-            shape.finish(
-                fill=self._hex_to_rgb(s["bg_color"]),
-                color=(0, 0, 0),
-                width=0
-            )
+            shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
+            shape.finish(fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0)
 
             disp = self._create_sticky_display_text(
-                s.get("title", ""),
-                s.get("content", "")
+                s.get("title", ""), s.get("content", "")
             )
             shape.insert_textbox(
-                fitz.Rect(rtx+5, rty+5, rtx+w-5, rty+h-5),
+                fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
                 disp,
                 fontname="msgothic",
                 fontsize=12,
-                color=(0, 0, 0)
+                color=(0, 0, 0),
             )
 
         for key, info in self.notes_on_canvas.items():
-            rtx, rty = tx(info["x"]/scale), ty(info["y"]/scale)
-            col = self.parent_app.key_colors.get(
-                info["cp_key"].lower(),
-                "#aaaaaa"
-            )
-            shape.draw_rect(fitz.Rect(rtx, rty, rtx+160, rty+80))
+            rtx, rty = tx(info["x"]), ty(info["y"])
+            col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
+            shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
             shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
             shape.insert_textbox(
-                fitz.Rect(rtx+5, rty+5, rtx+155, rty+75),
+                fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
                 f"[[{key}: {info['title']}]]",
                 fontname="msgothic",
                 fontsize=10,
                 align=1,
-                color=(0, 0, 0)
+                color=(0, 0, 0),
             )
 
         shape.commit()
