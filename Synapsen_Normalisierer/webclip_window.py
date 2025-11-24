@@ -1,4 +1,5 @@
 import re
+import io
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -8,6 +9,7 @@ import shutil
 import fitz  # PyMuPDF (情報埋め込み用)
 from urllib.parse import urlparse, unquote  # サイト名取得 / URLデコード用
 import urllib.request  # Content-Type取得 / ダウンロード用
+from PIL import Image, ImageTk
 
 from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
 
@@ -25,6 +27,94 @@ try:
     PlaywrightTimeoutError = TimeoutError
 except ImportError:
     pass
+
+
+class PreviewWindow(ctk.CTkToplevel):
+    """
+    WebClipのプレビューを表示するための専用ウィンドウ。
+    Canvasを使用し、縦横スクロールに対応。
+    """
+    def __init__(self, parent, pil_image, icon_path=None):
+        super().__init__(parent)
+        self.title("ページプレビュー")
+        self.geometry("800x600")
+        self._custom_icon_path = icon_path
+
+        self.transient(parent)
+        self.grab_set()
+
+        # グリッド設定 (キャンバスを最大化)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        # --- キャンバスとスクロールバーの配置 ---
+        # 背景色はダークグレーにしておく (画像が見やすいように)
+        self.canvas = ctk.CTkCanvas(self, bg="#2b2b2b", highlightthickness=0)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+
+        # 縦スクロールバー
+        self.vsb = ctk.CTkScrollbar(
+            self, orientation="vertical", command=self.canvas.yview
+        )
+        self.vsb.grid(row=0, column=1, sticky="ns")
+
+        # 横スクロールバー
+        self.hsb = ctk.CTkScrollbar(
+            self, orientation="horizontal", command=self.canvas.xview
+        )
+        self.hsb.grid(row=1, column=0, sticky="ew")
+
+        # スクロールコマンドの紐付け
+        self.canvas.configure(
+            yscrollcommand=self.vsb.set, xscrollcommand=self.hsb.set
+        )
+
+        # --- 画像の描画 ---
+        # ガベージコレクション対策でインスタンス変数に保持
+        self.tk_image = ImageTk.PhotoImage(pil_image)
+
+        # キャンバスに画像を描画 (左上基準)
+        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
+
+        # スクロール範囲を画像サイズに合わせる
+        self.canvas.configure(
+            scrollregion=(0, 0, pil_image.width, pil_image.height)
+        )
+
+        # --- マウスホイール操作のバインド ---
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+
+        # アイコン設定
+        if self._custom_icon_path:
+            self.after(
+                200,
+                lambda: self.iconbitmap(default=self._custom_icon_path)
+            )
+
+        self.lift()
+        self.focus_force()
+
+    def _on_mousewheel(self, event):
+        """縦スクロール (ホイール)"""
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+    def _on_shift_mousewheel(self, event):
+        """横スクロール (Shift + ホイール)"""
+        self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+
+    def iconbitmap(self, *args, **kwargs):
+        """アイコン設定の強制オーバーライド"""
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
 
 class WebClipWindow(ctk.CTkToplevel):
@@ -79,11 +169,13 @@ class WebClipWindow(ctk.CTkToplevel):
         self.title("Webクリップで正規化")
         self.geometry("450x730")
 
-        if self.parent_app.icon_path:
-            try:
-                self.iconbitmap(default=str(self.parent_app.icon_path))
-            except Exception as e:
-                logger.error(f"Icon set error (WebClip Window): {e}")
+        # アイコン設定
+        self._custom_icon_path = None
+        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+            self._custom_icon_path = str(parent_app.icon_path)
+            self.after(
+                200, lambda: self.iconbitmap(default=self._custom_icon_path)
+            )
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.transient(parent_app)
@@ -126,6 +218,16 @@ class WebClipWindow(ctk.CTkToplevel):
             command=self.fetch_page_info
         )
         self.fetch_button.pack(pady=5, padx=10, fill="x")
+
+        # プレビューボタン (前回の追加分)
+        self.preview_button = ctk.CTkButton(
+            self,
+            text="内容確認 (スクリーンショット)",
+            command=self.show_page_preview,
+            state="disabled",
+            fg_color="#585a9c",
+        )
+        self.preview_button.pack(pady=2, padx=10, fill="x")
 
         # --- 3. 書誌情報 (SIST 02) 編集フレーム ---
         ctk.CTkLabel(
@@ -253,6 +355,21 @@ class WebClipWindow(ctk.CTkToplevel):
         self.grab_release()
         self.destroy()
 
+    def iconbitmap(self, *args, **kwargs):
+        """
+        CustomTkinterがアイコンをリセットするのを防ぐためのオーバーライドメソッド。
+        """
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
     def fetch_page_info(self) -> None:
         """
         「1. ページ情報取得」ボタンの処理。
@@ -328,6 +445,8 @@ class WebClipWindow(ctk.CTkToplevel):
             self.update_idletasks()
             self.page.goto(
                 url, wait_until='domcontentloaded', timeout=60000)
+
+            self.preview_button.configure(state="normal")  # Previewの有効化
 
             # --- 3. 成功時のロジック (詳細取得) ---
             self.status_label.configure(
@@ -432,6 +551,25 @@ class WebClipWindow(ctk.CTkToplevel):
             self.fetch_button.configure(state="normal")
             self.run_button.configure(state="normal")  # 実行ボタンを有効化
             self.bell()
+
+    def show_page_preview(self):
+        """現在のPlaywrightページのスクリーンショットを表示する"""
+        if not self.page:
+            return
+
+        try:
+            # スクリーンショットをメモリ上に取得
+            png_bytes = self.page.screenshot(full_page=True)
+            pil_image = Image.open(io.BytesIO(png_bytes))
+
+            # インスタンス生成時に pil_image を渡す
+            PreviewWindow(self, pil_image, icon_path=self._custom_icon_path)
+
+        except Exception as e:
+            messagebox.showerror(
+                "プレビューエラー", f"プレビューの生成に失敗しました:\n{e}",
+                parent=self
+            )
 
     def run_webclip_process(self) -> None:
         """
