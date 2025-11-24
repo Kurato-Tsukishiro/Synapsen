@@ -421,6 +421,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
 
+            # configから用紙サイズ設定を取得 ("A4" or "A5")
             paper_size_str = self.config_data.get('paper_size', 'A4')
 
             for i, (item_data, base_name) in enumerate(all_items):
@@ -526,7 +527,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                     str(temp_flattened_pdf),
                     str(final_output_pdf),
                     self.paper_width,
-                    self.paper_height
+                    self.paper_height,
+                    target_format=paper_size_str
                 )
 
                 # --- [ステップ4: OCR埋め込み] ---

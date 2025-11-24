@@ -1696,7 +1696,8 @@ class CanvasWindow(ctk.CTkToplevel):
             normalize_pdf_to_papersize(
                 str(temp_flat),
                 str(pdf_path),
-                595.276, 841.89
+                595.276, 841.89,
+                target_format="A4"
             )
             embed_processing_flag(str(pdf_path))
 

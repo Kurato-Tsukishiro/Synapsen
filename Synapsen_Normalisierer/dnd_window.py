@@ -1063,7 +1063,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             normalize_pdf_to_papersize(
                 str(temp_flattened_pdf),
                 str(final_output_pdf),
-                paper_width, paper_height
+                paper_width, paper_height,
+                target_format=paper_size_str
             )
 
             # --- 4: OCR ---
@@ -1202,7 +1203,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 str(temp_flattened_pdf),
                 str(normalized_part_pdf),
                 paper_width,
-                paper_height
+                paper_height,
+                target_format=paper_size_str
             )
 
             # --- 4: OCR (normalized_part_pdf に対して実行) ---

@@ -24,18 +24,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# 定数定義 (ポイント単位)
+# 定数定義
 # ==============================================================================
 
 CM_TO_PT: float = 72 / 2.54
-MARGIN_CM: float = 0
-HEAD_SEP_CM: float = 1.0
-MARGIN: float = MARGIN_CM * CM_TO_PT
-HEAD_SEP: float = HEAD_SEP_CM * CM_TO_PT
-TOP_MARGIN: float = MARGIN + HEAD_SEP
-BOTTOM_MARGIN: float = MARGIN
-LEFT_MARGIN: float = 0
-RIGHT_MARGIN: float = 0
+
+# Ersteller (LaTeX) のレイアウトに合わせた安全な余白設定
+# (単位: cm)
+LAYOUT_MARGINS = {
+    "A4": {
+        "top": 3.8,     # ヘッダー(2.5cm) + headsep(1.0cm) + 余裕
+        "bottom": 2.5,  # footskip(1.5cm) + 余裕
+        "left": 2.0,    # LaTeX margin(2.5cm) より少し広げて視認性確保
+        "right": 2.0
+    },
+    "A5": {
+        "top": 3.2,     # A5用に少し縮小
+        "bottom": 2.0,
+        "left": 1.5,
+        "right": 1.5
+    }
+}
+
 # ==============================================================================
 
 
@@ -605,24 +615,19 @@ def normalize_pdf_to_papersize(
         input_path: str,
         output_path: str,
         paper_width: float,
-        paper_height: float
+        paper_height: float,
+        target_format: str = "A4"
         ) -> None:
     """
     pypdfを使い、PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
-    ただし、'Synapsen:SkipNormalization' キーワードが含まれている場合は、サイズ変更を行わずにコピーします。
-
-    マージン領域 (TOP_MARGIN, BOTTOM_MARGIN など) を考慮し、
-    コンテンツがその領域内に収まるようにアスペクト比を維持して
-    スケーリングおよび中央配置を行います。
+    Erstellerのヘッダー・フッターと重ならないよう、マージンを考慮します。
 
     Args:
-        input_path (str): 入力PDFファイル（通常はフラット化済み）のパス。
-        output_path (str): 正規化された出力PDFファイルのパス。
+        input_path (str): 入力PDFファイルパス。
+        output_path (str): 出力PDFファイルパス。
         paper_width (float): ターゲットの用紙幅 (ポイント単位)。
         paper_height (float): ターゲットの用紙高 (ポイント単位)。
-
-    Raises:
-        Exception: PDFの読み込み、書き込みに失敗した場合。
+        target_format (str): "A4" または "A5"。マージン決定に使用。
     """
 
     # --- 処理スキップ判定 ---
@@ -641,14 +646,23 @@ def normalize_pdf_to_papersize(
         return
     # -----------------------
 
+    # マージン設定の取得 (デフォルトはA4)
+    margins = LAYOUT_MARGINS.get(target_format.upper(), LAYOUT_MARGINS["A4"])
+
+    # cm -> pt 変換
+    m_top = margins["top"] * CM_TO_PT
+    m_bottom = margins["bottom"] * CM_TO_PT
+    m_left = margins["left"] * CM_TO_PT
+    m_right = margins["right"] * CM_TO_PT
+
     reader = None
     try:
         reader = PdfReader(input_path)
         writer = PdfWriter()
 
-        # 渡された用紙サイズから描画可能領域を計算
-        drawable_width: float = paper_width - LEFT_MARGIN - RIGHT_MARGIN
-        drawable_height: float = paper_height - TOP_MARGIN - BOTTOM_MARGIN
+        # 描画可能領域（Safe Area）の計算
+        drawable_width: float = paper_width - m_left - m_right
+        drawable_height: float = paper_height - m_top - m_bottom
 
         for content_page in reader.pages:
             # 指定された用紙サイズの白紙ページを作成
@@ -665,17 +679,17 @@ def normalize_pdf_to_papersize(
                 )
                 continue
 
-            # 描画可能領域 (drawable_width, drawable_height) に収まるようスケーリング
+            # 描画可能領域に収まるようスケーリング (アスペクト比維持)
             scale = min(
                 drawable_width / original_width,
                 drawable_height / original_height
             )
 
-            # 描画可能領域内で中央に配置
-            tx = LEFT_MARGIN + (drawable_width - original_width * scale) / 2
-            ty = (
-                BOTTOM_MARGIN + (drawable_height - original_height * scale) / 2
-            )
+            # 描画可能領域内で中央に配置するためのオフセット計算
+            # (左マージン + 描画領域内でのセンタリング)
+            tx = m_left + (drawable_width - original_width * scale) / 2
+            # (下マージン + 描画領域内でのセンタリング)
+            ty = m_bottom + (drawable_height - original_height * scale) / 2
 
             transform = (
                 Transformation()
@@ -694,8 +708,6 @@ def normalize_pdf_to_papersize(
             extra={'sensitive': True}
         )
         raise
-
-    # pypdf (PdfReader) は明示的な close() を必要としない
 
 
 def embed_ocr_text_in_pdf(
