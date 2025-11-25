@@ -182,12 +182,15 @@ class StickyNoteDialog(ctk.CTkToplevel):
 
 
 class ConversionDialog(ctk.CTkToplevel):
-    """付箋をノートに変換する際に、タイトルとIndexKeyを指定するダイアログ"""
+    """
+    タイトルとIndex Keyを指定するダイアログ。
+    付箋をノートに変換する際や、キャンバスをPDF出力する際に使用されます。
+    """
 
     def __init__(self, parent, default_title, key_options):
         super().__init__(parent)
-        self.title("ノートに変換")
-        self.geometry("400x250")
+        self.title("詳細設定")
+        self.geometry("500x250")
 
         self._custom_icon_path = None
         if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
@@ -200,8 +203,16 @@ class ConversionDialog(ctk.CTkToplevel):
 
         self.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(self, text="タイトル:", anchor="w").grid(
-            row=0, column=0, padx=20, pady=(20, 5), sticky="ew"
+        ctk.CTkLabel(
+            self, text="タイトル (日付時刻はファイル名に自動付与されます):", anchor="w"
+        ).grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
+
+        self.title_entry = ctk.CTkEntry(self)
+        self.title_entry.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="ew")
+        self.title_entry.insert(0, default_title)
+
+        ctk.CTkLabel(self, text="Index Key (分類):", anchor="w").grid(
+            row=2, column=0, padx=20, pady=(0, 5), sticky="ew"
         )
         self.title_entry = ctk.CTkEntry(self)
         self.title_entry.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="ew")
@@ -2195,16 +2206,45 @@ class CanvasWindow(ctk.CTkToplevel):
         self.center_view()
 
     def export_canvas_dialog(self):
+        # 親アプリからIndex Keyの選択肢を取得
+        if hasattr(self.parent_app, "commonplace_keys_options"):
+            key_options = self.parent_app.commonplace_keys_options
+        else:
+            key_options = []
+
+        # デフォルトのタイトル (Canvas_Export)
+        default_title = "Canvas_Export"
+
+        # 既存の ConversionDialog (タイトルとKey入力用) を再利用して入力させる
+        dialog = ConversionDialog(self, default_title, key_options)
+        self.wait_window(dialog)
+
+        if not dialog.result:
+            return  # キャンセルされた場合
+
+        # ユーザーが入力したタイトルとIndex Keyを取得
+        title_input, index_key_input = dialog.result
+
+        # 現在日時を取得 (YYYYMMDD_hhmmss)
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # ファイル名の初期値を生成
+        safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title_input)
+        initial_file = f"{now_str}_{safe_title}.pdf"
+
         file_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF Document", "*.pdf")],
             title="PDFとして保存",
+            initialfile=initial_file,
             parent=self,
         )
         if not file_path:
             return
+
         try:
-            self._export_to_file(Path(file_path))
+            self._export_to_file(Path(file_path), title_input, index_key_input)
+
             messagebox.showinfo(
                 "完了", f"出力が完了しました:\n{Path(file_path).name}", parent=self
             )
@@ -2216,7 +2256,7 @@ class CanvasWindow(ctk.CTkToplevel):
         hex_color = hex_color.lstrip("#")
         return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
-    def _export_to_file(self, output_path):
+    def _export_to_file(self, output_path, title, index_key):
         """
         キャンバスの内容を一時PDFに出力し、Normalisiererの機能を使って
         指定用紙サイズ（A4等）に正規化して保存する。
@@ -2271,13 +2311,18 @@ class CanvasWindow(ctk.CTkToplevel):
                 {
                     "keywords": "Synapsen:Whiteboard",
                     "creator": "Synapsen Canvas",
+                    "title": title,  # タイトルもメタデータに設定
                 }
             )
 
             try:
-                page.insert_font(
-                    fontname="msgothic", fontfile=r"C:\Windows\Fonts\msgothic.ttc"
+                # フォント設定 (configまたはデフォルト)
+                font_path = (
+                    self.font_path
+                    if self.font_path
+                    else r"C:\Windows\Fonts\msgothic.ttc"
                 )
+                page.insert_font(fontname="embed_font", fontfile=str(font_path))
             except Exception:
                 pass
 
@@ -2358,7 +2403,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 shape.insert_textbox(
                     fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
                     disp,
-                    fontname="msgothic",
+                    fontname="embed_font",
                     fontsize=12,
                     color=(0, 0, 0),
                 )
@@ -2374,7 +2419,7 @@ class CanvasWindow(ctk.CTkToplevel):
                 shape.insert_textbox(
                     fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
                     f"[[{key}: {info['title']}]]",
-                    fontname="msgothic",
+                    fontname="embed_font",
                     fontsize=10,
                     align=1,
                     color=(0, 0, 0),
@@ -2385,13 +2430,10 @@ class CanvasWindow(ctk.CTkToplevel):
             doc.close()
 
             # --- 3. Normalisiererによる正規化処理 (A4化) ---
-            # 親アプリの設定から用紙サイズを取得
             target_format = self.parent_app.config_data.get("paper_size", "A4")
             paper_width = self.parent_app.paper_width
             paper_height = self.parent_app.paper_height
 
-            # pdf_utilsのnormalize_pdf_to_papersizeを使用
-            # これにより、コンテンツ全体が指定用紙サイズ(A4/A5)の中央にフィットするようにリサイズされます
             normalize_pdf_to_papersize(
                 str(temp_raw_pdf),
                 str(output_path),
@@ -2402,3 +2444,37 @@ class CanvasWindow(ctk.CTkToplevel):
 
             # 処理済みフラグを付与 (Normalisiererでの再処理防止)
             embed_processing_flag(str(output_path))
+
+            # --- 4. メタデータ (Index Key / QR) の埋め込み [追加] ---
+
+            # configからQR/テキスト埋め込み位置を取得
+            key_rect_str = self._get_config_value(
+                "Extraction", "key_rect", "0, 13, 391, 73"
+            )
+            try:
+                key_rect_tuple = tuple(map(float, key_rect_str.split(",")))
+            except Exception:
+                key_rect_tuple = (0, 13, 391, 73)
+
+            # Index Keyの色を取得
+            text_color = (0, 0, 0)
+            if index_key:
+                hex_color = self.parent_app.key_colors.get(index_key.lower())
+                if hex_color:
+                    text_color = self._hex_to_rgb(hex_color)
+
+            # QRコード用ユニークID生成のためにベース名を作成
+            base_name_for_id = output_path.stem
+
+            # pdf_utils.add_metadata_to_clip を呼び出し
+            add_metadata_to_clip(
+                pdf_path_str=str(output_path),
+                font_path=str(font_path),
+                paper_width=paper_width,
+                paper_height=paper_height,
+                key_rect_tuple=key_rect_tuple,
+                index_key_to_embed=index_key,
+                text_color=text_color,
+                comment_to_embed=f"Canvas Export: {title}",  # コメント欄にタイトルを記載
+                base_name=base_name_for_id,  # これによりQRコードにIDが埋め込まれる
+            )
