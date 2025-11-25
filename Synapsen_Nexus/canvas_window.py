@@ -286,6 +286,7 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 [選択ツール]
 ・クリック: アイテムを選択
 ・ドラッグ: アイテムを移動
+・リサイズ: 選択時、右下の「■ハンドル」をドラッグ（ノート、付箋、枠線に対応）
 ・Shift + クリック: 複数選択の追加/解除
 ・背景ドラッグ: 範囲選択 (ラバーバンド)
 
@@ -301,15 +302,14 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 ・ドラッグまたはクリックで付箋を作成します。
 ・作成・編集ダイアログで、タイトル・内容・色を選択できます。
 ・ダブルクリック: 再編集
-・サイズ変更:
-    選択時に右下に表示される「■ハンドル」をドラッグすることで、サイズを自由に変更できます。
+・サイズ変更: ハンドル操作で自由に変更可能。
     ※ PDF出力時、付箋のサイズからはみ出した文字は印字されません。
        長文を入力した場合は、必ずサイズを広げて文字が収まるように調整してください。
 ・右クリック -> 「PDFを作成 (保存のみ)」:
     付箋の内容を正規化済みPDFとして出力します（Markdownファイルは残りません）。
     ※ 本文にMarkdown形式で記述すると、PDF出力時に見出しやリスト等が反映されます。
     ファイルは config.ini の nexus_output_folder に保存されます。
-    ★作成時にIndex Keyを選択し、QRコードとして1ページ目に埋め込みます。
+    ★作成時にIndex Keyを選択し、自動でQRコードが埋め込まれます。
 
 [⇔ 接続] (コネクタ)
 ・ノート/付箋から別のノート/付箋へドラッグして接続します。
@@ -320,6 +320,8 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 
 [□ 枠 / ／ 線]
 ・装飾用の図形を描画します。
+・ツールバーの「色」メニューから描画色（レッド、ブラック、ブルー等）を変更できます。
+・枠線は作成後、ハンドル操作でサイズ変更が可能です。
 
 ■ 連携機能
 ---------------------------
@@ -328,6 +330,7 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 
 [ノート追加]
 ・Nexus本体で選択中のノートをキャンバスに追加します。
+・追加されたノートも、ハンドル操作でサイズ変更が可能です。
 
 [PDF出力]
 ・キャンバス全体をPDFとして保存します。
@@ -863,6 +866,7 @@ class CanvasWindow(ctk.CTkToplevel):
         base_width = max(1, int(self.base_line_width * self.current_scale))
         selected_width = max(2, int(4 * self.current_scale))
 
+        # --- ノートの更新 ---
         for key, info in self.notes_on_canvas.items():
             rect_id, text_id = info["ids"]
             self.canvas.itemconfigure(text_id, font=new_note_font)
@@ -873,6 +877,12 @@ class CanvasWindow(ctk.CTkToplevel):
                 outline="#585a9c" if is_sel else "white",
             )
 
+            current_w = info["w"] * self.current_scale
+            self.canvas.itemconfigure(
+                text_id, width=current_w - (10 * self.current_scale)
+            )
+
+        # --- 付箋の更新 ---
         for sticky in self.stickies_on_canvas:
             rect_id, text_id = sticky["ids"]
             self.canvas.itemconfigure(text_id, font=new_sticky_font)
@@ -883,12 +893,16 @@ class CanvasWindow(ctk.CTkToplevel):
                 outline="#585a9c" if is_sel else "",
             )
 
+            current_w = sticky["w"] * self.current_scale
+            self.canvas.itemconfigure(
+                text_id, width=current_w - (20 * self.current_scale)
+            )
+
+        # --- シェイプの更新 ---
         for s in self.shapes_on_canvas:
             if s["type"] in ("rect", "line"):
                 is_sel = ("shape", str(id(s))) in self.selected_items
                 w = selected_width if is_sel else base_width
-
-                # 保存されている色を使用。なければデフォルト色
                 base_color = s.get(
                     "color",
                     (
@@ -944,19 +958,15 @@ class CanvasWindow(ctk.CTkToplevel):
         self._update_selection_visuals()
 
     def _update_selection_visuals(self):
-        # まず既存のリサイズハンドルを全消去
         self.canvas.delete("resize_handle")
 
         base_width = max(1, int(self.base_line_width * self.current_scale))
         selected_width = max(2, int(4 * self.current_scale))
         sel_col = "#585a9c"
-
-        # ハンドルのサイズ
         handle_size = 10 * self.current_scale
 
-        # ノートの処理 (既存のまま)
+        # --- ノートの処理 ---
         for key, info in self.notes_on_canvas.items():
-            # ... (省略: 既存のコード) ...
             rect_id = info["ids"][0]
             if ("note", key) in self.selected_items:
                 self.canvas.itemconfigure(
@@ -964,10 +974,22 @@ class CanvasWindow(ctk.CTkToplevel):
                 )
                 self.canvas.tag_raise(rect_id)
                 self.canvas.tag_raise(info["ids"][1])
+
+                # ノートのリサイズハンドル
+                x1, y1, x2, y2 = self.canvas.coords(rect_id)
+                self.canvas.create_rectangle(
+                    x2 - handle_size,
+                    y2 - handle_size,
+                    x2,
+                    y2,
+                    fill="gray",
+                    outline="white",
+                    tags=("resize_handle", f"handle_note_{key}"),  # タグで区別
+                )
             else:
                 self.canvas.itemconfigure(rect_id, outline="white", width=base_width)
 
-        # 付箋の処理 (ハンドル描画を追加)
+        # --- 付箋の処理 ---
         for sticky in self.stickies_on_canvas:
             rect_id = sticky["ids"][0]
             sticky_key = str(id(sticky))
@@ -979,28 +1001,24 @@ class CanvasWindow(ctk.CTkToplevel):
                 self.canvas.tag_raise(rect_id)
                 self.canvas.tag_raise(sticky["ids"][1])
 
-                # --- 追加: リサイズハンドルの描画 ---
-                # 付箋の右下座標を計算
                 x1, y1, x2, y2 = self.canvas.coords(rect_id)
-
-                # ハンドル (四角形) を作成
-                hid = self.canvas.create_rectangle(  # noqa: F841
+                self.canvas.create_rectangle(
                     x2 - handle_size,
                     y2 - handle_size,
                     x2,
                     y2,
                     fill="gray",
                     outline="white",
-                    tags=("resize_handle", f"handle_{sticky_key}"),
+                    tags=("resize_handle", f"handle_sticky_{sticky_key}"),
                 )
-                # sticky_key を紐付けておくことで、クリック時に親を特定できる
-
             else:
                 self.canvas.itemconfigure(rect_id, outline="", width=0)
 
+        # --- シェイプの処理 ---
         for s in self.shapes_on_canvas:
             if s["type"] in ("rect", "line"):
-                is_sel = ("shape", str(id(s))) in self.selected_items
+                shape_key = str(id(s))
+                is_sel = ("shape", shape_key) in self.selected_items
                 w = selected_width if is_sel else base_width
 
                 # 保存されている色を使用
@@ -1014,10 +1032,24 @@ class CanvasWindow(ctk.CTkToplevel):
                 )
 
                 if s["type"] == "rect":
-                    c = sel_col if is_sel else base_color
+                    c = "#585a9c" if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
+
+                    # Rectのリサイズハンドル
+                    if is_sel:
+                        x1, y1, x2, y2 = self.canvas.coords(s["id"])
+                        self.canvas.create_rectangle(
+                            x2 - handle_size,
+                            y2 - handle_size,
+                            x2,
+                            y2,
+                            fill="gray",
+                            outline="white",
+                            tags=("resize_handle", f"handle_shape_{shape_key}"),
+                        )
                 else:
-                    c = sel_col if is_sel else base_color
+                    # Lineはリサイズハンドルなし（始点終点で制御するため今回は対象外）
+                    c = "#585a9c" if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
     def send_or_search_to_nexus(self):
@@ -1059,12 +1091,12 @@ class CanvasWindow(ctk.CTkToplevel):
         if added > 0:
             self.save_canvas()
 
-    def create_note_item(self, key, title, cp_key, x, y):
-        # x, y は論理座標(スケール1.0)として受け取る
+    def create_note_item(self, key, title, cp_key, x, y, w=160, h=80):  # w, h引数を追加
+        # x, y, w, h は論理座標(スケール1.0)として受け取る
         color = self.parent_app.key_colors.get(cp_key.lower(), "#aaaaaa")
 
         # 描画用サイズ・座標計算 (画面表示用)
-        sw, sh = 160 * self.current_scale, 80 * self.current_scale
+        sw, sh = w * self.current_scale, h * self.current_scale
         sx, sy = x * self.current_scale, y * self.current_scale
 
         fs = max(6, int(self.base_font_size_note * self.current_scale))
@@ -1096,6 +1128,8 @@ class CanvasWindow(ctk.CTkToplevel):
         self.notes_on_canvas[key] = {
             "x": x,
             "y": y,
+            "w": w,
+            "h": h,
             "title": title,
             "cp_key": cp_key,
             "ids": (rid, tid),
@@ -1357,17 +1391,27 @@ class CanvasWindow(ctk.CTkToplevel):
 
         self.drag_data["moved"] = False
 
-        # --- リサイズ判定やアイテム選択ロジック ---
+        # --- リサイズ判定 ---
         clicked_items = self.canvas.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1)
         for item in clicked_items:
             tags = self.canvas.gettags(item)
             if "resize_handle" in tags:
-                # タグから付箋IDを特定 (例: "handle_12345")
                 for t in tags:
-                    if t.startswith("handle_"):
-                        sticky_id = t.split("_")[1]
+                    # 各タイプのハンドルを検出
+                    if t.startswith("handle_sticky_"):
+                        sticky_id = t.replace("handle_sticky_", "")
                         self.drag_data["start_item"] = ("sticky_resize", sticky_id)
-                        self.current_mode = "resize_sticky"  # 一時的にモード変更
+                        self.current_mode = "resize_sticky"
+                        return
+                    elif t.startswith("handle_note_"):
+                        note_key = t.replace("handle_note_", "")
+                        self.drag_data["start_item"] = ("note_resize", note_key)
+                        self.current_mode = "resize_note"
+                        return
+                    elif t.startswith("handle_shape_"):
+                        shape_id = t.replace("handle_shape_", "")
+                        self.drag_data["start_item"] = ("shape_resize", shape_id)
+                        self.current_mode = "resize_shape"
                         return
 
         items = self.canvas.find_overlapping(cx - 1, cy - 1, cx + 1, cy + 1)
@@ -1456,74 +1500,117 @@ class CanvasWindow(ctk.CTkToplevel):
         ldx = dx / self.current_scale
         ldy = dy / self.current_scale
 
-        # 1. リサイズ処理 (ここを全面的に修正)
-        if self.current_mode == "resize_sticky":
+        # 1. リサイズ処理
+        if self.current_mode in ("resize_sticky", "resize_note", "resize_shape"):
             target_type, target_key = self.drag_data["start_item"]
-            if target_type == "sticky_resize":
+
+            min_screen_size = 30 * self.current_scale
+            handle_size = 10 * self.current_scale
+
+            # --- A. Sticky Resize ---
+            if self.current_mode == "resize_sticky":
                 sticky_iter = (
                     s for s in self.stickies_on_canvas if str(id(s)) == target_key
                 )
-                target_sticky = next(sticky_iter, None)
-                if target_sticky:
-
-                    # 1. 現在の描画座標（左上）を取得
-                    # これにより、ズームやパンで移動していても「見た目通りの位置」が基準になります
-                    rect_id = target_sticky["ids"][0]
-                    curr_coords = self.canvas.coords(rect_id)  # [x1, y1, x2, y2]
+                target = next(sticky_iter, None)
+                if target:
+                    rect_id = target["ids"][0]
+                    curr_coords = self.canvas.coords(rect_id)
                     x1, y1 = curr_coords[0], curr_coords[1]
+                    curr_w = curr_coords[2] - x1
+                    curr_h = curr_coords[3] - y1
 
-                    # 2. 現在の見た目のサイズを取得
-                    current_screen_w = curr_coords[2] - x1
-                    current_screen_h = curr_coords[3] - y1
+                    new_w = max(min_screen_size, curr_w + dx)
+                    new_h = max(min_screen_size, curr_h + dy)
 
-                    # 3. マウス移動量(dx, dy)を加算して新しいサイズを決定
-                    # (最小サイズ制限: 論理50px相当)
-                    min_screen_size = 50 * self.current_scale
-                    new_screen_w = max(min_screen_size, current_screen_w + dx)
-                    new_screen_h = max(min_screen_size, current_screen_h + dy)
+                    target["w"] = new_w / self.current_scale
+                    target["h"] = new_h / self.current_scale
 
-                    # 4. 内部データ(論理サイズ)を更新
-                    # (見た目のサイズをスケールで割って論理値に戻して保存)
-                    target_sticky["w"] = new_screen_w / self.current_scale
-                    target_sticky["h"] = new_screen_h / self.current_scale
-
-                    # 5. 描画の更新
-                    # 5-1. 本体の更新
+                    self.canvas.coords(rect_id, x1, y1, x1 + new_w, y1 + new_h)
                     self.canvas.coords(
-                        rect_id, x1, y1, x1 + new_screen_w, y1 + new_screen_h
-                    )
-
-                    # 5-2. 影の更新
-                    self.canvas.coords(
-                        target_sticky["shadow_id"],
+                        target["shadow_id"],
                         x1 + 5,
                         y1 + 5,
-                        x1 + new_screen_w + 5,
-                        y1 + new_screen_h + 5,
+                        x1 + new_w + 5,
+                        y1 + new_h + 5,
                     )
 
-                    # 5-3. テキスト (パディング計算含む)
                     pad = 10 * self.current_scale
-                    self.canvas.coords(target_sticky["ids"][1], x1 + pad, y1 + pad)
-                    self.canvas.itemconfigure(
-                        target_sticky["ids"][1], width=new_screen_w - (pad * 2)
-                    )
+                    self.canvas.coords(target["ids"][1], x1 + pad, y1 + pad)
+                    self.canvas.itemconfigure(target["ids"][1], width=new_w - (pad * 2))
 
-                    # 5-4. ハンドル
-                    # 現在のハンドルIDを探す
-                    handle_tag = f"handle_{target_key}"
-                    handle_id = self.canvas.find_withtag(handle_tag)
-                    if handle_id:
-                        hs = 10 * self.current_scale
+                    hid = self.canvas.find_withtag(f"handle_sticky_{target_key}")
+                    if hid:
                         self.canvas.coords(
-                            handle_id,
-                            x1 + new_screen_w - hs,
-                            y1 + new_screen_h - hs,
-                            x1 + new_screen_w,
-                            y1 + new_screen_h,
+                            hid,
+                            x1 + new_w - handle_size,
+                            y1 + new_h - handle_size,
+                            x1 + new_w,
+                            y1 + new_h,
                         )
 
-            # リサイズ時はマウス位置を更新
+            # --- B. Note Resize ---
+            elif self.current_mode == "resize_note":
+                target = self.notes_on_canvas.get(target_key)
+                if target:
+                    rect_id, text_id = target["ids"]
+                    curr_coords = self.canvas.coords(rect_id)
+                    x1, y1 = curr_coords[0], curr_coords[1]
+                    curr_w = curr_coords[2] - x1
+                    curr_h = curr_coords[3] - y1
+
+                    new_w = max(min_screen_size, curr_w + dx)
+                    new_h = max(min_screen_size, curr_h + dy)
+
+                    target["w"] = new_w / self.current_scale
+                    target["h"] = new_h / self.current_scale
+
+                    self.canvas.coords(rect_id, x1, y1, x1 + new_w, y1 + new_h)
+                    self.canvas.coords(text_id, x1 + new_w / 2, y1 + new_h / 2)
+                    self.canvas.itemconfigure(
+                        text_id, width=new_w - (10 * self.current_scale)
+                    )
+
+                    hid = self.canvas.find_withtag(f"handle_note_{target_key}")
+                    if hid:
+                        self.canvas.coords(
+                            hid,
+                            x1 + new_w - handle_size,
+                            y1 + new_h - handle_size,
+                            x1 + new_w,
+                            y1 + new_h,
+                        )
+
+            # --- C. Shape (Rect) Resize ---
+            elif self.current_mode == "resize_shape":
+                target = next(
+                    (s for s in self.shapes_on_canvas if str(id(s)) == target_key), None
+                )
+                if target and target["type"] == "rect":
+                    rect_id = target["id"]
+                    curr_coords = self.canvas.coords(rect_id)
+                    x1, y1 = curr_coords[0], curr_coords[1]
+                    curr_w = curr_coords[2] - x1
+                    curr_h = curr_coords[3] - y1
+
+                    new_w = max(min_screen_size, curr_w + dx)
+                    new_h = max(min_screen_size, curr_h + dy)
+
+                    target["w"] = new_w / self.current_scale
+                    target["h"] = new_h / self.current_scale
+
+                    self.canvas.coords(rect_id, x1, y1, x1 + new_w, y1 + new_h)
+
+                    hid = self.canvas.find_withtag(f"handle_shape_{target_key}")
+                    if hid:
+                        self.canvas.coords(
+                            hid,
+                            x1 + new_w - handle_size,
+                            y1 + new_h - handle_size,
+                            x1 + new_w,
+                            y1 + new_h,
+                        )
+
             self.drag_data["x"] = cx
             self.drag_data["y"] = cy
             return
@@ -1531,7 +1618,6 @@ class CanvasWindow(ctk.CTkToplevel):
         # 2. 接続線の仮描画
         if self.current_mode == "connect":
             if self.drag_data["temp_id"]:
-                # 始点は start_x (クリック位置) を使用
                 self.canvas.coords(
                     self.drag_data["temp_id"],
                     self.drag_data["start_x"],
@@ -1545,9 +1631,6 @@ class CanvasWindow(ctk.CTkToplevel):
         if self.current_mode == "select":
             if self.selected_items:
                 for t, k in self.selected_items:
-                    # 見た目の移動 (スクリーン座標 dx, dy を使用)
-                    # 内部データの更新 (論理座標 ldx, ldy を使用)
-
                     if t == "note":
                         info = self.notes_on_canvas[k]
                         self.canvas.move(info["ids"][0], dx, dy)
@@ -1555,6 +1638,12 @@ class CanvasWindow(ctk.CTkToplevel):
                         info["x"] += ldx
                         info["y"] += ldy
                         self.update_connections(t, k)
+
+                        # ハンドルも移動
+                        hid = self.canvas.find_withtag(f"handle_note_{k}")
+                        if hid:
+                            self.canvas.move(hid, dx, dy)
+
                     elif t == "sticky":
                         s = next(
                             (x for x in self.stickies_on_canvas if str(id(x)) == k),
@@ -1568,7 +1657,8 @@ class CanvasWindow(ctk.CTkToplevel):
                             s["y"] += ldy
                             self.update_connections(t, k)
 
-                            hid = self.canvas.find_withtag(f"handle_{k}")
+                            # ハンドルも移動
+                            hid = self.canvas.find_withtag(f"handle_sticky_{k}")
                             if hid:
                                 self.canvas.move(hid, dx, dy)
 
@@ -1578,6 +1668,13 @@ class CanvasWindow(ctk.CTkToplevel):
                         )
                         if s:
                             self.canvas.move(s["id"], dx, dy)
+
+                            # ハンドルも移動 (Rectのみ)
+                            if s["type"] == "rect":
+                                hid = self.canvas.find_withtag(f"handle_shape_{k}")
+                                if hid:
+                                    self.canvas.move(hid, dx, dy)
+
                             if s["type"] == "line":
                                 s["x1"] += ldx
                                 s["y1"] += ldy
@@ -1592,7 +1689,6 @@ class CanvasWindow(ctk.CTkToplevel):
                 self.drag_data["y"] = cy
 
             elif self.drag_data["rubberband_id"]:
-                # ラバーバンドは start_x (クリック位置) を基準にする
                 self.canvas.coords(
                     self.drag_data["rubberband_id"],
                     self.drag_data["start_x"],
@@ -1604,9 +1700,9 @@ class CanvasWindow(ctk.CTkToplevel):
         # 4. シェイプ作成
         elif self.current_mode in ("rect", "line"):
             if self.drag_data["temp_id"]:
+                # 作成中は現在の選択色で表示
                 current_color = self.shape_colors.get(self.color_var.get(), "red")
 
-                # 座標更新
                 self.canvas.coords(
                     self.drag_data["temp_id"],
                     self.drag_data["start_x"],
@@ -1614,7 +1710,6 @@ class CanvasWindow(ctk.CTkToplevel):
                     cx,
                     cy,
                 )
-                # 色更新
                 if self.current_mode == "rect":
                     self.canvas.itemconfigure(
                         self.drag_data["temp_id"], outline=current_color
@@ -1625,11 +1720,11 @@ class CanvasWindow(ctk.CTkToplevel):
                     )
 
     def on_canvas_release(self, event):
-        if self.current_mode == "resize_sticky":
-            self.current_mode = "select"  # モードを戻す
+        if self.current_mode in ("resize_sticky", "resize_note", "resize_shape"):
+            self.current_mode = "select"
             self.drag_data["start_item"] = None
-            self.save_canvas()  # 保存
-            self._update_selection_visuals()  # ハンドル位置などを綺麗に再描画
+            self.save_canvas()
+            self._update_selection_visuals()
             return
 
         cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
@@ -1699,11 +1794,13 @@ class CanvasWindow(ctk.CTkToplevel):
 
         if self.current_mode in ("rect", "line") and self.drag_data["temp_id"]:
             self.canvas.delete(self.drag_data["temp_id"])
+
+            # 5px以上の移動があれば作成
             if (
                 abs(cx - self.drag_data["start_x"]) > 5
                 or abs(cy - self.drag_data["start_y"]) > 5
             ):
-                # 作成時の座標を論理座標に変換して渡す
+
                 lx1 = self.drag_data["start_x"] / self.current_scale
                 ly1 = self.drag_data["start_y"] / self.current_scale
                 lx2 = cx / self.current_scale
@@ -1712,16 +1809,22 @@ class CanvasWindow(ctk.CTkToplevel):
                 selected_color_name = self.color_var.get()
                 selected_color_code = self.shape_colors.get(selected_color_name, "red")
 
-                self.create_shape_item(
-                    self.current_mode,
-                    x=lx1,
-                    y=ly1,
-                    x2=lx2,
-                    y2=ly2,
-                    w=abs(lx2 - lx1),
-                    h=abs(ly2 - ly1),
-                    color=selected_color_code,
-                )
+                if self.current_mode == "rect":
+                    # 枠線は左上を原点として保存（負のサイズを防ぐ）
+                    real_x = min(lx1, lx2)
+                    real_y = min(ly1, ly2)
+                    w = abs(lx2 - lx1)
+                    h = abs(ly2 - ly1)
+
+                    self.create_shape_item(
+                        "rect", x=real_x, y=real_y, w=w, h=h, color=selected_color_code
+                    )
+                elif self.current_mode == "line":
+                    # 線は方向を維持するためそのまま保存
+                    self.create_shape_item(
+                        "line", x=lx1, y=ly1, x2=lx2, y2=ly2, color=selected_color_code
+                    )
+
                 self.save_canvas()
 
         self.drag_data["start_item"] = None
@@ -2149,6 +2252,8 @@ class CanvasWindow(ctk.CTkToplevel):
                 k: {
                     "x": v["x"],
                     "y": v["y"],
+                    "w": v["w"],
+                    "h": v["h"],
                     "title": v["title"],
                     "cp_key": v["cp_key"],
                 }
@@ -2207,11 +2312,20 @@ class CanvasWindow(ctk.CTkToplevel):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            # ノート読み込み (w, h を直接使用)
             for k, v in data.get("notes", {}).items():
                 self.create_note_item(
-                    k, v["title"], v.get("cp_key", ""), v["x"], v["y"]
+                    k,
+                    v["title"],
+                    v.get("cp_key", ""),
+                    v["x"],
+                    v["y"],
+                    w=v["w"],
+                    h=v["h"],
                 )
 
+            # 付箋読み込み
             for s in data.get("stickies", []):
                 t = s.get("title", "")
                 c = s.get("content", "")
@@ -2223,9 +2337,10 @@ class CanvasWindow(ctk.CTkToplevel):
                     else:
                         t = "NOTITLE"
                         c = old_text
-                # JSONに保存されている値はスケール1.0基準なので、現在のスケールを掛ける
-                loaded_w = s.get("w", 180) * self.current_scale
-                loaded_h = s.get("h", 120) * self.current_scale
+
+                # スケール適用して読み込み
+                loaded_w = s["w"] * self.current_scale
+                loaded_h = s["h"] * self.current_scale
 
                 self.create_sticky_item(
                     s["x"],
@@ -2237,6 +2352,7 @@ class CanvasWindow(ctk.CTkToplevel):
                     h=loaded_h,
                 )
 
+            # 図形読み込み
             for s in data.get("shapes", []):
                 # デフォルト色の決定ロジック
                 default_rect_color = "red"
@@ -2263,11 +2379,14 @@ class CanvasWindow(ctk.CTkToplevel):
                         color=loaded_color,
                     )
 
+            # 接続線読み込み
             for c in data.get("connections", []):
                 ft = c.get("from_type", "note")
                 tt = c.get("to_type", "note")
                 self.create_connection_item((ft, c["from_key"]), (tt, c["to_key"]))
+
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
         except Exception as e:
             logger.error(f"Canvas load error: {e}")
             messagebox.showerror("エラー", f"読込失敗: {e}", parent=self)
