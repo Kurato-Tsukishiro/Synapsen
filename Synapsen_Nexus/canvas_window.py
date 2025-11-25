@@ -291,7 +291,8 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 ・ダブルクリック: 再編集
 ・サイズ変更:
     選択時に右下に表示される「■ハンドル」をドラッグすることで、サイズを自由に変更できます。
-    サイズを広げることで、長文の内容もすべて付箋の範囲内に表示可能です。
+    ※ PDF出力時、付箋のサイズからはみ出した文字は印字されません。
+       長文を入力した場合は、必ずサイズを広げて文字が収まるように調整してください。
 ・右クリック -> 「PDFを作成 (保存のみ)」:
     付箋の内容を正規化済みPDFとして出力します（Markdownファイルは残りません）。
     ※ 本文にMarkdown形式で記述すると、PDF出力時に見出しやリスト等が反映されます。
@@ -318,6 +319,7 @@ class CanvasHelpWindow(ctk.CTkToplevel):
 
 [PDF出力]
 ・キャンバス全体をPDFとして保存します。
+・ノート、付箋、接続線、枠線などがそのまま出力されます。
 """
         textbox = ctk.CTkTextbox(self, wrap="word", font=("", 12))
         textbox.pack(fill="both", expand=True, padx=10, pady=10)
@@ -2049,6 +2051,11 @@ class CanvasWindow(ctk.CTkToplevel):
         return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
     def _export_to_file(self, output_path):
+        """
+        キャンバスの内容をPDFとしてエクスポートする。
+        ノート、付箋に加え、接続線(Connection)と図形(Shape)も描画する。
+        """
+        # 1. 全アイテムの包含矩形（バウンディングボックス）を計算し、キャンバスサイズを決定
         min_x, min_y, max_x, max_y = (
             float("inf"),
             float("inf"),
@@ -2063,20 +2070,42 @@ class CanvasWindow(ctk.CTkToplevel):
             max_x = max(max_x, x + w)
             max_y = max(max_y, y + h)
 
+        # ノート (固定サイズ: 160x80)
         for info in self.notes_on_canvas.values():
             update_bounds(info["x"], info["y"], 160, 80)
+
+        # 付箋 (可変サイズ)
         for s in self.stickies_on_canvas:
             update_bounds(s["x"], s["y"], s["w"], s["h"])
+
+        # 図形 (Line, Rect)
+        for s in self.shapes_on_canvas:
+            if s["type"] == "rect":
+                update_bounds(s["x"], s["y"], s.get("w", 0), s.get("h", 0))
+            elif s["type"] == "line":
+                # 線の始点と終点を考慮
+                min_x = min(min_x, s["x1"], s["x2"])
+                min_y = min(min_y, s["y1"], s["y2"])
+                max_x = max(max_x, s["x1"], s["x2"])
+                max_y = max(max_y, s["y1"], s["y2"])
+
+        # アイテムが何もない場合のデフォルトサイズ
         if min_x == float("inf"):
             min_x = 0
             min_y = 0
             max_x = 100
             max_y = 100
 
+        # マージンを追加
         margin = 50
-        width, height = max_x - min_x + margin * 2, max_y - min_y + margin * 2
+        width = max_x - min_x + margin * 2
+        height = max_y - min_y + margin * 2
+
+        # PDFドキュメント作成
         doc = fitz.open()
         page = doc.new_page(width=width, height=height)
+
+        # メタデータ設定 (Normalisiererでの再処理時にサイズ変更されないようにフラグを付与)
         doc.set_metadata(
             {
                 "keywords": "Synapsen:Whiteboard; Synapsen:SkipNormalization",
@@ -2084,6 +2113,7 @@ class CanvasWindow(ctk.CTkToplevel):
             }
         )
 
+        # フォント登録 (日本語対応)
         try:
             page.insert_font(
                 fontname="msgothic", fontfile=r"C:\Windows\Fonts\msgothic.ttc"
@@ -2093,23 +2123,83 @@ class CanvasWindow(ctk.CTkToplevel):
 
         shape = page.new_shape()
 
+        # 座標変換ヘルパー (論理座標 -> PDFページ座標)
         def tx(v):
             return v - min_x + margin
 
         def ty(v):
             return v - min_y + margin
 
+        # ヘルパー: ノート/付箋の中心座標を取得 (接続線描画用)
+        def get_center(type_, key_):
+            if type_ == "note":
+                if key_ in self.notes_on_canvas:
+                    info = self.notes_on_canvas[key_]
+                    # ノートサイズ 160x80 の中心
+                    return tx(info["x"]) + 80, ty(info["y"]) + 40
+            elif type_ == "sticky":
+                # stickiesはリストなのでID(str)で検索
+                s = next(
+                    (x for x in self.stickies_on_canvas if str(id(x)) == key_), None
+                )
+                if s:
+                    return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
+            return None, None
+
+        # --- 描画順序 (レイヤー): 接続線 -> 図形 -> 付箋 -> ノート ---
+
+        # 1. 接続線 (Connections)
+        for c in self.connections_on_canvas:
+            x1, y1 = get_center(c["from_type"], c["from_key"])
+            x2, y2 = get_center(c["to_type"], c["to_key"])
+
+            if x1 is not None and x2 is not None:
+                # DBリンク状態を確認して色を決定
+                is_linked = False
+                if c["from_type"] == "note" and c["to_type"] == "note":
+                    is_linked = self._check_db_link_exists(c["from_key"], c["to_key"])
+
+                # リンクあり: 緑, なし: 黒 (PDF背景が白のため)
+                color = (0.15, 0.65, 0.27) if is_linked else (0, 0, 0)
+
+                # 単純な直線を描画 (矢印は省略)
+                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                shape.finish(color=color, width=1)
+
+        # 2. 図形 (Shapes)
+        for s in self.shapes_on_canvas:
+            if s["type"] == "rect":
+                # 枠線 (赤色の破線)
+                rtx, rty = tx(s["x"]), ty(s["y"])
+                shape.draw_rect(
+                    fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
+                )
+                shape.finish(color=(1, 0, 0), width=1, dashes=[4, 4])  # 破線
+            elif s["type"] == "line":
+                # 線 (黒色)
+                x1, y1 = tx(s["x1"]), ty(s["y1"])
+                x2, y2 = tx(s["x2"]), ty(s["y2"])
+                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                shape.finish(color=(0, 0, 0), width=1)
+
+        # 3. 付箋 (Stickies)
         for s in self.stickies_on_canvas:
             rtx, rty = tx(s["x"]), ty(s["y"])
             w, h = s["w"], s["h"]
+
+            # 影
             shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
             shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
+
+            # 本体
             shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
             shape.finish(fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0)
 
+            # テキスト描画
             disp = self._create_sticky_display_text(
                 s.get("title", ""), s.get("content", "")
             )
+            # テキストボックスのマージンを少し取る
             shape.insert_textbox(
                 fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
                 disp,
@@ -2118,20 +2208,27 @@ class CanvasWindow(ctk.CTkToplevel):
                 color=(0, 0, 0),
             )
 
+        # 4. ノート (Notes)
         for key, info in self.notes_on_canvas.items():
             rtx, rty = tx(info["x"]), ty(info["y"])
+            # 色取得
             col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
+
+            # ノート枠
             shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
             shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
+
+            # ノートテキスト (リンク形式)
             shape.insert_textbox(
                 fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
                 f"[[{key}: {info['title']}]]",
                 fontname="msgothic",
                 fontsize=10,
-                align=1,
+                align=1,  # Center
                 color=(0, 0, 0),
             )
 
+        # 描画の確定と保存
         shape.commit()
         doc.save(str(output_path))
         doc.close()
