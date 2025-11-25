@@ -398,6 +398,15 @@ class CanvasWindow(ctk.CTkToplevel):
         }
 
         self.font_path = self._get_font_path_from_config()
+        self.shape_colors = {
+            "レッド": "#FF4500",  # OrangeRed
+            "イエロー": "#FFD700",  # Gold
+            "ブルー": "#1E90FF",  # DodgerBlue
+            "グリーン": "#32CD32",  # LimeGreen
+            "グレー": "#808080",  # Gray
+            "ブラック": "#000000",  # Black (ホワイトの代わり)
+        }
+        self.current_shape_color = "レッド"  # デフォルト
 
         # --- UI ---
         self.toolbar = ctk.CTkFrame(self)
@@ -453,6 +462,19 @@ class CanvasWindow(ctk.CTkToplevel):
         ctk.CTkButton(self.toolbar, text="+", width=30, command=self._zoom_in_btn).pack(
             side="left", padx=2
         )
+
+        ctk.CTkLabel(self.toolbar, text="| 色:").pack(side="left", padx=5)
+
+        # 色選択メニュー
+        self.color_var = ctk.StringVar(value="レッド")
+        self.color_menu = ctk.CTkOptionMenu(
+            self.toolbar,
+            values=list(self.shape_colors.keys()),
+            variable=self.color_var,
+            width=90,
+            # commandは不要（作成時に値を取得するため）
+        )
+        self.color_menu.pack(side="left", padx=2)
 
         ctk.CTkLabel(self.toolbar, text="| ツール:").pack(side="left", padx=5)
 
@@ -865,15 +887,22 @@ class CanvasWindow(ctk.CTkToplevel):
             if s["type"] in ("rect", "line"):
                 is_sel = ("shape", str(id(s))) in self.selected_items
                 w = selected_width if is_sel else base_width
+
+                # 保存されている色を使用。なければデフォルト色
+                base_color = s.get(
+                    "color",
+                    (
+                        "red"
+                        if s["type"] == "rect"
+                        else ("white" if self.bg_color == "#2b2b2b" else "black")
+                    ),
+                )
+
                 if s["type"] == "rect":
-                    c = "#585a9c" if is_sel else "red"
+                    c = "#585a9c" if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 else:
-                    c = (
-                        "#585a9c"
-                        if is_sel
-                        else ("white" if self.bg_color == "#2b2b2b" else "black")
-                    )
+                    c = "#585a9c" if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
         for c in self.connections_on_canvas:
@@ -973,15 +1002,22 @@ class CanvasWindow(ctk.CTkToplevel):
             if s["type"] in ("rect", "line"):
                 is_sel = ("shape", str(id(s))) in self.selected_items
                 w = selected_width if is_sel else base_width
+
+                # 保存されている色を使用
+                base_color = s.get(
+                    "color",
+                    (
+                        "red"
+                        if s["type"] == "rect"
+                        else ("white" if self.bg_color == "#2b2b2b" else "black")
+                    ),
+                )
+
                 if s["type"] == "rect":
-                    c = sel_col if is_sel else "red"
+                    c = sel_col if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 else:
-                    c = (
-                        sel_col
-                        if is_sel
-                        else ("white" if self.bg_color == "#2b2b2b" else "black")
-                    )
+                    c = sel_col if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
     def send_or_search_to_nexus(self):
@@ -1233,7 +1269,9 @@ class CanvasWindow(ctk.CTkToplevel):
                 if coords:
                     self.canvas.coords(c["id"], *coords)
 
-    def create_shape_item(self, shape_type, x=0, y=0, w=0, h=0, text="", x2=0, y2=0):
+    def create_shape_item(
+        self, shape_type, x=0, y=0, w=0, h=0, text="", x2=0, y2=0, color="red"
+    ):
         lw = max(1, int(self.base_line_width * self.current_scale))
 
         # 描画用座標変換
@@ -1247,20 +1285,28 @@ class CanvasWindow(ctk.CTkToplevel):
                 sy,
                 sx + sw,
                 sy + sh,
-                outline="red",
+                outline=color,  # outlineを引数のcolorに
                 width=lw,
                 dash=(4, 4),
                 tags=("shape", "rect"),
             )
             self.shapes_on_canvas.append(
-                {"id": iid, "type": "rect", "x": x, "y": y, "w": w, "h": h}  # 論理座標
+                # 論理座標
+                {
+                    "id": iid,
+                    "type": "rect",
+                    "x": x,
+                    "y": y,
+                    "w": w,
+                    "h": h,
+                    "color": color,
+                }
             )
             self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
 
         elif shape_type == "line":
-            col = "white" if self.bg_color == "#2b2b2b" else "black"
             iid = self.canvas.create_line(
-                sx, sy, sx2, sy2, fill=col, width=lw, tags=("shape", "line")
+                sx, sy, sx2, sy2, fill=color, width=lw, tags=("shape", "line")
             )
             self.shapes_on_canvas.append(
                 {
@@ -1269,7 +1315,8 @@ class CanvasWindow(ctk.CTkToplevel):
                     "x1": x,
                     "y1": y,
                     "x2": x2,
-                    "y2": y2,  # 論理座標
+                    "y2": y2,
+                    "color": color,
                 }
             )
             self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
@@ -1384,13 +1431,16 @@ class CanvasWindow(ctk.CTkToplevel):
                     self.save_canvas()
 
         elif self.current_mode in ("rect", "line"):
+            # 現在の色を取得
+            current_color = self.shape_colors.get(self.color_var.get(), "red")
+
             if self.current_mode == "rect":
                 self.drag_data["temp_id"] = self.canvas.create_rectangle(
-                    cx, cy, cx, cy, outline="red"
+                    cx, cy, cx, cy, outline=current_color
                 )
             elif self.current_mode == "line":
                 self.drag_data["temp_id"] = self.canvas.create_line(
-                    cx, cy, cx, cy, fill="white"
+                    cx, cy, cx, cy, fill=current_color
                 )
 
     def on_canvas_drag(self, event):
@@ -1554,6 +1604,9 @@ class CanvasWindow(ctk.CTkToplevel):
         # 4. シェイプ作成
         elif self.current_mode in ("rect", "line"):
             if self.drag_data["temp_id"]:
+                current_color = self.shape_colors.get(self.color_var.get(), "red")
+
+                # 座標更新
                 self.canvas.coords(
                     self.drag_data["temp_id"],
                     self.drag_data["start_x"],
@@ -1561,6 +1614,15 @@ class CanvasWindow(ctk.CTkToplevel):
                     cx,
                     cy,
                 )
+                # 色更新
+                if self.current_mode == "rect":
+                    self.canvas.itemconfigure(
+                        self.drag_data["temp_id"], outline=current_color
+                    )
+                else:
+                    self.canvas.itemconfigure(
+                        self.drag_data["temp_id"], fill=current_color
+                    )
 
     def on_canvas_release(self, event):
         if self.current_mode == "resize_sticky":
@@ -1637,12 +1699,18 @@ class CanvasWindow(ctk.CTkToplevel):
 
         if self.current_mode in ("rect", "line") and self.drag_data["temp_id"]:
             self.canvas.delete(self.drag_data["temp_id"])
-            if abs(cx - self.drag_data["start_x"]) > 5:
+            if (
+                abs(cx - self.drag_data["start_x"]) > 5
+                or abs(cy - self.drag_data["start_y"]) > 5
+            ):
                 # 作成時の座標を論理座標に変換して渡す
                 lx1 = self.drag_data["start_x"] / self.current_scale
                 ly1 = self.drag_data["start_y"] / self.current_scale
                 lx2 = cx / self.current_scale
                 ly2 = cy / self.current_scale
+
+                selected_color_name = self.color_var.get()
+                selected_color_code = self.shape_colors.get(selected_color_name, "red")
 
                 self.create_shape_item(
                     self.current_mode,
@@ -1652,6 +1720,7 @@ class CanvasWindow(ctk.CTkToplevel):
                     y2=ly2,
                     w=abs(lx2 - lx1),
                     h=abs(ly2 - ly1),
+                    color=selected_color_code,
                 )
                 self.save_canvas()
 
@@ -2169,13 +2238,29 @@ class CanvasWindow(ctk.CTkToplevel):
                 )
 
             for s in data.get("shapes", []):
+                # デフォルト色の決定ロジック
+                default_rect_color = "red"
+                default_line_color = "white" if self.bg_color == "#2b2b2b" else "black"
+
                 if s["type"] == "line":
+                    loaded_color = s.get("color", default_line_color)
                     self.create_shape_item(
-                        "line", x=s["x1"], y=s["y1"], x2=s["x2"], y2=s["y2"]
+                        "line",
+                        x=s["x1"],
+                        y=s["y1"],
+                        x2=s["x2"],
+                        y2=s["y2"],
+                        color=loaded_color,
                     )
                 elif s["type"] == "rect":
+                    loaded_color = s.get("color", default_rect_color)
                     self.create_shape_item(
-                        s["type"], s["x"], s["y"], s.get("w", 0), s.get("h", 0)
+                        s["type"],
+                        s["x"],
+                        s["y"],
+                        s.get("w", 0),
+                        s.get("h", 0),
+                        color=loaded_color,
                     )
 
             for c in data.get("connections", []):
@@ -2369,17 +2454,42 @@ class CanvasWindow(ctk.CTkToplevel):
 
             # 2. 図形
             for s in self.shapes_on_canvas:
+                # 保存された色を取得 (なければデフォルト)
+                default_color = (
+                    "red"
+                    if s["type"] == "rect"
+                    else ("white" if self.bg_color == "#2b2b2b" else "black")
+                )
+                color_val = s.get("color", default_color)
+
+                # 色名("red"等)の場合はカラーコードに変換、そうでなければそのまま使用
+                # (既存データ互換のためのマッピング)
+                color_map = {"red": "#FF0000", "white": "#FFFFFF", "black": "#000000"}
+                # shape_colorsに含まれる色名キーならコードに変換 (念のため)
+                if color_val in self.shape_colors:
+                    hex_code = self.shape_colors[color_val]
+                else:
+                    hex_code = color_map.get(color_val, color_val)
+
+                # 16進数コードをRGBタプルに変換 (エラー時は黒などのデフォルトへ)
+                try:
+                    rgb_color = self._hex_to_rgb(hex_code)
+                except Exception:
+                    rgb_color = (0, 0, 0)  # フォールバック: 黒
+
                 if s["type"] == "rect":
                     rtx, rty = tx(s["x"]), ty(s["y"])
                     shape.draw_rect(
                         fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
                     )
-                    shape.finish(color=(1, 0, 0), width=1, dashes=[4, 4])
+                    # color に rgb_color を指定
+                    shape.finish(color=rgb_color, width=1, dashes=[4, 4])
                 elif s["type"] == "line":
                     x1, y1 = tx(s["x1"]), ty(s["y1"])
                     x2, y2 = tx(s["x2"]), ty(s["y2"])
                     shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
-                    shape.finish(color=(0, 0, 0), width=1)
+                    # color に rgb_color を指定
+                    shape.finish(color=rgb_color, width=1)
 
             # 3. 付箋
             for s in self.stickies_on_canvas:
