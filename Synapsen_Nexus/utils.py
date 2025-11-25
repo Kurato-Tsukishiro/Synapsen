@@ -13,6 +13,7 @@ from PIL import Image  # Pillow (PDF画像化のために追加)
 import io  # (PDF画像化のために追加)
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,12 +41,12 @@ def load_app_config(base_path):
         Exception: その他の設定読み込みエラー。
     """
     # .exe実行かスクリプト実行かで config.ini の場所を切り替える
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         # .exe実行の場合（config.ini は .exe と同じフォルダ）
-        config_path = base_path / 'config.ini'
+        config_path = base_path / "config.ini"
     else:
         # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
-        config_path = base_path.parent / 'config.ini'
+        config_path = base_path.parent / "config.ini"
 
     config_path = config_path.resolve()  # 絶対パスに正規化
     logger.debug(f"Loading config from: {config_path}")
@@ -55,103 +56,93 @@ def load_app_config(base_path):
 
     try:
         parser = configparser.ConfigParser(interpolation=None)
-        parser.read(config_path, encoding='utf-8')
+        parser.read(config_path, encoding="utf-8")
 
         config_data = {}
 
         # --- [Paths] セクションの読み込み ---
         # 1. pdf_root_folder
-        pdf_root_path_str = parser.get('Paths', 'pdf_root_folder', fallback='')
+        pdf_root_path_str = parser.get("Paths", "pdf_root_folder", fallback="")
         if pdf_root_path_str:
             pdf_root_path = Path(os.path.expandvars(pdf_root_path_str))
             if not pdf_root_path.is_absolute():
                 pdf_root_path = config_path.parent / pdf_root_path
-            config_data['pdf_root_folder'] = pdf_root_path.resolve()
+            config_data["pdf_root_folder"] = pdf_root_path.resolve()
         else:
-            config_data['pdf_root_folder'] = None
+            config_data["pdf_root_folder"] = None
 
         # 2. pdf_archive_folder
-        pdf_archive_str = parser.get(
-            'Paths',
-            'pdf_archive_folder',
-            fallback=''
-        )
+        pdf_archive_str = parser.get("Paths", "pdf_archive_folder", fallback="")
         if pdf_archive_str:
             pdf_archive_path = Path(os.path.expandvars(pdf_archive_str))
             if not pdf_archive_path.is_absolute():
                 pdf_archive_path = config_path.parent / pdf_archive_path
-            config_data['pdf_archive_folder'] = pdf_archive_path.resolve()
+            config_data["pdf_archive_folder"] = pdf_archive_path.resolve()
         else:
-            config_data['pdf_archive_folder'] = None
+            config_data["pdf_archive_folder"] = None
 
         # [nexus_output_folder]
         nexus_out_str = parser.get(
-            'Paths', 'nexus_output_folder',
-            fallback='Nexus_Output'
+            "Paths", "nexus_output_folder", fallback="Nexus_Output"
         )
         if nexus_out_str:
             nexus_out_path = Path(os.path.expandvars(nexus_out_str))
             if not nexus_out_path.is_absolute():
                 nexus_out_path = config_path.parent / nexus_out_path
-            config_data['nexus_output_folder'] = nexus_out_path.resolve()
+            config_data["nexus_output_folder"] = nexus_out_path.resolve()
         else:
             # 未設定の場合は実行ファイル直下の Nexus_Output をデフォルトとする
-            config_data['nexus_output_folder'] = (
-                config_path.parent / "Nexus_Output"
-            )
+            config_data["nexus_output_folder"] = config_path.parent / "Nexus_Output"
 
         # [browser_path]
-        browser_path_str = parser.get('Paths', 'browser_path', fallback='')
-        if browser_path_str and browser_path_str.lower() != 'Default':
+        browser_path_str = parser.get("Paths", "browser_path", fallback="")
+        if browser_path_str and browser_path_str.lower() != "Default":
             # 環境変数を展開
             browser_path = Path(os.path.expandvars(browser_path_str))
             # (ブラウザパスは絶対パスであることを期待するが、念のため)
             if not browser_path.is_absolute():
                 browser_path = config_path.parent / browser_path
-            config_data['browser_path'] = str(browser_path.resolve())
+            config_data["browser_path"] = str(browser_path.resolve())
         else:
-            config_data['browser_path'] = None  # 未設定またはDefault
+            config_data["browser_path"] = None  # 未設定またはDefault
 
         # [KeyIcons]
-        if parser.has_section('KeyIcons'):
-            config_data['key_icons'] = {
-                k.lower(): v for k, v in parser.items('KeyIcons')
+        if parser.has_section("KeyIcons"):
+            config_data["key_icons"] = {
+                k.lower(): v for k, v in parser.items("KeyIcons")
             }
         else:
-            config_data['key_icons'] = {}
+            config_data["key_icons"] = {}
 
         # [KeyColors]
-        if parser.has_section('KeyColors'):
-            config_data['key_colors'] = {
-                k.lower(): v for k, v in parser.items('KeyColors')
+        if parser.has_section("KeyColors"):
+            config_data["key_colors"] = {
+                k.lower(): v for k, v in parser.items("KeyColors")
             }
         else:
-            config_data['key_colors'] = {}
+            config_data["key_colors"] = {}
 
         # [CommonplaceKeys]
-        if parser.has_section('CommonplaceKeys'):
-            keys_str = parser.get('CommonplaceKeys', 'options', fallback='')
-            config_data['commonplace_keys_options'] = [
-                key.strip() for key in keys_str.split(',') if key.strip()
+        if parser.has_section("CommonplaceKeys"):
+            keys_str = parser.get("CommonplaceKeys", "options", fallback="")
+            config_data["commonplace_keys_options"] = [
+                key.strip() for key in keys_str.split(",") if key.strip()
             ]
         else:
-            config_data['commonplace_keys_options'] = []
+            config_data["commonplace_keys_options"] = []
 
         # [Search]
-        if parser.has_section('Search'):
-            config_data[
-                'include_all_tags_for_autocomplete'] = parser.getboolean(
-                'Search', 'include_all_tags_for_autocomplete', fallback=True
+        if parser.has_section("Search"):
+            config_data["include_all_tags_for_autocomplete"] = parser.getboolean(
+                "Search", "include_all_tags_for_autocomplete", fallback=True
             )
         else:
             # セクションがない場合のデフォルト値
-            config_data['include_all_tags_for_autocomplete'] = True
+            config_data["include_all_tags_for_autocomplete"] = True
 
         # tags_data_path
-        config_data['predefined_tags'] = []
-        tags_path_from_config = parser.get(
-            'Paths', 'tags_data_path', fallback=''
-            )
+        config_data["predefined_tags"] = []
+        tags_path_from_config = parser.get("Paths", "tags_data_path", fallback="")
         if tags_path_from_config:
             # 環境変数を展開
             tags_data_path = Path(os.path.expandvars(tags_path_from_config))
@@ -166,25 +157,25 @@ def load_app_config(base_path):
                         for line in f:
                             stripped_line = line.strip()
                             # 空行やコメント行でないかチェック
-                            if stripped_line and not stripped_line.startswith('#'):  # noqa: E501
+                            if stripped_line and not stripped_line.startswith(
+                                "#"
+                            ):  # noqa: E501
                                 tags_list.append(stripped_line)
-                        config_data['predefined_tags'] = sorted(tags_list)
+                        config_data["predefined_tags"] = sorted(tags_list)
             except Exception as e:
                 logger.error(f"tags.txtの読み込み中にエラー: {e}")
 
         # database_path
-        default_db_path_str = parser.get(
-            'Paths', 'database_path', fallback=''
-            )
+        default_db_path_str = parser.get("Paths", "database_path", fallback="")
         if default_db_path_str:
             # 環境変数を展開
             db_path = Path(os.path.expandvars(default_db_path_str))
             if not db_path.is_absolute():
                 # config.iniからの相対パスは、config.ini自身からの相対とみなす
                 db_path = config_path.parent / db_path
-            config_data['database_path'] = db_path.resolve()
+            config_data["database_path"] = db_path.resolve()
         else:
-            config_data['database_path'] = None
+            config_data["database_path"] = None
 
         return config_data
 
@@ -211,13 +202,22 @@ def load_sql_data_file(filepath: Path):
         # DBファイルが存在しない場合、空のDataFrameを返す
         logger.warning(
             f"データベースファイルが見つかりません: {filepath}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         # 空でもカラムは定義しておく
         cols = [
-            'tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
-            'full_text', 'time', 'pages', 'filepath',
-            'merged_pdf_filename', 'merged_start_page'
+            "tags",
+            "key",
+            "memo",
+            "title",
+            "commonplace_key",
+            "date",
+            "full_text",
+            "time",
+            "pages",
+            "filepath",
+            "merged_pdf_filename",
+            "merged_start_page",
         ]
         return pd.DataFrame(columns=cols)
 
@@ -232,65 +232,94 @@ def load_sql_data_file(filepath: Path):
         except sqlite3.OperationalError:
             logger.error(
                 f"テーブル 'notes' がDBに存在しません: {filepath}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             conn.close()
-            cols = ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
-                    'full_text', 'time', 'pages', 'filepath',
-                    'merged_pdf_filename', 'merged_start_page']
+            cols = [
+                "tags",
+                "key",
+                "memo",
+                "title",
+                "commonplace_key",
+                "date",
+                "full_text",
+                "time",
+                "pages",
+                "filepath",
+                "merged_pdf_filename",
+                "merged_start_page",
+            ]
             return pd.DataFrame(columns=cols)
 
         # 'full_text' と 'memo' は除外する
         columns_to_load = [
-            col for col in all_columns if col not in ('full_text', 'memo')
+            col for col in all_columns if col not in ("full_text", "memo")
         ]
 
         if not columns_to_load:
-            logger.warning(f"テーブル 'notes' に読み込み可能な列がありません: {filepath}")
+            logger.warning(
+                f"テーブル 'notes' に読み込み可能な列がありません: {filepath}"
+            )
             conn.close()
-            cols = ['tags', 'key', 'memo', 'title', 'commonplace_key', 'date',
-                    'full_text', 'time', 'pages', 'filepath',
-                    'merged_pdf_filename', 'merged_start_page']
+            cols = [
+                "tags",
+                "key",
+                "memo",
+                "title",
+                "commonplace_key",
+                "date",
+                "full_text",
+                "time",
+                "pages",
+                "filepath",
+                "merged_pdf_filename",
+                "merged_start_page",
+            ]
             return pd.DataFrame(columns=cols)
 
         select_query = f"SELECT {', '.join(columns_to_load)} FROM notes"
         df = pd.read_sql_query(select_query, conn)
         conn.close()
 
-        df = df.fillna('')
+        df = df.fillna("")
         df.columns = df.columns.str.strip()
 
         # 検索対象となる主要な列を文字列型(str)として明示的に変換
         # 'full_text' 及び 'memo' は型変換リストから除外
         for col in [
-            'tags', 'key', 'title', 'commonplace_key', 'date',
-            'time', 'pages', 'merged_start_page', 'summary'
+            "tags",
+            "key",
+            "title",
+            "commonplace_key",
+            "date",
+            "time",
+            "pages",
+            "merged_start_page",
+            "summary",
         ]:
             if col in df.columns:
                 df[col] = df[col].astype(str)
             else:
                 # 読み込まなかったが必須の列を空で追加
-                df[col] = ''
+                df[col] = ""
 
         # FTS検索用に 'full_text' と 'memo' を空で定義しておく
-        df['full_text'] = ''
-        df['memo'] = ''
-        df['summary'] = ''
+        df["full_text"] = ""
+        df["memo"] = ""
+        df["summary"] = ""
 
         return df
 
     except Exception as e:
         # エラーをラップして呼び出し元 (main.py) で処理する
-        raise Exception(f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}")
+        raise Exception(
+            f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}"
+        )
 
 
 def build_memo_display(
-        parent_frame,
-        memo_text,
-        df,
-        open_preview_callback,
-        frame_width=450
-        ):
+    parent_frame, memo_text, df, open_preview_callback, frame_width=450
+):
     """
     メモテキストを解析し、[[key]]リンクをクリック可能なラベルとして
     指定された親フレーム内に動的に構築する。
@@ -320,44 +349,53 @@ def build_memo_display(
 
     for match in pattern.finditer(memo_text):
         # 1. リンクより前のテキスト部分
-        if non_link_text := memo_text[last_index:match.start()]:
+        if non_link_text := memo_text[last_index : match.start()]:
             label = ctk.CTkLabel(
-                content_frame, text=non_link_text,
-                wraplength=frame_width, justify="left", anchor="w"
-                )
+                content_frame,
+                text=non_link_text,
+                wraplength=frame_width,
+                justify="left",
+                anchor="w",
+            )
             label.pack(fill="x", padx=2, pady=0)
 
         # 2. リンク部分
         full_match_content = match.group(1).strip()
         # 'key' または 'key: title' の 'key' の部分を取得
-        link_key = full_match_content.split(':')[0].strip()
+        link_key = full_match_content.split(":")[0].strip()
 
         display_text = f"[[{link_key} (ノート不明)]]"
         if df is not None and not df.empty:
             # key列でリンク先ノートを検索
-            linked_note_row = df[df['key'] == link_key]
+            linked_note_row = df[df["key"] == link_key]
             if not linked_note_row.empty:
-                note_title = linked_note_row.iloc[0].get('title', '（タイトルなし）')
+                note_title = linked_note_row.iloc[0].get("title", "（タイトルなし）")
                 display_text = f"[[{link_key}: {note_title}]]"
 
         link_label = ctk.CTkLabel(
-            content_frame, text=display_text, text_color="#63B8FF",
-            cursor="hand2", wraplength=frame_width, justify="left", anchor="w"
-            )
+            content_frame,
+            text=display_text,
+            text_color="#63B8FF",
+            cursor="hand2",
+            wraplength=frame_width,
+            justify="left",
+            anchor="w",
+        )
         link_label.pack(fill="x", padx=2, pady=0)
         # リンクにクリックイベントをバインド
-        link_label.bind(
-            "<Button-1>", lambda e, k=link_key: open_preview_callback(k)
-            )
+        link_label.bind("<Button-1>", lambda e, k=link_key: open_preview_callback(k))
 
         last_index = match.end()
 
     # 3. 最後のリンク以降のテキスト部分
     if remaining_text := memo_text[last_index:]:
         label = ctk.CTkLabel(
-            content_frame, text=remaining_text,
-            wraplength=frame_width, justify="left", anchor="w"
-            )
+            content_frame,
+            text=remaining_text,
+            wraplength=frame_width,
+            justify="left",
+            anchor="w",
+        )
         label.pack(fill="x", padx=2, pady=0)
 
 
@@ -381,18 +419,14 @@ def _extract_links(memo_text: str) -> set:
     for match in link_pattern.finditer(memo_text):
         full_match_content = match.group(1).strip()
         # 'key' または 'key: title' の 'key' の部分を取得
-        link_key = full_match_content.split(':')[0].strip()
+        link_key = full_match_content.split(":")[0].strip()
         if link_key:
             found_keys.add(link_key)
 
     return found_keys
 
 
-def _update_note_links(
-        cursor: sqlite3.Cursor,
-        source_key: str,
-        new_memo_text: str
-):
+def _update_note_links(cursor: sqlite3.Cursor, source_key: str, new_memo_text: str):
     """
     note_links テーブルを更新する。(DELETE & INSERT)
 
@@ -405,32 +439,19 @@ def _update_note_links(
     target_keys = _extract_links(new_memo_text)
 
     # 2. 古いリンクを削除
-    cursor.execute(
-        "DELETE FROM note_links WHERE source_key = ?",
-        (source_key,)
-    )
+    cursor.execute("DELETE FROM note_links WHERE source_key = ?", (source_key,))
 
     # 3. 新しいリンクを挿入
     if target_keys:
-        links_data = [
-            (source_key, target_key) for target_key in target_keys
-        ]
+        links_data = [(source_key, target_key) for target_key in target_keys]
         sql_insert_links = (
-            "INSERT OR IGNORE INTO note_links (source_key, target_key) "
-            "VALUES (?, ?)"
+            "INSERT OR IGNORE INTO note_links (source_key, target_key) " "VALUES (?, ?)"
         )
-        cursor.executemany(
-            sql_insert_links,
-            links_data
-        )
+        cursor.executemany(sql_insert_links, links_data)
 
 
 def build_references_display(
-    parent_frame,
-    backlinks_df,
-    open_preview_callback,
-    key_icons,
-    key_colors
+    parent_frame, backlinks_df, open_preview_callback, key_icons, key_colors
 ):
     """
     引用元DataFrameに基づき、クリック可能な引用元リストUIを
@@ -454,9 +475,7 @@ def build_references_display(
         parent_frame.configure(label_text="このノートを引用 (0件)")
         return
 
-    parent_frame.configure(
-        label_text=f"このノートを引用 ({len(backlinks_df)}件)"
-    )
+    parent_frame.configure(label_text=f"このノートを引用 ({len(backlinks_df)}件)")
 
     # (parent_frame が ScrollableFrame の場合、その中身として機能する)
     content_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
@@ -467,12 +486,11 @@ def build_references_display(
         item_frame.pack(fill="x", padx=5, pady=2)
 
         cp_key = str(row.get("commonplace_key", "")).lower()
-        icon = key_icons.get(cp_key, '•')
-        color = key_colors.get(cp_key, 'gray')
+        icon = key_icons.get(cp_key, "•")
+        color = key_colors.get(cp_key, "gray")
 
         icon_label = ctk.CTkLabel(
-            item_frame, text=icon, text_color=color,
-            font=("", 16), width=20
+            item_frame, text=icon, text_color=color, font=("", 16), width=20
         )
         icon_label.pack(side="left")
 
@@ -483,13 +501,16 @@ def build_references_display(
         text_label.pack(side="left", fill="x", expand=True)
 
         # --- Event Binding ---
-        key = row.get('key')
+        key = row.get("key")
         if key:
+
             def create_preview_handler(note_key=key):
-                """ 現在の 'note_key' を保持するイベントハンドラを返す """
+                """現在の 'note_key' を保持するイベントハンドラを返す"""
+
                 def handler(event):
                     # コールバック関数 (open_preview_callback) を 'note_key' で呼び出す
                     open_preview_callback(note_key)
+
                 return handler
 
             preview_command = create_preview_handler()
@@ -561,11 +582,10 @@ def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
         # 2a. ユーザ指定のパスでブラウザを 'synapsen_browser' として登録
         #     (register は同じ名前で上書き可能)
         webbrowser.register(
-            'synapsen_browser', None,
-            webbrowser.BackgroundBrowser(browser_path)
+            "synapsen_browser", None, webbrowser.BackgroundBrowser(browser_path)
         )
         # 2b. 登録した 'synapsen_browser' を取得して開く
-        browser = webbrowser.get('synapsen_browser')
+        browser = webbrowser.get("synapsen_browser")
         browser.open(file_uri)
 
     # 3. エラー時のフォールバック処理
@@ -576,7 +596,7 @@ def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
             "ブラウザエラー",
             f"config.ini で指定されたパスにブラウザが見つかりません:\n"
             f"{browser_path}\n\n"
-            f"OSのデフォルトブラウザで開きます。"
+            f"OSのデフォルトブラウザで開きます。",
         )
         try:
             webbrowser.open(file_uri)
@@ -588,18 +608,22 @@ def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
         messagebox.showwarning(
             "ブラウザエラー",
             f"ブラウザの起動に失敗しました:\n{e}\n\n"
-            f"OSのデフォルトブラウザで開きます。"
+            f"OSのデフォルトブラウザで開きます。",
         )
         try:
             webbrowser.open(file_uri)
         except Exception as e_inner:
-            messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e_inner}")
+            messagebox.showerror(
+                "起動エラー", f"PDFビューアの起動に失敗しました: {e_inner}"
+            )
 
 
 def open_pdf_viewer(
-        row_data, loaded_db_path, pdf_root_folder,
-        browser_path: str | None = None,
-        pdf_archive_folder: Path | None = None
+    row_data,
+    loaded_db_path,
+    pdf_root_folder,
+    browser_path: str | None = None,
+    pdf_archive_folder: Path | None = None,
 ):
     """
     ノートデータに基づきPDFを開く。
@@ -629,14 +653,14 @@ def open_pdf_viewer(
     if loaded_db_path:
         search_paths.append(Path(loaded_db_path).parent)
 
-    merged_pdf_filename = row_data.get('merged_pdf_filename')
-    start_page = row_data.get('merged_start_page')
+    merged_pdf_filename = row_data.get("merged_pdf_filename")
+    start_page = row_data.get("merged_start_page")
 
     # 1. 統合PDFの検索
     target_pdf_path = None
     page_number = 1
 
-    if merged_pdf_filename and not pd.isna(start_page) and start_page != '':
+    if merged_pdf_filename and not pd.isna(start_page) and start_page != "":
         # ファイルを探す
         found_path = find_file_in_paths(merged_pdf_filename, search_paths)
         if found_path:
@@ -650,7 +674,7 @@ def open_pdf_viewer(
 
     # 2. 統合PDFが見つからない場合、元ファイルを探す
     if target_pdf_path is None:
-        original_filename = row_data.get('filepath')
+        original_filename = row_data.get("filepath")
         if original_filename:
             found_path = find_file_in_paths(original_filename, search_paths)
             if found_path:
@@ -665,12 +689,14 @@ def open_pdf_viewer(
         except Exception as e:
             messagebox.showerror("起動エラー", f"PDFビューアの起動に失敗しました: {e}")
     else:
-        messagebox.showerror("ファイルエラー", "PDFファイルが見つかりません。\n(検索パス内を確認してください)")
+        messagebox.showerror(
+            "ファイルエラー",
+            "PDFファイルが見つかりません。\n(検索パス内を確認してください)",
+        )
 
 
 def get_pdf_uri_for_note(
-    row_data, loaded_db_path, pdf_root_folder,
-    pdf_archive_folder: Path | None = None
+    row_data, loaded_db_path, pdf_root_folder, pdf_archive_folder: Path | None = None
 ):
     """
     ノートデータに基づき、PDFを開くための file:// URI を生成して返す。
@@ -692,18 +718,14 @@ def get_pdf_uri_for_note(
     if loaded_db_path:
         search_paths.append(Path(loaded_db_path).parent)
 
-    merged_pdf_filename = row_data.get('merged_pdf_filename')
-    start_page_str = row_data.get('merged_start_page')
+    merged_pdf_filename = row_data.get("merged_pdf_filename")
+    start_page_str = row_data.get("merged_start_page")
 
     target_path = None
     page_number = 1  # 1-indexed
 
     # 1. 統合PDFを探す
-    if (
-            merged_pdf_filename
-            and not pd.isna(start_page_str)
-            and start_page_str != ''
-    ):
+    if merged_pdf_filename and not pd.isna(start_page_str) and start_page_str != "":
         found = find_file_in_paths(merged_pdf_filename, search_paths)
         if found:
             target_path = found
@@ -714,7 +736,7 @@ def get_pdf_uri_for_note(
 
     # 2. 元ファイルを探す
     if target_path is None:
-        original_filename = row_data.get('filepath')
+        original_filename = row_data.get("filepath")
         if original_filename:
             found = find_file_in_paths(original_filename, search_paths)
             if found:
@@ -726,11 +748,7 @@ def get_pdf_uri_for_note(
     return None
 
 
-def update_note_in_db(
-        conn: sqlite3.Connection,
-        key: str,
-        new_data: dict
-):
+def update_note_in_db(conn: sqlite3.Connection, key: str, new_data: dict):
     """
     SQLiteデータベース内の指定されたノートを更新し、リンクテーブルも更新する。
     ★注意: この関数は呼び出し元でトランザクション(commit/rollback)を管理する必要がある。
@@ -744,12 +762,12 @@ def update_note_in_db(
         Exception: データベースの更新に失敗した場合。
     """
     # タグをリストから ';' 区切りの文字列に変換
-    if 'tags' in new_data and isinstance(new_data['tags'], list):
-        tags_str = ";".join(sorted(new_data['tags']))
+    if "tags" in new_data and isinstance(new_data["tags"], list):
+        tags_str = ";".join(sorted(new_data["tags"]))
     else:
-        tags_str = new_data.get('tags', '')
+        tags_str = new_data.get("tags", "")
 
-    new_memo = new_data.get('memo', '')
+    new_memo = new_data.get("memo", "")
 
     try:
         cursor = conn.cursor()
@@ -762,12 +780,12 @@ def update_note_in_db(
             WHERE key = ?
             """,
             (
-                new_data.get('memo', ''),
+                new_data.get("memo", ""),
                 tags_str,
-                new_data.get('commonplace_key', ''),
-                new_data.get('summary', ''),
-                key
-            )
+                new_data.get("commonplace_key", ""),
+                new_data.get("summary", ""),
+                key,
+            ),
         )
 
         # 2. 'note_links' テーブルを更新
@@ -810,7 +828,7 @@ def get_pdf_page_image(
     loaded_db_path: Path,
     pdf_root_folder: Path,
     max_width: int = 400,
-    pdf_archive_folder: Path | None = None
+    pdf_archive_folder: Path | None = None,
 ):
     """
     ノートデータに基づき、該当するPDFの1ページ目（または指定ページ）を
@@ -843,15 +861,11 @@ def get_pdf_page_image(
     pdf_path = None
     page_num_to_open = 0
 
-    merged_pdf_filename = row_data.get('merged_pdf_filename')
-    start_page_str = row_data.get('merged_start_page')
+    merged_pdf_filename = row_data.get("merged_pdf_filename")
+    start_page_str = row_data.get("merged_start_page")
 
     # 1. 統合PDF検索
-    if (
-            merged_pdf_filename
-            and not pd.isna(start_page_str)
-            and start_page_str != ''
-    ):
+    if merged_pdf_filename and not pd.isna(start_page_str) and start_page_str != "":
         found = find_file_in_paths(merged_pdf_filename, search_paths)
         if found:
             pdf_path = found
@@ -862,7 +876,7 @@ def get_pdf_page_image(
 
     # 2. 元ファイル検索
     if pdf_path is None:
-        original_filename = row_data.get('filepath')
+        original_filename = row_data.get("filepath")
         if original_filename:
             found = find_file_in_paths(original_filename, search_paths)
             if found:
@@ -913,7 +927,7 @@ def get_pdf_document_for_note(
     row_data: pd.Series,
     loaded_db_path: Path,
     pdf_root_folder: Path,
-    pdf_archive_folder: Path | None = None
+    pdf_archive_folder: Path | None = None,
 ) -> tuple[fitz.Document | None, int, int]:
     """
     ノートデータに紐づくPDFドキュメント(fitz)と、
@@ -942,15 +956,11 @@ def get_pdf_document_for_note(
     start_page_index = 0  # 0-indexed
     total_pages = 0
 
-    merged_pdf_filename = row_data.get('merged_pdf_filename')
-    start_page_str = row_data.get('merged_start_page')
+    merged_pdf_filename = row_data.get("merged_pdf_filename")
+    start_page_str = row_data.get("merged_start_page")
 
     # 1. 統合PDF検索
-    if (
-            merged_pdf_filename
-            and not pd.isna(start_page_str)
-            and start_page_str != ''
-    ):
+    if merged_pdf_filename and not pd.isna(start_page_str) and start_page_str != "":
         found = find_file_in_paths(merged_pdf_filename, search_paths)
         if found:
             pdf_path = found
@@ -961,7 +971,7 @@ def get_pdf_document_for_note(
 
     # 2. 元ファイル検索
     if pdf_path is None:
-        original_filename = row_data.get('filepath')
+        original_filename = row_data.get("filepath")
         if original_filename:
             found = find_file_in_paths(original_filename, search_paths)
             if found:
@@ -981,7 +991,7 @@ def get_pdf_document_for_note(
             start_page_index = 0
 
         # このノートが担当するページ数 (pages列) を取得
-        note_page_count_str = str(row_data.get('pages', '0'))
+        note_page_count_str = str(row_data.get("pages", "0"))
         if note_page_count_str.isdigit():
             note_page_count = int(note_page_count_str)
         else:
@@ -1002,15 +1012,13 @@ def get_pdf_document_for_note(
     except Exception as e:
         logger.error(
             f"[utils] PDFドキュメントの読み込みに失敗 ({pdf_path}): {e}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         return (None, 0, 0)
 
 
 def get_pdf_page_image_from_doc(
-    doc: fitz.Document,
-    page_index: int,
-    max_width: int = 400
+    doc: fitz.Document, page_index: int, max_width: int = 400
 ) -> Image.Image | None:
     """
     既に開かれているfitz.Documentオブジェクトとページインデックスから
@@ -1042,9 +1050,7 @@ def get_pdf_page_image_from_doc(
         # アスペクト比を維持してリサイズ
         scale = max_width / pil_image.width
         new_height = int(pil_image.height * scale)
-        pil_image = pil_image.resize(
-            (max_width, new_height), Image.Resampling.LANCZOS
-        )
+        pil_image = pil_image.resize((max_width, new_height), Image.Resampling.LANCZOS)
 
         return pil_image
 

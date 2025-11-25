@@ -3,6 +3,7 @@ from tkinter import messagebox
 import json
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,15 +38,15 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         self.populate_list()
 
     def populate_list(self):
-        """ self.search_manager.saved_searches に基づいてリストを(再)描画する """
+        """self.search_manager.saved_searches に基づいてリストを(再)描画する"""
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
 
         # 参照先を search_manager に
         if not self.search_manager.saved_searches:
-            ctk.CTkLabel(
-                self.scroll_frame, text="保存済みの検索はありません。"
-                ).pack(padx=10, pady=10)
+            ctk.CTkLabel(self.scroll_frame, text="保存済みの検索はありません。").pack(
+                padx=10, pady=10
+            )
             return
 
         sorted_search_names = sorted(self.search_manager.saved_searches.keys())
@@ -60,36 +61,32 @@ class ManageSearchesWindow(ctk.CTkToplevel):
                 width=80,
                 fg_color="#D9534F",
                 hover_color="#C9302C",
-                command=lambda name=search_name: self.confirm_delete(name)
+                command=lambda name=search_name: self.confirm_delete(name),
             )
             delete_btn.pack(side="left", padx=(7, 5), pady=7)
 
             label_text = f"名前: {search_name}\nクエリ: {query}"
-            label = ctk.CTkLabel(
-                row_frame,
-                text=label_text,
-                anchor="w",
-                justify="left"
-            )
+            label = ctk.CTkLabel(row_frame, text=label_text, anchor="w", justify="left")
             label.pack(side="left", fill="x", expand=True, padx=5, pady=7)
             row_frame.pack(fill="x", padx=5, pady=5)
 
     def confirm_delete(self, search_name_to_delete):
-        """ 削除の最終確認 """
+        """削除の最終確認"""
         answer = messagebox.askyesno(
             "削除の確認",
             f"以下の保存済み検索を削除しますか？\n\n名前: {search_name_to_delete}",
-            parent=self
+            parent=self,
         )
 
         if answer:
             try:
                 # 1. マネージャーの辞書から削除
                 if search_name_to_delete in self.search_manager.saved_searches:
-                    del self.search_manager.saved_searches[
-                        search_name_to_delete]
+                    del self.search_manager.saved_searches[search_name_to_delete]
                 else:
-                    messagebox.showerror("エラー", "削除対象が見つかりません。", parent=self)
+                    messagebox.showerror(
+                        "エラー", "削除対象が見つかりません。", parent=self
+                    )
                     return
 
                 # 2. JSONファイルへ保存
@@ -99,7 +96,9 @@ class ManageSearchesWindow(ctk.CTkToplevel):
                     # 4. このウィンドウのリストを再描画
                     self.populate_list()
             except Exception as e:
-                messagebox.showerror("削除エラー", f"削除に失敗しました:\n{e}", parent=self)
+                messagebox.showerror(
+                    "削除エラー", f"削除に失敗しました:\n{e}", parent=self
+                )
 
 
 # ==============================================================================
@@ -124,8 +123,7 @@ class SavedSearchManager:
 
         if self.saved_searches_path and self.saved_searches_path.is_file():
             try:
-                with open(
-                        self.saved_searches_path, 'r', encoding='utf-8') as f:
+                with open(self.saved_searches_path, "r", encoding="utf-8") as f:
                     self.saved_searches = json.load(f)
             except Exception as e:
                 logger.error(f"saved_searches.json の読み込みに失敗: {e}")
@@ -142,16 +140,21 @@ class SavedSearchManager:
         """
         if not self.saved_searches_path:
             messagebox.showerror(
-                "エラー", "保存先パス(saved_searches.json)が設定されていません。",
-                parent=self.parent_app)
+                "エラー",
+                "保存先パス(saved_searches.json)が設定されていません。",
+                parent=self.parent_app,
+            )
             return False
         try:
-            with open(self.saved_searches_path, 'w', encoding='utf-8') as f:
+            with open(self.saved_searches_path, "w", encoding="utf-8") as f:
                 json.dump(self.saved_searches, f, indent=4, ensure_ascii=False)
             return True
         except Exception as e:
             messagebox.showerror(
-                "保存エラー", f"検索内容の保存に失敗しました:\n{e}", parent=self.parent_app)
+                "保存エラー",
+                f"検索内容の保存に失敗しました:\n{e}",
+                parent=self.parent_app,
+            )
             return False
 
     def open_manage_searches_window(self):
@@ -218,7 +221,10 @@ class SavedSearchManager:
         current_query = self.parent_app.search_entry.get().strip()
         if not current_query:
             messagebox.showwarning(
-                "検索保存", "保存する検索クエリが入力されていません。", parent=self.parent_app)
+                "検索保存",
+                "保存する検索クエリが入力されていません。",
+                parent=self.parent_app,
+            )
             return
 
         dialog = ctk.CTkInputDialog(
@@ -240,4 +246,7 @@ class SavedSearchManager:
         if self._save_searches_to_json():
             self.update_saved_search_combo()
             messagebox.showinfo(
-                "保存完了", f"検索「{search_name}」を保存しました。", parent=self.parent_app)
+                "保存完了",
+                f"検索「{search_name}」を保存しました。",
+                parent=self.parent_app,
+            )

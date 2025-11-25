@@ -21,10 +21,10 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         self.tk_image = None
 
         # 表示制御パラメータ
-        self.base_scale = 1.0   # ウィンドウに合わせるための基本倍率
-        self.zoom_level = 1.0   # ユーザーによるズーム倍率
-        self.pan_x = 0          # パンによるオフセットX
-        self.pan_y = 0          # パンによるオフセットY
+        self.base_scale = 1.0  # ウィンドウに合わせるための基本倍率
+        self.zoom_level = 1.0  # ユーザーによるズーム倍率
+        self.pan_x = 0  # パンによるオフセットX
+        self.pan_y = 0  # パンによるオフセットY
         self.view_offset_x = 0  # 中央寄せのための基本オフセットX
         self.view_offset_y = 0  # 中央寄せのための基本オフセットY
 
@@ -33,10 +33,10 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
 
         # ドラッグ操作用
         self.drag_state = {
-            "item": None,       # 操作中のハンドルID (0-3:角, 4-7:辺)
-            "type": None,       # "corner" or "edge" or "pan"
-            "last_x": 0,        # 前回のマウスX (パン/移動用)
-            "last_y": 0         # 前回のマウスY
+            "item": None,  # 操作中のハンドルID (0-3:角, 4-7:辺)
+            "type": None,  # "corner" or "edge" or "pan"
+            "last_x": 0,  # 前回のマウスX (パン/移動用)
+            "last_y": 0,  # 前回のマウスY
         }
 
         # デザイン設定
@@ -71,36 +71,38 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         ctk.CTkLabel(
             self.toolbar,
             text="ホイール: ズーム | 右ドラッグ: 移動 | ■ハンドル: 辺移動(軸固定)",
-            font=("", 12), text_color="gray"
+            font=("", 12),
+            text_color="gray",
         ).pack(side="left", padx=15)
 
         self.btn_cancel = ctk.CTkButton(
-            self.toolbar, text="キャンセル", fg_color="gray", width=80,
-            command=self.destroy
+            self.toolbar,
+            text="キャンセル",
+            fg_color="gray",
+            width=80,
+            command=self.destroy,
         )
         self.btn_cancel.pack(side="left", padx=5)
 
         self.btn_reset = ctk.CTkButton(
-            self.toolbar, text="リセット (全体表示)", width=120,
-            command=self._reset_view_and_corners
+            self.toolbar,
+            text="リセット (全体表示)",
+            width=120,
+            command=self._reset_view_and_corners,
         )
         self.btn_reset.pack(side="left", padx=5)
 
         self.btn_save = ctk.CTkButton(
-            self.toolbar, text="変形して適用", width=120,
-            command=self._apply_and_save
+            self.toolbar, text="変形して適用", width=120, command=self._apply_and_save
         )
         self.btn_save.pack(side="right", padx=5)
 
         # キャンバス
         self.canvas_frame = ctk.CTkFrame(self)
-        self.canvas_frame.pack(
-            side="top", fill="both", expand=True, padx=10, pady=10
-        )
+        self.canvas_frame.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         self.canvas = tk.Canvas(
-            self.canvas_frame, bg="#333333",
-            highlightthickness=0, cursor="crosshair"
+            self.canvas_frame, bg="#333333", highlightthickness=0, cursor="crosshair"
         )
         self.canvas.pack(fill="both", expand=True)
 
@@ -118,9 +120,9 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         self.canvas.bind("<B2-Motion>", self._on_pan_drag)
 
         # ホイール: ズーム
-        self.canvas.bind("<MouseWheel>", self._on_wheel)        # Windows
-        self.canvas.bind("<Button-4>", self._on_wheel)          # Linux up
-        self.canvas.bind("<Button-5>", self._on_wheel)          # Linux down
+        self.canvas.bind("<MouseWheel>", self._on_wheel)  # Windows
+        self.canvas.bind("<Button-4>", self._on_wheel)  # Linux up
+        self.canvas.bind("<Button-5>", self._on_wheel)  # Linux down
 
         # リサイズ
         self.bind("<Configure>", self._on_resize)
@@ -189,15 +191,12 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         display_h = int(ih * self.current_scale)
 
         if display_w > 0 and display_h > 0:
-            if (
-                self.display_image is None
-                or self.display_image.size != (display_w, display_h)
+            if self.display_image is None or self.display_image.size != (
+                display_w,
+                display_h,
             ):
-                self.display_image = (
-                    self.original_image.resize(
-                        (display_w, display_h),
-                        Image.Resampling.BILINEAR
-                    )
+                self.display_image = self.original_image.resize(
+                    (display_w, display_h), Image.Resampling.BILINEAR
                 )
                 self.tk_image = ImageTk.PhotoImage(self.display_image)
 
@@ -235,9 +234,14 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         r = self.corner_radius
         for i, (cx, cy) in enumerate(c_pts_tuples):
             self.canvas.create_oval(
-                cx - r, cy - r, cx + r, cy + r,
-                fill="#00E5FF", outline="white", width=2,
-                tags=("ui", "handle", f"corner_{i}")
+                cx - r,
+                cy - r,
+                cx + r,
+                cy + r,
+                fill="#00E5FF",
+                outline="white",
+                width=2,
+                tags=("ui", "handle", f"corner_{i}"),
             )
 
         # --- エッジハンドル (■) ---
@@ -251,9 +255,14 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             my = (p1[1] + p2[1]) / 2
 
             self.canvas.create_rectangle(
-                mx - er, my - er, mx + er, my + er,
-                fill="#FF4081", outline="white", width=2,
-                tags=("ui", "handle", f"edge_{i}")
+                mx - er,
+                my - er,
+                mx + er,
+                my + er,
+                fill="#FF4081",
+                outline="white",
+                width=2,
+                tags=("ui", "handle", f"edge_{i}"),
             )
 
     # --- 操作イベントハンドラ ---
@@ -271,8 +280,8 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             imx, imy = self._canvas_to_img(event.x, event.y)
             self.zoom_level = new_zoom
             new_cx, new_cy = self._img_to_canvas(imx, imy)
-            self.pan_x += (event.x - new_cx)
-            self.pan_y += (event.y - new_cy)
+            self.pan_x += event.x - new_cx
+            self.pan_y += event.y - new_cy
             self.display_image = None
             self._redraw_all()
 
@@ -295,7 +304,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
     def _on_left_down(self, event):
         """左クリック: ハンドルを掴む"""
         items = self.canvas.find_overlapping(
-            event.x-8, event.y-8, event.x+8, event.y+8
+            event.x - 8, event.y - 8, event.x + 8, event.y + 8
         )
 
         target_type = None
@@ -377,22 +386,22 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
 
             # 範囲制限
             if n1x < 0:
-                dx_img += (0 - n1x)
+                dx_img += 0 - n1x
             if n1x > iw:
-                dx_img += (iw - n1x)
+                dx_img += iw - n1x
             if n2x < 0:
-                dx_img += (0 - n2x)
+                dx_img += 0 - n2x
             if n2x > iw:
-                dx_img += (iw - n2x)
+                dx_img += iw - n2x
 
             if n1y < 0:
-                dy_img += (0 - n1y)
+                dy_img += 0 - n1y
             if n1y > ih:
-                dy_img += (ih - n1y)
+                dy_img += ih - n1y
             if n2y < 0:
-                dy_img += (0 - n2y)
+                dy_img += 0 - n2y
             if n2y > ih:
-                dy_img += (ih - n2y)
+                dy_img += ih - n2y
 
             self.corners[p1_idx][0] += dx_img
             self.corners[p1_idx][1] += dy_img
@@ -425,8 +434,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             return
 
         resized = cropped.resize(
-            (self.magnifier_size, self.magnifier_size),
-            Image.Resampling.NEAREST
+            (self.magnifier_size, self.magnifier_size), Image.Resampling.NEAREST
         )
         self.magnifier_image_ref = ImageTk.PhotoImage(resized)
 
@@ -440,14 +448,17 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             mag_y = canvas_y - self.magnifier_size - offset
 
         self.canvas.create_rectangle(
-            mag_x, mag_y,
-            mag_x + self.magnifier_size, mag_y + self.magnifier_size,
-            outline="#00E5FF", width=3, fill="black", tags="magnifier"
+            mag_x,
+            mag_y,
+            mag_x + self.magnifier_size,
+            mag_y + self.magnifier_size,
+            outline="#00E5FF",
+            width=3,
+            fill="black",
+            tags="magnifier",
         )
         self.canvas.create_image(
-            mag_x, mag_y,
-            anchor="nw", image=self.magnifier_image_ref,
-            tags="magnifier"
+            mag_x, mag_y, anchor="nw", image=self.magnifier_image_ref, tags="magnifier"
         )
         cx = mag_x + self.magnifier_size / 2
         cy = mag_y + self.magnifier_size / 2
@@ -487,12 +498,15 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
         maxHeight = max(int(heightA), int(heightB))
 
-        dst = np.array([
-            [0, 0],
-            [maxWidth - 1, 0],
-            [maxWidth - 1, maxHeight - 1],
-            [0, maxHeight - 1]
-        ], dtype="float32")
+        dst = np.array(
+            [
+                [0, 0],
+                [maxWidth - 1, 0],
+                [maxWidth - 1, maxHeight - 1],
+                [0, maxHeight - 1],
+            ],
+            dtype="float32",
+        )
 
         matrix = self._get_perspective_transform_matrix(dst, pts)
 
@@ -503,19 +517,15 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         coeffs = matrix.flatten()[:8]
 
         return img.transform(
-            (maxWidth, maxHeight),
-            Image.PERSPECTIVE,
-            coeffs,
-            Image.Resampling.BICUBIC
+            (maxWidth, maxHeight), Image.PERSPECTIVE, coeffs, Image.Resampling.BICUBIC
         )
 
     def _get_perspective_transform_matrix(self, src, dst):
         matrix = []
         for (x, y), (X, Y) in zip(src, dst):
-            matrix.extend([
-                [x, y, 1, 0, 0, 0, -X * x, -X * y],
-                [0, 0, 0, x, y, 1, -Y * x, -Y * y]
-            ])
+            matrix.extend(
+                [[x, y, 1, 0, 0, 0, -X * x, -X * y], [0, 0, 0, x, y, 1, -Y * x, -Y * y]]
+            )
 
         A = np.array(matrix, dtype=float)
         B = np.array(dst, dtype=float).reshape(8)

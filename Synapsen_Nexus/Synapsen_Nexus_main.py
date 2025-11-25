@@ -14,10 +14,15 @@ import sqlite3
 import logging
 
 from utils import (
-    load_app_config, load_sql_data_file, open_pdf_viewer,
-    build_memo_display, build_references_display,
-    update_note_in_db, _update_note_links, delete_note_from_db,
-    get_pdf_page_image
+    load_app_config,
+    load_sql_data_file,
+    open_pdf_viewer,
+    build_memo_display,
+    build_references_display,
+    update_note_in_db,
+    _update_note_links,
+    delete_note_from_db,
+    get_pdf_page_image,
 )
 from search_parser import parse_or_expression
 
@@ -39,6 +44,7 @@ if str(root_dir) not in sys.path:
 
 try:
     from logging_setup import setup_logging
+
     # アプリ名を指定して初期化
     setup_logging("Synapsen_Normalisierer")
     logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
@@ -47,12 +53,14 @@ except ImportError:
     print("Warning: logging_setup.py not found. Logging disabled.")
 
     class MockLogger:
-        def info(self, msg): print(f"[INFO] {msg}")
+        def info(self, msg):
+            print(f"[INFO] {msg}")
 
         def error(self, msg, exc_info=None):
             print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
 
-        def warning(self, msg): print(f"[WARN] {msg}")
+        def warning(self, msg):
+            print(f"[WARN] {msg}")
 
     logger = MockLogger()
 # ==============================================================================
@@ -92,9 +100,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # フィルターパネルが開いているか
 
-        self.sort_ascending = True          # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        self.sort_ascending = (
+            True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        )
 
-        self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
+        self.selected_keys = set()  # 選択されたノートのKeyを保持するセット
 
         self._current_search_id = 0  # 検索リクエストのID
         self._search_lock = threading.Lock()
@@ -106,14 +116,14 @@ class Synapsen_Nexus(ctk.CTk):
         self.preview_image_object = None
 
         # --- オートコンプリート関連 ---
-        self.predefined_tags = []          # オートコンプリート用のタグリスト
-        self.all_unique_tags = []          # 全ノート + 事前定義の統合タグリスト
+        self.predefined_tags = []  # オートコンプリート用のタグリスト
+        self.all_unique_tags = []  # 全ノート + 事前定義の統合タグリスト
         self.include_all_tags_for_autocomplete = True
 
         self.selected_suggestion_index = -1
         self.current_suggestions = []
-        self.search_timer = None           # デバウンス（検索遅延）用タイマー
-        self.suggestion_timer = None       # オートコンプリート用タイマー
+        self.search_timer = None  # デバウンス（検索遅延）用タイマー
+        self.suggestion_timer = None  # オートコンプリート用タイマー
         self._last_suggestion_args = None  # 予測変換の引数(query, cursor_pos, match)
 
         self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
@@ -125,10 +135,9 @@ class Synapsen_Nexus(ctk.CTk):
         self.load_config()
 
         # ExportManagerの初期化 (config情報を渡す為 設定読み込み後)
-        self.exporter = ExportManager({
-            'key_icons': self.key_icons,
-            'key_colors': self.key_colors
-        })
+        self.exporter = ExportManager(
+            {"key_icons": self.key_icons, "key_colors": self.key_colors}
+        )
 
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
@@ -145,7 +154,7 @@ class Synapsen_Nexus(ctk.CTk):
         """
         try:
             self.unbind("<Map>")
-            self.state('zoomed')
+            self.state("zoomed")
             logger.debug("ウィンドウを最大化しました。")
         except Exception as e:
             logger.error(f"ウィンドウの最大化に失敗しました: {e}")
@@ -160,7 +169,7 @@ class Synapsen_Nexus(ctk.CTk):
                 backup_dir.mkdir(exist_ok=True)
 
                 # 日付付きファイル名でコピー (例: Synapsen_Master_20231027.db)
-                today = datetime.datetime.now().strftime('%Y%m%d')
+                today = datetime.datetime.now().strftime("%Y%m%d")
                 backup_path = backup_dir / f"{db_path.stem}_{today}.db"
 
                 # 常に上書きコピー
@@ -183,14 +192,14 @@ class Synapsen_Nexus(ctk.CTk):
         'synapsen.ico' のパスを返す。
         """
         try:
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # .exe実行の場合 (exeと同じフォルダがプロジェクトルート)
                 project_root = Path(sys.executable).parent
             else:
                 # .pyスクリプト実行の場合 (このファイルの親フォルダがプロジェクトルート)
                 project_root = Path(__file__).parent.parent
 
-            icon_path = project_root / 'assets' / 'synapsen.ico'
+            icon_path = project_root / "assets" / "synapsen.ico"
 
             if icon_path.is_file():
                 return icon_path
@@ -204,7 +213,7 @@ class Synapsen_Nexus(ctk.CTk):
         """
         try:
             # 実行ファイルのパスを基準にconfig.iniを探す
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # .exe実行の場合 (e.g., F:\Synapsen\dist)
                 # self.base_path は .exe と同じ場所
                 self.base_path = Path(sys.executable).parent
@@ -217,24 +226,21 @@ class Synapsen_Nexus(ctk.CTk):
             config_data = load_app_config(self.base_path)
 
             # 読み込んだ設定をクラス属性にセット
-            self.pdf_root_folder = config_data.get('pdf_root_folder', Path(''))
-            self.pdf_archive_folder = config_data.get(
-                'pdf_archive_folder',
-                None
-            )
+            self.pdf_root_folder = config_data.get("pdf_root_folder", Path(""))
+            self.pdf_archive_folder = config_data.get("pdf_archive_folder", None)
             self.nexus_output_folder = config_data.get(
-                'nexus_output_folder', Path('Nexus_Output')
+                "nexus_output_folder", Path("Nexus_Output")
             )
-            self.browser_path = config_data.get('browser_path', None)
-            self.key_icons = config_data.get('key_icons', {})
-            self.key_colors = config_data.get('key_colors', {})
+            self.browser_path = config_data.get("browser_path", None)
+            self.key_icons = config_data.get("key_icons", {})
+            self.key_colors = config_data.get("key_colors", {})
             self.commonplace_keys_options = config_data.get(
-                'commonplace_keys_options', []
-                )
-            self.predefined_tags = config_data.get('predefined_tags', [])
+                "commonplace_keys_options", []
+            )
+            self.predefined_tags = config_data.get("predefined_tags", [])
 
             self.include_all_tags_for_autocomplete = config_data.get(
-                'include_all_tags_for_autocomplete', True
+                "include_all_tags_for_autocomplete", True
             )
 
             # フィルターチェックボックスをUIに反映
@@ -243,7 +249,7 @@ class Synapsen_Nexus(ctk.CTk):
             # 検索マネージャの読み込み
             try:
                 # search_manager は config.ini と同じ場所(root) のパスを必要とする
-                if getattr(sys, 'frozen', False):
+                if getattr(sys, "frozen", False):
                     # .exe の場合、self.base_path (e.g., dist/) が root
                     root_path = self.base_path
                 else:
@@ -255,19 +261,23 @@ class Synapsen_Nexus(ctk.CTk):
                 logger.error(f"保存済み検索の読み込みエラー: {e}")
 
             # デフォルトDBが設定されていれば自動で読み込む
-            default_db_path = config_data.get('database_path')
+            default_db_path = config_data.get("database_path")
             if default_db_path and default_db_path.is_file():
                 self.load_db_from_path(default_db_path)
             else:
                 if default_db_path:
-                    logger.warning(f"デフォルトデータベースが見つかりません: {default_db_path}")
+                    logger.warning(
+                        f"デフォルトデータベースが見つかりません: {default_db_path}"
+                    )
                 self.perform_search()  # 空の状態で検索を実行
 
         except FileNotFoundError as e:
             messagebox.showerror("設定エラー", str(e))
             self.destroy()
         except Exception as e:
-            messagebox.showerror("設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}")
+            messagebox.showerror(
+                "設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}"
+            )
             self.destroy()
 
     def refresh_unique_tags(self):
@@ -280,17 +290,14 @@ class Synapsen_Nexus(ctk.CTk):
 
         # ★変更: 設定が True の場合のみ、全ノートのタグをスキャンして追加
         if self.include_all_tags_for_autocomplete:
-            if (
-                self.df is not None
-                and not self.df.empty
-                and 'tags' in self.df.columns
-            ):
-                valid_tags_series = self.df['tags'].dropna()
+            if self.df is not None and not self.df.empty and "tags" in self.df.columns:
+                valid_tags_series = self.df["tags"].dropna()
                 valid_tags_series = valid_tags_series[valid_tags_series != ""]
 
                 for tags_str in valid_tags_series:
                     current_note_tags = [
-                        t.strip() for t in tags_str.split(';') if t.strip()]
+                        t.strip() for t in tags_str.split(";") if t.strip()
+                    ]
                     tags_set.update(current_note_tags)
 
         # 3. ソートしてリスト化
@@ -321,18 +328,12 @@ class Synapsen_Nexus(ctk.CTk):
 
         # "DBを開く" ボタン
         ctk.CTkButton(
-            left_basic_frame,
-            text="DB",
-            command=self.load_database_dialog,
-            width=50
+            left_basic_frame, text="DB", command=self.load_database_dialog, width=50
         ).pack(side="left", padx=(0, 5))
 
         # 検索ヘルプボタン
         ctk.CTkButton(
-            left_basic_frame,
-            text="？",
-            command=self.show_search_help,
-            width=30
+            left_basic_frame, text="？", command=self.show_search_help, width=30
         ).pack(side="left", padx=0)
 
         # --- [右側] スマート検索 (検索保存, 呼び出し) ---
@@ -344,7 +345,7 @@ class Synapsen_Nexus(ctk.CTk):
             smart_search_frame,
             text="検索保存",
             command=self.search_manager.save_current_search,
-            width=80
+            width=80,
         )
         self.save_search_button.pack(side="left", padx=(0, 5))
 
@@ -353,7 +354,7 @@ class Synapsen_Nexus(ctk.CTk):
             smart_search_frame,
             values=["保存済み検索..."],
             width=150,
-            command=self.search_manager.on_saved_search_selected
+            command=self.search_manager.on_saved_search_selected,
         )
         self.saved_search_combo.pack(side="left", padx=0)
         self.saved_search_combo.set("保存済み検索...")
@@ -365,9 +366,9 @@ class Synapsen_Nexus(ctk.CTk):
         self.search_entry = ctk.CTkEntry(
             search_container,
             placeholder_text=(
-                "検索 (例: (date:>=20240101 AND date:<=20240131) AND" +
-                " (tag:Python OR tag:C#))"
-            )
+                "検索 (例: (date:>=20240101 AND date:<=20240131) AND"
+                + " (tag:Python OR tag:C#))"
+            ),
         )
         self.search_entry.pack(fill="x", expand=True)
 
@@ -396,14 +397,12 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.toggle_sort_order,
             width=90,
             fg_color="#585a9c",
-            hover_color="#494B83"
+            hover_color="#494B83",
         )
         self.sort_button.pack(side="left", padx=(0, 5))
 
         # 本文・メモ検索(FTS)
-        self.fts_checkbox = ctk.CTkCheckBox(
-            view_tools_frame, text="本文・メモ検索"
-        )
+        self.fts_checkbox = ctk.CTkCheckBox(view_tools_frame, text="本文・メモ検索")
         self.fts_checkbox.pack(side="left", padx=(0, 10))
         self.fts_checkbox.configure(command=self._trigger_search_now)
 
@@ -413,7 +412,7 @@ class Synapsen_Nexus(ctk.CTk):
             text="選択: 0",
             font=("", 12, "bold"),
             text_color="gray",
-            width=60
+            width=60,
         )
         self.selection_info_label.pack(side="left", padx=(0, 5))
 
@@ -424,16 +423,12 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.clear_selection,
             width=30,
             fg_color="#6C757D",
-            hover_color="#5A6268"
+            hover_color="#5A6268",
         )
         self.clear_selection_button.pack(side="left", padx=0)
 
         # 分区切り線（視覚的な区切り）
-        ctk.CTkLabel(
-            row2_frame,
-            text="|",
-            text_color="gray"
-        ).pack(side="left", padx=5)
+        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
 
         # --- [中央～右] アクション系 ---
         action_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
@@ -448,7 +443,7 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.handle_graph_menu,
             width=130,
             fg_color="#585a9c",
-            button_color="#494B83"
+            button_color="#494B83",
         )
         self.graph_menu.pack(side="left", padx=(0, 5))
 
@@ -460,7 +455,7 @@ class Synapsen_Nexus(ctk.CTk):
             width=90,
             fg_color="#28a745",
             hover_color="#218838",
-            state="disabled"
+            state="disabled",
         )
         self.copy_links_button.pack(side="left", padx=(0, 5))
 
@@ -473,21 +468,17 @@ class Synapsen_Nexus(ctk.CTk):
                 "データ (CSV/TXT)",
                 "統合PDF (Merge)",
                 "全て (Data + PDF)",
-                "MOC (Markdown)"
+                "MOC (Markdown)",
             ],
             command=self.handle_export_menu,
             width=130,
             fg_color="#17a2b8",
-            button_color="#138496"
+            button_color="#138496",
         )
         self.export_menu.pack(side="left", padx=(0, 5))
 
         # 分区切り線
-        ctk.CTkLabel(
-            row2_frame,
-            text="|",
-            text_color="gray"
-        ).pack(side="left", padx=5)
+        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
 
         # --- [右側] ツール系 ---
         extra_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
@@ -500,7 +491,7 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.show_random_note,
             width=70,
             fg_color="#585a9c",
-            hover_color="#494B83"
+            hover_color="#494B83",
         )
         self.random_note_button.pack(side="left", padx=(0, 5))
 
@@ -511,7 +502,7 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.open_canvas,
             width=80,
             fg_color="#e0a800",
-            hover_color="#c69500"
+            hover_color="#c69500",
         )
         self.canvas_button.pack(side="left", padx=0)
 
@@ -533,89 +524,77 @@ class Synapsen_Nexus(ctk.CTk):
         filter_container.grid(row=0, column=0, sticky="ew")
         filter_container.grid_columnconfigure(1, weight=1)
         self.toggle_filter_button = ctk.CTkButton(
-            filter_container, text="", command=self.toggle_filter_panel,
-            width=20
+            filter_container, text="", command=self.toggle_filter_panel, width=20
         )
         self.toggle_filter_button.grid(row=0, column=0, padx=5, pady=5)
 
         # フィルター非表示時に選択中アイコンを表示するフレーム
         self.collapsed_icons_frame = ctk.CTkFrame(
             filter_container, fg_color="transparent"
-            )
-        self.collapsed_icons_frame.grid(
-            row=0, column=1, padx=5, pady=5, sticky="w"
-            )
+        )
+        self.collapsed_icons_frame.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         # IndexKeyフィルターのスクロールフレーム (初期非表示)
-        self.key_filter_frame = ctk.CTkScrollableFrame(
-            self.left_panel, label_text=""
-            )
-        self.key_filter_frame.grid(
-            row=1, column=0, padx=0, pady=(0, 5), sticky="nsew"
-            )
+        self.key_filter_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="")
+        self.key_filter_frame.grid(row=1, column=0, padx=0, pady=(0, 5), sticky="nsew")
 
         # 検索結果リスト
         self.results_list = ctk.CTkScrollableFrame(
             self.left_panel, label_text="ノート一覧"
-            )
+        )
         self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
 
         # --- 右パネル (詳細・プレビュー) ---
         self.details_frame = ctk.CTkFrame(self)
-        self.details_frame.grid(
-            row=1, column=1, padx=(0, 10), pady=10, sticky="nsew"
-            )
+        self.details_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
 
         # グリッドの行設定 (プレビュー領域、メモ、引用元のために変更)
         self.details_frame.grid_rowconfigure(5, weight=1)  # PDFプレビュー (row 5)
         self.details_frame.grid_rowconfigure(7, weight=2)  # メモスクロール領域 (row 7)
-        self.details_frame.grid_rowconfigure(9, weight=1)  # 引用元スクロール領域 (row 9)
+        self.details_frame.grid_rowconfigure(
+            9, weight=1
+        )  # 引用元スクロール領域 (row 9)
         self.details_frame.grid_columnconfigure(1, weight=1)
 
         # 1. タイトル (row=0)
-        ctk.CTkLabel(
-            self.details_frame, text="タイトル:", anchor="w"
-            ).grid(row=0, column=0, padx=10, pady=5, sticky="w")
+        ctk.CTkLabel(self.details_frame, text="タイトル:", anchor="w").grid(
+            row=0, column=0, padx=10, pady=5, sticky="w"
+        )
         self.title_label = ctk.CTkLabel(
-            self.details_frame, text="",
-            wraplength=300, justify="left", anchor="w"
-            )
+            self.details_frame, text="", wraplength=300, justify="left", anchor="w"
+        )
         self.title_label.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
 
         # 2. キー (row=1)
-        ctk.CTkLabel(
-            self.details_frame, text="キー:", anchor="w"
-            ).grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        ctk.CTkLabel(self.details_frame, text="キー:", anchor="w").grid(
+            row=1, column=0, padx=10, pady=5, sticky="w"
+        )
         self.key_label = ctk.CTkLabel(self.details_frame, text="", anchor="w")
         self.key_label.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
         # 3. インデックス キー (row=2)
-        ctk.CTkLabel(
-            self.details_frame, text="インデックス キー:", anchor="w"
-            ).grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.cpkey_label = ctk.CTkLabel(
-            self.details_frame, text="", anchor="w"
-            )
+        ctk.CTkLabel(self.details_frame, text="インデックス キー:", anchor="w").grid(
+            row=2, column=0, padx=10, pady=5, sticky="w"
+        )
+        self.cpkey_label = ctk.CTkLabel(self.details_frame, text="", anchor="w")
         self.cpkey_label.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
         # 4. タグ (row=3)
-        ctk.CTkLabel(
-            self.details_frame, text="タグ:", anchor="w"
-            ).grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        ctk.CTkLabel(self.details_frame, text="タグ:", anchor="w").grid(
+            row=3, column=0, padx=10, pady=5, sticky="w"
+        )
         self.tags_label = ctk.CTkLabel(
-            self.details_frame, text="",
-            wraplength=300, justify="left", anchor="w"
-            )
+            self.details_frame, text="", wraplength=300, justify="left", anchor="w"
+        )
         self.tags_label.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
 
         # 5. 概要 (Summary)
-        ctk.CTkLabel(
-            self.details_frame, text="概要:", anchor="w"
-            ).grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        ctk.CTkLabel(self.details_frame, text="概要:", anchor="w").grid(
+            row=4, column=0, padx=10, pady=5, sticky="w"
+        )
         self.summary_label = ctk.CTkLabel(
-            self.details_frame, text="",
-            wraplength=400, justify="left", anchor="w"
-            )
+            self.details_frame, text="", wraplength=400, justify="left", anchor="w"
+        )
         self.summary_label.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
         # 6. PDFプレビュー (row=5)
@@ -624,39 +603,38 @@ class Synapsen_Nexus(ctk.CTk):
             text="ノートを選択するとプレビューが表示されます",
             fg_color="gray20",  # プレースホルダーの背景色
             anchor="center",
-            text_color="gray70"  # プレースホルダーの文字色
+            text_color="gray70",  # プレースホルダーの文字色
         )
         self.pdf_preview_label.grid(
             row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
         )
 
         # 7. メモ (ラベル) (row=6)
-        ctk.CTkLabel(
-            self.details_frame, text="メモ:", anchor="w"
-            ).grid(row=6, column=0, padx=10, pady=5, sticky="nw")
+        ctk.CTkLabel(self.details_frame, text="メモ:", anchor="w").grid(
+            row=6, column=0, padx=10, pady=5, sticky="nw"
+        )
 
         # 8. メモ (スクロールフレーム) (row=7)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame)
-        self.memo_display_frame.grid(
-            row=7, column=1, padx=10, pady=4, sticky="nsew"
-            )
+        self.memo_display_frame.grid(row=7, column=1, padx=10, pady=4, sticky="nsew")
 
         # 9. 引用元 (ラベル) (row=8)
-        ctk.CTkLabel(
-            self.details_frame, text="引用元:", anchor="w"
-            ).grid(row=8, column=0, padx=10, pady=4, sticky="nw")
+        ctk.CTkLabel(self.details_frame, text="引用元:", anchor="w").grid(
+            row=8, column=0, padx=10, pady=4, sticky="nw"
+        )
 
         # 10. 引用元 (スクロールフレーム) (row=9)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.details_frame, label_text="このノートを引用しているノート"
-            )
+        )
         self.references_display_frame.grid(
             row=9, column=1, padx=10, pady=5, sticky="nsew"
-            )
+        )
 
         # 11. 編集ボタンのフレーム (row=10)
         self.edit_button_frame = ctk.CTkFrame(
-            self.details_frame, fg_color="transparent")
+            self.details_frame, fg_color="transparent"
+        )
         self.edit_button_frame.grid(row=10, column=0, columnspan=2, pady=10)
 
         # 詳細プレビューボタン
@@ -666,7 +644,7 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.open_current_note_in_preview,
             state="disabled",
             fg_color="#00695C",
-            hover_color="#004D40"
+            hover_color="#004D40",
         )
         self.open_preview_button.pack(side="left", padx=10)
 
@@ -674,7 +652,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.edit_button_frame,
             text="このノートを編集",
             command=self.open_edit_dialog,
-            state="disabled"
+            state="disabled",
         )
         self.edit_button.pack(side="left", padx=10)
 
@@ -684,7 +662,7 @@ class Synapsen_Nexus(ctk.CTk):
             command=self.confirm_delete_note,
             fg_color="#D9534F",
             hover_color="#C9302C",
-            state="disabled"
+            state="disabled",
         )
         self.delete_button.pack(side="left", padx=10)
 
@@ -749,9 +727,14 @@ class Synapsen_Nexus(ctk.CTk):
 
         # ナビゲーションキーのリスト
         navigation_keys = (
-            "Return", "Escape",
-            "Left", "Up", "Down", "Right",
-            "Home", "End"
+            "Return",
+            "Escape",
+            "Left",
+            "Up",
+            "Down",
+            "Right",
+            "Home",
+            "End",
         )
 
         if event.keysym in navigation_keys:
@@ -784,8 +767,7 @@ class Synapsen_Nexus(ctk.CTk):
             # 前方一致検索# 'tag:Py' のように入力中の場合は、前方一致検索
             last_word_lower = last_tag_word.lower()
             suggestions = [
-                tag for tag in target_list
-                if tag.lower().startswith(last_word_lower)
+                tag for tag in target_list if tag.lower().startswith(last_word_lower)
             ]
 
         # 上下キーでの移動 (navigate_suggestions) のために引数を保存
@@ -811,22 +793,24 @@ class Synapsen_Nexus(ctk.CTk):
                 fg_color = "transparent"
 
             btn = ctk.CTkButton(
-                self.autocomplete_frame, text=suggestion, fg_color=fg_color,
+                self.autocomplete_frame,
+                text=suggestion,
+                fg_color=fg_color,
                 text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
                 anchor="w",
                 # select_suggestion に必要な情報をラムダで渡す
                 command=lambda s=suggestion: self.select_suggestion(
                     s, query, cursor_pos, match_value
-                )
+                ),
             )
             btn.pack(fill="x", padx=5, pady=2)
 
         # 検索バーの真下に配置 (元のコード)
         x = self.search_entry.winfo_rootx() - self.winfo_rootx()
         y = (
-            self.search_entry.winfo_rooty() -
-            self.winfo_rooty() +
-            self.search_entry.winfo_height()
+            self.search_entry.winfo_rooty()
+            - self.winfo_rooty()
+            + self.search_entry.winfo_height()
         )
         width = self.search_entry.winfo_width()
         height = min(200, len(suggestions) * 35)
@@ -845,7 +829,7 @@ class Synapsen_Nexus(ctk.CTk):
             # 'tag:Py' のように入力中の場合
             # (group 2 が 'Py' の部分)
             # 'tag:' の直前までを取得
-            prefix_part = query[:match_value.start(2)]
+            prefix_part = query[: match_value.start(2)]
         else:
             # 'tag:' と入力した直後の場合 (match_value は None)
             # カーソル位置までをそのまま使用
@@ -877,19 +861,22 @@ class Synapsen_Nexus(ctk.CTk):
 
     def navigate_suggestions(self, event):
         """キーボードの上下矢印キーで候補リストを移動する。"""
-        if (not self.autocomplete_frame.winfo_ismapped() or
-                not self.current_suggestions or
-                self._last_suggestion_args is None):
+        if (
+            not self.autocomplete_frame.winfo_ismapped()
+            or not self.current_suggestions
+            or self._last_suggestion_args is None
+        ):
             return
 
         num_suggestions = len(self.current_suggestions)
         if event.keysym == "Down":
             self.selected_suggestion_index = (
-                self.selected_suggestion_index + 1) % num_suggestions
+                self.selected_suggestion_index + 1
+            ) % num_suggestions
         elif event.keysym == "Up":
             self.selected_suggestion_index = (
                 self.selected_suggestion_index - 1 + num_suggestions
-                ) % num_suggestions
+            ) % num_suggestions
 
         # 選択項目がリストに表示されるようにスクロール
         self.autocomplete_frame._parent_canvas.yview_moveto(
@@ -898,23 +885,25 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 選択ハイライトを更新 (保存しておいた引数を使う)
         query, cursor_pos, match_value = self._last_suggestion_args
-        self.show_autocomplete(
-            self.current_suggestions, query, cursor_pos, match_value
-        )
+        self.show_autocomplete(self.current_suggestions, query, cursor_pos, match_value)
         return "break"  # 他のキーバインドを抑制
 
     def confirm_suggestion(self, event):
         """Enterキーで選択中の候補を確定する。"""
-        if (self.autocomplete_frame.winfo_ismapped() and
-                self.selected_suggestion_index != -1 and
-                self._last_suggestion_args is not None):
+        if (
+            self.autocomplete_frame.winfo_ismapped()
+            and self.selected_suggestion_index != -1
+            and self._last_suggestion_args is not None
+        ):
 
             # 保存しておいた引数を取得
             query, cursor_pos, match_value = self._last_suggestion_args
             # select_suggestion を呼び出す
             self.select_suggestion(
                 self.current_suggestions[self.selected_suggestion_index],
-                query, cursor_pos, match_value
+                query,
+                cursor_pos,
+                match_value,
             )
             return "break"  # 検索が二重に実行されるのを防ぐ
 
@@ -951,21 +940,23 @@ class Synapsen_Nexus(ctk.CTk):
                 # 選択されている IndexKey をリストアップ
                 selected_keys = []
                 for key, var in self.filter_checkboxes.items():
-                    if var.get() == '1':
+                    if var.get() == "1":
                         selected_keys.append(key)
 
             if not selected_keys:
-                ctk.CTkLabel(
-                    self.collapsed_icons_frame, text="", font=("", 16)
-                ).pack(side="left")
+                ctk.CTkLabel(self.collapsed_icons_frame, text="", font=("", 16)).pack(
+                    side="left"
+                )
             else:
                 for key in selected_keys:
-                    icon = self.key_icons.get(key.lower(), '•')
-                    color = self.key_colors.get(key.lower(), 'gray')
+                    icon = self.key_icons.get(key.lower(), "•")
+                    color = self.key_colors.get(key.lower(), "gray")
                     icon_label = ctk.CTkLabel(
-                        self.collapsed_icons_frame, text=icon,
-                        text_color=color, font=("", 16)
-                        )
+                        self.collapsed_icons_frame,
+                        text=icon,
+                        text_color=color,
+                        font=("", 16),
+                    )
                     icon_label.pack(side="left", padx=2)
 
     # --- データ読み込み・検索実行メソッド ---
@@ -973,7 +964,7 @@ class Synapsen_Nexus(ctk.CTk):
         """「目次データベースを開く」ボタンの動作。ファイルダイアログを開く。"""
         filepath = filedialog.askopenfilename(
             title="目次データベースファイルを選択",
-            filetypes=[("SQLite Database", "*.db"), ("All files", "*.*")]
+            filetypes=[("SQLite Database", "*.db"), ("All files", "*.*")],
         )
         if not filepath:
             return
@@ -1000,8 +991,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.loaded_db_path = filepath
 
             # 読み取り専用のDB接続を保持 (メインのUI用)
-            self.db_conn = sqlite3.connect(
-                f"file:{filepath}?mode=ro", uri=True)
+            self.db_conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
 
             # --- 2. テーブル構造の確認 (書き込み接続) ---
             # アプリ起動時/DB読込時に note_links テーブルが存在するか確認し、なければ作成
@@ -1011,18 +1001,22 @@ class Synapsen_Nexus(ctk.CTk):
                 cursor = conn_write.cursor()
 
                 # リンクテーブルの作成
-                cursor.execute("""
+                cursor.execute(
+                    """
                 CREATE TABLE IF NOT EXISTS note_links (
                     source_key TEXT NOT NULL,
                     target_key TEXT NOT NULL,
                     PRIMARY KEY (source_key, target_key)
                 )
-                """)
+                """
+                )
                 # 引用元検索(target_key)を高速化するインデックス
-                cursor.execute("""
+                cursor.execute(
+                    """
                 CREATE INDEX IF NOT EXISTS idx_target_key
                     ON note_links (target_key)
-                """)
+                """
+                )
                 conn_write.commit()
                 logger.info("'note_links' テーブルの存在を確認・作成しました。")
 
@@ -1041,7 +1035,7 @@ class Synapsen_Nexus(ctk.CTk):
             # 変更したノートを再表示するロジック
             if key_to_redisplay and self.df is not None:
                 # key_to_redisplay を使って、更新後のdfから行を検索
-                target_note_row = self.df[self.df['key'] == key_to_redisplay]
+                target_note_row = self.df[self.df["key"] == key_to_redisplay]
 
                 if not target_note_row.empty:
                     # 編集したノートが見つかったら、詳細を再表示
@@ -1059,13 +1053,10 @@ class Synapsen_Nexus(ctk.CTk):
         except sqlite3.OperationalError as e:
             messagebox.showerror(
                 "データベース読み込みエラー",
-                f"DB接続に失敗しました (読み取り専用モード): {e}"
+                f"DB接続に失敗しました (読み取り専用モード): {e}",
             )
         except Exception as e:
-            messagebox.showerror(
-                "データベース読み込みエラー",
-                str(e)
-            )
+            messagebox.showerror("データベース読み込みエラー", str(e))
 
     def populate_key_filters(self):
         for widget in self.key_filter_frame.winfo_children():
@@ -1073,25 +1064,25 @@ class Synapsen_Nexus(ctk.CTk):
         self.filter_checkboxes.clear()
 
         for key in self.commonplace_keys_options:
-            var = ctk.StringVar(value='0')
-            row_frame = ctk.CTkFrame(
-                self.key_filter_frame, fg_color="transparent"
-                )
+            var = ctk.StringVar(value="0")
+            row_frame = ctk.CTkFrame(self.key_filter_frame, fg_color="transparent")
             row_frame.pack(anchor="w", padx=10, pady=2, fill="x")
 
-            icon = self.key_icons.get(key.lower(), '•')
-            color = self.key_colors.get(key.lower(), 'gray')
+            icon = self.key_icons.get(key.lower(), "•")
+            color = self.key_colors.get(key.lower(), "gray")
 
             icon_label = ctk.CTkLabel(
-                row_frame, text=icon, text_color=color,
-                font=("", 16), width=20
-                )
+                row_frame, text=icon, text_color=color, font=("", 16), width=20
+            )
             icon_label.pack(side="left")
 
             cb = ctk.CTkCheckBox(
-                row_frame, text=key, variable=var,
-                onvalue='1', offvalue='0',
-                command=self._trigger_search_now  # チェック時に検索を再実行
+                row_frame,
+                text=key,
+                variable=var,
+                onvalue="1",
+                offvalue="0",
+                command=self._trigger_search_now,  # チェック時に検索を再実行
             )
             cb.pack(side="left", expand=True, fill="x")
 
@@ -1115,7 +1106,7 @@ class Synapsen_Nexus(ctk.CTk):
         # IndexKey フィルターの状態取得
         selected_filter_keys = []
         for key, var in self.filter_checkboxes.items():
-            if var.get() == '1':
+            if var.get() == "1":
                 selected_filter_keys.append(key)
 
         # 2. 検索IDを更新
@@ -1125,8 +1116,7 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 3. UIの更新: 検索中表示
         self.results_list.configure(
-            label_text="検索結果 (検索中...)",
-            label_text_color="#E0a800"  # オレンジ色
+            label_text="検索結果 (検索中...)", label_text_color="#E0a800"  # オレンジ色
         )
 
         # マウスカーソルを待機状態に
@@ -1137,22 +1127,24 @@ class Synapsen_Nexus(ctk.CTk):
             target=self._execute_search_worker,
             args=(
                 search_id,
-                query_text, include_full_text,
+                query_text,
+                include_full_text,
                 selected_filter_keys,
                 self.loaded_db_path,
-                current_ascending
+                current_ascending,
             ),
-            daemon=True
+            daemon=True,
         )
         thread.start()
 
     def _execute_search_worker(
-            self,
-            search_id,
-            query_text, include_full_text,
-            selected_filter_keys,
-            db_path,
-            ascending_flag
+        self,
+        search_id,
+        query_text,
+        include_full_text,
+        selected_filter_keys,
+        db_path,
+        ascending_flag,
     ):
         """
         バックグラウンドスレッドで実行される検索ロジック。
@@ -1169,13 +1161,9 @@ class Synapsen_Nexus(ctk.CTk):
             base_df = self.df
 
             # (B) --- 1. IndexKey フィルター (Pandas) ---
-            key_filter_mask = (
-                pd.Series([True] * len(base_df), index=base_df.index)
-            )
+            key_filter_mask = pd.Series([True] * len(base_df), index=base_df.index)
             if selected_filter_keys:
-                key_filter_mask = (
-                    base_df['commonplace_key'].isin(selected_filter_keys)
-                )
+                key_filter_mask = base_df["commonplace_key"].isin(selected_filter_keys)
 
             # (C) FTS用のDB接続(conn)準備
             conn = None
@@ -1186,18 +1174,19 @@ class Synapsen_Nexus(ctk.CTk):
                 # is:orphan をクエリから除去して、他の検索語(もしあれば)と併用できるようにする
                 # (例: "is:orphan tag:Python" -> Pythonタグを持つ孤立ノート)
                 query_text = re.sub(
-                    r"is:orphan", "", query_text, flags=re.IGNORECASE).strip()
+                    r"is:orphan", "", query_text, flags=re.IGNORECASE
+                ).strip()
 
             # '本文・メモ検索' (include_full_text) が有効 又は
             # 'memo:'/'fulltext:'/'text:' プレフィックスがクエリに含まれる場合に
             # DB接続(conn)を準備する
             query_lower = query_text.lower()
             needs_db_search = (
-                include_full_text or
-                'memo:' in query_lower or
-                'fulltext:' in query_lower or
-                'text:' in query_lower or
-                is_orphan_search
+                include_full_text
+                or "memo:" in query_lower
+                or "fulltext:" in query_lower
+                or "text:" in query_lower
+                or is_orphan_search
             )
 
             if needs_db_search:  # クエリが空でもorphan検索なら接続する
@@ -1217,9 +1206,7 @@ class Synapsen_Nexus(ctk.CTk):
                     )
                 except Exception as e:
                     logger.error(f"検索クエリ解析エラー: {e}")
-                    query_mask = (
-                        pd.Series([False] * len(base_df), index=base_df.index)
-                    )
+                    query_mask = pd.Series([False] * len(base_df), index=base_df.index)
 
             # (E) --- 孤立ノートフィルタリング ---
             orphan_mask = pd.Series([True] * len(base_df), index=base_df.index)
@@ -1228,21 +1215,22 @@ class Synapsen_Nexus(ctk.CTk):
                 try:
                     # リンクテーブルにある全ての source_key と target_key を取得
                     cursor = conn.cursor()
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                         SELECT source_key FROM note_links
                         UNION
                         SELECT target_key FROM note_links
-                    """)
+                    """
+                    )
                     linked_keys = {row[0] for row in cursor.fetchall()}
 
                     # リンクされているキーに含まれ「ない」ものを True にする
-                    orphan_mask = ~base_df['key'].isin(linked_keys)
+                    orphan_mask = ~base_df["key"].isin(linked_keys)
 
                 except Exception as e:
                     logger.error(f"孤立ノート検索エラー: {e}")
                     # エラー時は全除外等の安全策をとるか、無視して続行するか
-                    orphan_mask = pd.Series(
-                        [False] * len(base_df), index=base_df.index)
+                    orphan_mask = pd.Series([False] * len(base_df), index=base_df.index)
 
             # --- 3. クリーンアップ ---
             if conn:
@@ -1255,18 +1243,15 @@ class Synapsen_Nexus(ctk.CTk):
             if not filtered_df.empty:
                 # 受け取った ascending_flag を使用してソート
                 filtered_df = filtered_df.sort_values(
-                    by='key',
-                    ascending=ascending_flag
+                    by="key", ascending=ascending_flag
                 )
 
             # --- 5. メインスレッドに結果を渡す ---
-            self.after(
-                0, lambda: self._on_search_complete(search_id, filtered_df))
+            self.after(0, lambda: self._on_search_complete(search_id, filtered_df))
 
         except Exception as e:
             logger.error(f"検索スレッドエラー: {e}", exc_info=True)
-            self.after(
-                0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
+            self.after(0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
 
     def _on_search_complete(self, search_id, result_df):
         """
@@ -1289,9 +1274,7 @@ class Synapsen_Nexus(ctk.CTk):
         self.update_results_list(result_df)
         self.update_collapsed_filter_view()
 
-        self.results_list.configure(
-            label_text_color=("gray10", "#DCE4EE")
-        )
+        self.results_list.configure(label_text_color=("gray10", "#DCE4EE"))
 
         # デバッグ用出力
         logger.debug(f"検索完了 (ID: {search_id}): {len(result_df)} 件ヒット")
@@ -1343,11 +1326,11 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 正規表現: 'tag:' (または 'tags:') の後に文字を入力中か
         # (大文字小文字を無視, ^|\s|\( は行頭/空白/括弧の意)
-        tag_value_pattern = r'(?i)(^|\s|\()tags?:([^\s\)]*)$'
+        tag_value_pattern = r"(?i)(^|\s|\()tags?:([^\s\)]*)$"
         match_value = re.search(tag_value_pattern, query_to_cursor)
 
         # 正規表現: 'tag:' (または 'tags:') を入力した直後か
-        tag_prefix_pattern = r'(?i)(^|\s|\()tags?:\s*$'
+        tag_prefix_pattern = r"(?i)(^|\s|\()tags?:\s*$"
         match_prefix = re.search(tag_prefix_pattern, query_to_cursor)
 
         if match_prefix or match_value:
@@ -1355,8 +1338,9 @@ class Synapsen_Nexus(ctk.CTk):
             # update_suggestions に必要な情報を渡す
             self.suggestion_timer = self.after(
                 200,
-                lambda q=query, c=cursor_pos, m=match_value:
-                    self.update_suggestions(q, c, m)
+                lambda q=query, c=cursor_pos, m=match_value: self.update_suggestions(
+                    q, c, m
+                ),
             )
         else:
             # 'tag:' 以外が入力されている場合は、予測変換を即座に隠す
@@ -1372,10 +1356,7 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 1. 使用するDataFrameを選択
         target_df = None
-        if (
-                self.filtered_df_cache is not None and
-                not self.filtered_df_cache.empty
-        ):
+        if self.filtered_df_cache is not None and not self.filtered_df_cache.empty:
             # 現在の検索結果キャッシュが存在すれば、それを使用
             target_df = self.filtered_df_cache
         elif self.df is not None and not self.df.empty:
@@ -1387,7 +1368,7 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showinfo(
                 "ランダムノート",
                 "表示できるノートがありません。\nデータベースを読み込んでいるか確認してください。",
-                parent=self
+                parent=self,
             )
             return
 
@@ -1403,14 +1384,12 @@ class Synapsen_Nexus(ctk.CTk):
         except Exception as e:
             logger.error(f"ランダムノートの表示中にエラー: {e}")
             messagebox.showerror(
-                "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self)
+                "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self
+            )
 
     def open_canvas(self):
         """キャンバスウィンドウを開く"""
-        if (
-                hasattr(self, 'canvas_window')
-                and self.canvas_window.winfo_exists()
-        ):
+        if hasattr(self, "canvas_window") and self.canvas_window.winfo_exists():
             self.canvas_window.focus()
             return
         self.canvas_window = CanvasWindow(self)
@@ -1429,13 +1408,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.results_list.configure(label_text=f"検索結果 ({len(df_to_show)}件)")
 
         for index, row in df_to_show.iterrows():
-            item_frame = ctk.CTkFrame(
-                self.results_list, fg_color="transparent"
-                )
+            item_frame = ctk.CTkFrame(self.results_list, fg_color="transparent")
             item_frame.pack(fill="x", padx=5, pady=2)
 
             # チェックボックス ---
-            note_key = row.get('key')
+            note_key = row.get("key")
             is_selected = note_key in self.selected_keys
 
             # チェックボックスの状態変数
@@ -1451,36 +1428,34 @@ class Synapsen_Nexus(ctk.CTk):
                 variable=chk_var,
                 onvalue="on",
                 offvalue="off",
-                command=on_toggle
+                command=on_toggle,
             )
             checkbox.pack(side="left", padx=(0, 5))
 
             cp_key = str(row.get("commonplace_key", "")).lower()
-            icon = self.key_icons.get(cp_key, '•')
-            color = self.key_colors.get(cp_key, 'gray')
+            icon = self.key_icons.get(cp_key, "•")
+            color = self.key_colors.get(cp_key, "gray")
 
             icon_label = ctk.CTkLabel(
-                item_frame,
-                text=icon,
-                text_color=color,
-                font=("", 16), width=20
-                )
+                item_frame, text=icon, text_color=color, font=("", 16), width=20
+            )
             icon_label.pack(side="left")
 
             display_text = f"[{row.get('date')}] {row.get('title', 'N/A')}"
-            text_label = ctk.CTkLabel(
-                item_frame, text=display_text, anchor="w")
+            text_label = ctk.CTkLabel(item_frame, text=display_text, anchor="w")
             text_label.pack(side="left", fill="x", expand=True)
 
             # --- イベントバインド ---
             def create_show_details_handler(note_row=row):
                 def handler(event):
                     self.show_details(note_row)
+
                 return handler
 
             def create_open_pdf_handler(note_row=row):
                 def handler(event):
                     self.open_pdf(note_row)
+
                 return handler
 
             # シングルクリックで詳細表示
@@ -1539,18 +1514,18 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 選択されたキーに対応する行を取得
-        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+        selected_df = self.df[self.df["key"].isin(self.selected_keys)]
 
         if selected_df.empty:
             return
 
         # 日付順（またはKey順）にソートしてリスト化
-        selected_df = selected_df.sort_values(by='key')
+        selected_df = selected_df.sort_values(by="key")
 
         link_texts = []
         for _, row in selected_df.iterrows():
-            key = row['key']
-            title = row['title']
+            key = row["key"]
+            title = row["title"]
             # Synapsenのリンク形式: [[Key: Title]]
             link_texts.append(f"[[{key}: {title}]]")
 
@@ -1566,7 +1541,7 @@ class Synapsen_Nexus(ctk.CTk):
             "コピー完了",
             f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
             "新しいノートのメモ欄にペーストして、MOC（目次）として利用できます。",
-            parent=self
+            parent=self,
         )
 
     def show_selected_graph(self):
@@ -1580,7 +1555,7 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 全データ(self.df)から、選択されたキーを持つ行だけを抽出
-        selected_df = self.df[self.df['key'].isin(self.selected_keys)]
+        selected_df = self.df[self.df["key"].isin(self.selected_keys)]
 
         if selected_df.empty:
             messagebox.showinfo("情報", "選択されたノートのデータが見つかりません。")
@@ -1601,16 +1576,16 @@ class Synapsen_Nexus(ctk.CTk):
         self.preview_image_object = None
 
         # 既存のラベルを破棄
-        if hasattr(self, 'pdf_preview_label'):
+        if hasattr(self, "pdf_preview_label"):
             self.pdf_preview_label.destroy()
 
         # ラベルを「クリア状態」で再作成
         self.pdf_preview_label = ctk.CTkLabel(
             self.details_frame,
             text="ノートを選択するとプレビューが表示されます",
-            fg_color="gray20",   # プレースホルダーの背景色
+            fg_color="gray20",  # プレースホルダーの背景色
             anchor="center",
-            text_color="gray70"  # プレースホルダーの文字色
+            text_color="gray70",  # プレースホルダーの文字色
         )
         self.pdf_preview_label.grid(
             row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
@@ -1632,7 +1607,7 @@ class Synapsen_Nexus(ctk.CTk):
             widget.destroy()
         self.references_display_frame.configure(
             label_text="このノートを引用しているノート"
-            )
+        )
 
     def append_link_to_selected_notes(self, key_to_link, title_to_link):
         """
@@ -1645,11 +1620,14 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showwarning(
                 "リンク失敗",
                 "リンクの追記先となるノートがメイン画面で選択されていません。",
-                parent=self)
+                parent=self,
+            )
             return
 
         if not self.loaded_db_path:
-            messagebox.showerror("DBエラー", "データベースが読み込まれていません。", parent=self)
+            messagebox.showerror(
+                "DBエラー", "データベースが読み込まれていません。", parent=self
+            )
             return
 
         # リンク文字列を生成
@@ -1664,11 +1642,9 @@ class Synapsen_Nexus(ctk.CTk):
 
             for key in selected_keys_to_update:
                 # 2. 現在のメモを取得
-                cursor.execute(
-                    "SELECT memo FROM notes WHERE key = ?", (key,)
-                )
+                cursor.execute("SELECT memo FROM notes WHERE key = ?", (key,))
                 memo_data = cursor.fetchone()
-                if (memo_data and memo_data[0]):
+                if memo_data and memo_data[0]:
                     current_memo = memo_data[0]
                 else:
                     current_memo = ""
@@ -1698,27 +1674,28 @@ class Synapsen_Nexus(ctk.CTk):
                     "リンク完了",
                     f"{len(updated_keys)}件のノートにリンクを追記しました。\n\n"
                     f"(対象Key: {', '.join(updated_keys)})",
-                    parent=self
+                    parent=self,
                 )
 
                 # メイン画面の詳細表示が更新対象に含まれていたら、再描画
                 if (
-                    self.current_selected_row is not None and
-                    self.current_selected_row.get("key") in updated_keys
+                    self.current_selected_row is not None
+                    and self.current_selected_row.get("key") in updated_keys
                 ):
                     self.show_details(self.current_selected_row)
             else:
                 messagebox.showinfo(
                     "リンク不要",
                     "選択中のノートには、既にリンクが追加されています。",
-                    parent=self
+                    parent=self,
                 )
 
         except Exception as e:
             if conn:
                 conn.rollback()
             messagebox.showerror(
-                "リンクエラー", f"リンクの追記に失敗しました:\n{e}", parent=self)
+                "リンクエラー", f"リンクの追記に失敗しました:\n{e}", parent=self
+            )
         finally:
             if conn:
                 conn.close()
@@ -1731,18 +1708,15 @@ class Synapsen_Nexus(ctk.CTk):
         """
         if self.current_selected_row is None:
             messagebox.showwarning(
-                "ノート未選択", "詳細プレビューを開くノートが選択されていません。")
+                "ノート未選択", "詳細プレビューを開くノートが選択されていません。"
+            )
             return
 
         key_to_open = self.current_selected_row.get("key")
         if key_to_open:
-            self.open_preview_window(key_to_open, default_view_mode='full')
+            self.open_preview_window(key_to_open, default_view_mode="full")
 
-    def open_preview_window(
-        self, key,
-        default_view_mode='compact',
-        ui_master=None
-    ):
+    def open_preview_window(self, key, default_view_mode="compact", ui_master=None):
         """
         指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
         ui_master: キャンバス等、別のウィンドウから呼び出す場合にそのウィンドウを指定
@@ -1752,24 +1726,25 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 1. メタデータを self.df から取得 (高速)
-        target_note_row = self.df[self.df['key'] == key]
+        target_note_row = self.df[self.df["key"] == key]
         if target_note_row.empty:
-            messagebox.showwarning("ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。")
+            messagebox.showwarning(
+                "ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。"
+            )
             return
 
         # 2. memo と full_text を DB から取得
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
-                "SELECT memo, full_text, summary FROM notes WHERE key = ?",
-                (key,)
+                "SELECT memo, full_text, summary FROM notes WHERE key = ?", (key,)
             )
             db_data = cursor.fetchone()
             note_data = target_note_row.iloc[0].copy()
             if db_data:
-                note_data['memo'] = db_data[0]
-                note_data['full_text'] = db_data[1]
-                note_data['summary'] = db_data[2]
+                note_data["memo"] = db_data[0]
+                note_data["full_text"] = db_data[1]
+                note_data["summary"] = db_data[2]
         except Exception as e:
             logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
             note_data = target_note_row.iloc[0]
@@ -1789,7 +1764,8 @@ class Synapsen_Nexus(ctk.CTk):
         """
         if not isinstance(row_data, pd.Series):
             logger.error(
-                f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}")
+                f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}"
+            )
             self.clear_details()
             return
 
@@ -1799,21 +1775,21 @@ class Synapsen_Nexus(ctk.CTk):
         self.delete_button.configure(state="normal")
 
         row = row_data
-        self.summary_label.configure(text=row.get('summary', ''))
-        self.title_label.configure(text=row.get('title', ''))
-        self.key_label.configure(text=row.get('key', ''))
-        self.cpkey_label.configure(text=row.get('commonplace_key', ''))
+        self.summary_label.configure(text=row.get("summary", ""))
+        self.title_label.configure(text=row.get("title", ""))
+        self.key_label.configure(text=row.get("key", ""))
+        self.cpkey_label.configure(text=row.get("commonplace_key", ""))
         self.open_preview_button.configure(state="normal")
 
         # タグ表示（文字列をリストに変換して表示）
-        tags_str = str(row.get('tags', ''))
-        tags_list = [tag for tag in tags_str.split(';') if tag]
+        tags_str = str(row.get("tags", ""))
+        tags_list = [tag for tag in tags_str.split(";") if tag]
         self.tags_label.configure(text=", ".join(tags_list))
 
         # --- ▼ PDFプレビューの表示 ▼ ---
 
         # 既存のプレビューラベルを破棄
-        if hasattr(self, 'pdf_preview_label'):
+        if hasattr(self, "pdf_preview_label"):
             self.pdf_preview_label.destroy()
         max_preview_width = 225
         pil_image = get_pdf_page_image(
@@ -1821,7 +1797,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.loaded_db_path,
             self.pdf_root_folder,
             max_width=max_preview_width,
-            pdf_archive_folder=self.pdf_archive_folder
+            pdf_archive_folder=self.pdf_archive_folder,
         )
 
         if pil_image:
@@ -1829,14 +1805,14 @@ class Synapsen_Nexus(ctk.CTk):
             self.preview_image_object = ctk.CTkImage(
                 light_image=pil_image,
                 dark_image=pil_image,
-                size=(pil_image.width, pil_image.height)
+                size=(pil_image.width, pil_image.height),
             )
             # プレビュー用ラベルを「画像付き」で再作成
             self.pdf_preview_label = ctk.CTkLabel(
                 self.details_frame,
                 image=self.preview_image_object,
-                text="",                # テキストを削除
-                fg_color="transparent"  # 背景を透明に
+                text="",  # テキストを削除
+                fg_color="transparent",  # 背景を透明に
             )
         else:
             # 画像取得失敗
@@ -1847,7 +1823,7 @@ class Synapsen_Nexus(ctk.CTk):
                 image=None,
                 text="プレビューの読み込みに失敗しました",
                 fg_color="gray20",
-                text_color="#D9534F"
+                text_color="#D9534F",
             )
 
         # 新しく作成したラベルをグリッドに配置
@@ -1857,7 +1833,7 @@ class Synapsen_Nexus(ctk.CTk):
 
         # --- メモと引用元の取得 ---
 
-        current_key = row.get('key', '')
+        current_key = row.get("key", "")
 
         memo_text = ""
         backlinks_df = pd.DataFrame()  # 空で初期化
@@ -1874,8 +1850,8 @@ class Synapsen_Nexus(ctk.CTk):
             if data:
                 memo_text = str(data[0])
                 # メモリ上にある row_data にも最新の memo と summary をセット
-                self.current_selected_row['memo'] = memo_text
-                self.current_selected_row['summary'] = str(data[1])
+                self.current_selected_row["memo"] = memo_text
+                self.current_selected_row["summary"] = str(data[1])
                 self.summary_label.configure(text=str(data[1]))
 
             # 2. 引用元 (Backlinks) を 'note_links' テーブルから取得
@@ -1892,11 +1868,10 @@ class Synapsen_Nexus(ctk.CTk):
                     f"[show_details] リンクテーブル検索ヒット: {len(matching_keys)} 件 "
                     f"(Key: {current_key})"
                 )
-                backlinks_df = self.df[self.df['key'].isin(matching_keys)]
+                backlinks_df = self.df[self.df["key"].isin(matching_keys)]
             else:
                 logger.debug(
-                    f"[show_details] リンクテーブル検索 0件 "
-                    f"(Key: {current_key})"
+                    f"[show_details] リンクテーブル検索 0件 " f"(Key: {current_key})"
                 )
 
         except Exception as e:
@@ -1911,18 +1886,16 @@ class Synapsen_Nexus(ctk.CTk):
             self.memo_display_frame,
             memo_text,
             self.df,
-            lambda key: self.open_preview_window(
-                key, default_view_mode='compact'),
-            frame_width
+            lambda key: self.open_preview_window(key, default_view_mode="compact"),
+            frame_width,
         )
         # 引用元UIを構築
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            lambda key: self.open_preview_window(
-                key, default_view_mode='compact'),
+            lambda key: self.open_preview_window(key, default_view_mode="compact"),
             self.key_icons,
-            self.key_colors
+            self.key_colors,
         )
 
     # --- PDF関連メソッド ---
@@ -1948,10 +1921,12 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showerror("エラー", "CSVデータが読み込まれていません。")
             return
 
-        target_note_row = self.df[self.df['key'] == key]
+        target_note_row = self.df[self.df["key"] == key]
 
         if target_note_row.empty:
-            messagebox.showwarning("ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。")
+            messagebox.showwarning(
+                "ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。"
+            )
             return
 
         note_data = target_note_row.iloc[0]
@@ -1971,7 +1946,7 @@ class Synapsen_Nexus(ctk.CTk):
             self.loaded_db_path,
             self.pdf_root_folder,
             self.browser_path,
-            pdf_archive_folder=self.pdf_archive_folder
+            pdf_archive_folder=self.pdf_archive_folder,
         )
 
     # --- グラフ生成メソッド ---
@@ -1990,13 +1965,16 @@ class Synapsen_Nexus(ctk.CTk):
 
         if df is None or df.empty:
             if not output_path:
-                messagebox.showinfo("グラフ表示", "グラフ化するノートがありません。", parent=self)
+                messagebox.showinfo(
+                    "グラフ表示", "グラフ化するノートがありません。", parent=self
+                )
             return
 
         # 2. パフォーマンス制限
         if len(df) > 500 and not output_path:
             messagebox.showwarning(
-                "グラフ表示", "件数が多いため500件に制限します。", parent=self)
+                "グラフ表示", "件数が多いため500件に制限します。", parent=self
+            )
             df = df.head(500)
 
         try:
@@ -2009,7 +1987,7 @@ class Synapsen_Nexus(ctk.CTk):
                 self.pdf_root_folder,
                 output_path=output_path,
                 db_conn=self.db_conn,
-                pdf_archive_folder=self.pdf_archive_folder
+                pdf_archive_folder=self.pdf_archive_folder,
             )
 
             # 4. ブラウザで表示 (ファイル保存モードでない場合)
@@ -2026,10 +2004,12 @@ class Synapsen_Nexus(ctk.CTk):
         メインパネルの「関連グラフ」メニューから呼ばれるラッパー。
         """
         if self.current_selected_row is None:
-            messagebox.showinfo("情報", "ローカルグラフを表示するノートを選択してください。")
+            messagebox.showinfo(
+                "情報", "ローカルグラフを表示するノートを選択してください。"
+            )
             return
 
-        center_key = self.current_selected_row.get('key')
+        center_key = self.current_selected_row.get("key")
         if center_key:
             self.show_local_graph(center_key)
 
@@ -2053,16 +2033,14 @@ class Synapsen_Nexus(ctk.CTk):
 
             # A. このノートが引用している先 (Forward Links)
             cursor.execute(
-                "SELECT target_key FROM note_links WHERE source_key = ?",
-                (center_key,)
+                "SELECT target_key FROM note_links WHERE source_key = ?", (center_key,)
             )
             for row in cursor.fetchall():
                 related_keys.add(row[0])
 
             # B. このノートを引用している元 (Backlinks)
             cursor.execute(
-                "SELECT source_key FROM note_links WHERE target_key = ?",
-                (center_key,)
+                "SELECT source_key FROM note_links WHERE target_key = ?", (center_key,)
             )
             for row in cursor.fetchall():
                 related_keys.add(row[0])
@@ -2072,15 +2050,14 @@ class Synapsen_Nexus(ctk.CTk):
             # エラーが発生しても、中心ノードのみでグラフ生成を試みる
 
         # 2. 関連キーのみを含むDataFrameを作成
-        local_df = self.df[self.df['key'].isin(related_keys)]
+        local_df = self.df[self.df["key"].isin(related_keys)]
 
         if local_df.empty:
             messagebox.showinfo("情報", "関連するノートが見つかりませんでした。")
             return
 
         # 3. グラフ生成 (target_df を指定して呼び出し)
-        logger.info(
-            f"Local Graph: {len(local_df)} notes related to {center_key}")
+        logger.info(f"Local Graph: {len(local_df)} notes related to {center_key}")
         self.generate_and_show_graph(target_df=local_df)
 
     # --- エクスポート機能 ---
@@ -2095,7 +2072,7 @@ class Synapsen_Nexus(ctk.CTk):
         # 対象データの決定
         if self.selected_keys:
             if self.df is not None:
-                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+                target_df = self.df[self.df["key"].isin(self.selected_keys)]
                 mode = "selected_items"
         else:
             target_df = self.filtered_df_cache
@@ -2118,14 +2095,16 @@ class Synapsen_Nexus(ctk.CTk):
                 include_pdf=include_pdf,
                 loaded_db_path=self.loaded_db_path,
                 pdf_root_folder=self.pdf_root_folder,
-                pdf_archive_folder=self.pdf_archive_folder
+                pdf_archive_folder=self.pdf_archive_folder,
             )
 
             msg = f"エクスポート完了:\n{result_path}"
             messagebox.showinfo("完了", msg, parent=self)
 
         except Exception as e:
-            messagebox.showerror("エクスポートエラー", f"失敗しました:\n{e}", parent=self)
+            messagebox.showerror(
+                "エクスポートエラー", f"失敗しました:\n{e}", parent=self
+            )
 
     def merge_and_export_pdf(self):
         """メニューから「統合PDF」単体を選んだ場合のラッパー"""
@@ -2133,7 +2112,7 @@ class Synapsen_Nexus(ctk.CTk):
         target_df = None
         if self.selected_keys:
             if self.df is not None:
-                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+                target_df = self.df[self.df["key"].isin(self.selected_keys)]
         else:
             target_df = self.filtered_df_cache
 
@@ -2141,26 +2120,28 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showinfo("PDF結合", "対象データがありません。", parent=self)
             return
 
-        time_text = datetime.datetime.now().strftime('%Y%m%d')
+        time_text = datetime.datetime.now().strftime("%Y%m%d")
         save_path = filedialog.asksaveasfilename(
             title="統合PDFを保存",
             defaultextension=".pdf",
             filetypes=[("PDF Files", "*.pdf")],
-            initialfile=f"Merged_Notes_{time_text}.pdf"
+            initialfile=f"Merged_Notes_{time_text}.pdf",
         )
         if not save_path:
             return
 
         # ExportManager の merge_pdf を直接利用
-        if (
-                self.exporter.merge_pdf(
-                    target_df, Path(save_path), self.pdf_root_folder,
-                    pdf_archive_folder=self.pdf_archive_folder
-                )
+        if self.exporter.merge_pdf(
+            target_df,
+            Path(save_path),
+            self.pdf_root_folder,
+            pdf_archive_folder=self.pdf_archive_folder,
         ):
             messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
         else:
-            messagebox.showwarning("失敗", "結合可能なPDFが見つかりませんでした。", parent=self)
+            messagebox.showwarning(
+                "失敗", "結合可能なPDFが見つかりませんでした。", parent=self
+            )
 
     def create_moc_markdown(self):
         """MOC (Markdown) 生成処理のラッパー"""
@@ -2168,7 +2149,7 @@ class Synapsen_Nexus(ctk.CTk):
         target_df = None
         if self.selected_keys:
             if self.df is not None:
-                target_df = self.df[self.df['key'].isin(self.selected_keys)]
+                target_df = self.df[self.df["key"].isin(self.selected_keys)]
         else:
             target_df = self.filtered_df_cache
 
@@ -2177,31 +2158,31 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 保存先ダイアログ
-        time_text = datetime.datetime.now().strftime('%Y%m%d')
+        time_text = datetime.datetime.now().strftime("%Y%m%d")
         save_path = filedialog.asksaveasfilename(
             title="MOC (Markdown) を保存",
             defaultextension=".md",
             filetypes=[("Markdown Files", "*.md")],
-            initialfile=f"MOC_{time_text}.md"
+            initialfile=f"MOC_{time_text}.md",
         )
         if not save_path:
             return
 
         # 生成実行
         if self.exporter.generate_moc_markdown(
-                target_df,
-                Path(save_path),
-                self.loaded_db_path
+            target_df, Path(save_path), self.loaded_db_path
         ):
             messagebox.showinfo(
                 "完了",
                 f"MOC (Markdown) ファイルを保存しました:\n{save_path}\n\n"
                 "このファイルを Normalisierer で処理し PDF 化すると、\n"
                 "ノートへのファイルパスと Index Key の装飾が反映された PDF を作成できます。",
-                parent=self
+                parent=self,
             )
         else:
-            messagebox.showerror("失敗", "MOCファイルの生成に失敗しました。", parent=self)
+            messagebox.showerror(
+                "失敗", "MOCファイルの生成に失敗しました。", parent=self
+            )
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
@@ -2229,23 +2210,23 @@ class Synapsen_Nexus(ctk.CTk):
                 "SELECT memo, summary FROM notes WHERE key = ?", (key_to_edit,)
             )
             db_data = cursor.fetchone()
-            if (memo_data := db_data):
-                note_data_with_memo['memo'] = str(memo_data[0])
-                note_data_with_memo['summary'] = str(memo_data[1])
+            if memo_data := db_data:
+                note_data_with_memo["memo"] = str(memo_data[0])
+                note_data_with_memo["summary"] = str(memo_data[1])
             else:
-                note_data_with_memo['memo'] = ""
-                note_data_with_memo['summary'] = ""
+                note_data_with_memo["memo"] = ""
+                note_data_with_memo["summary"] = ""
         except Exception as e:
             logger.error(f"編集ウィンドウ用のメモ取得エラー: {e}")
-            note_data_with_memo['memo'] = ""  # 失敗時は空メモ
+            note_data_with_memo["memo"] = ""  # 失敗時は空メモ
 
         # 編集ウィンドウ (書き込み可能) のインスタンスを作成
         editor_win = NoteEditorWindow(
             self,
-            note_data_with_memo,   # 最新メモ入りのデータを渡す
+            note_data_with_memo,  # 最新メモ入りのデータを渡す
             self.commonplace_keys_options,
             self.all_unique_tags,  # 全タグを渡す
-            self.save_edit_callback
+            self.save_edit_callback,
         )
         editor_win.focus()
 
@@ -2275,14 +2256,14 @@ class Synapsen_Nexus(ctk.CTk):
             conn.commit()
 
             # 4. 変更をUIに反映するため、DBを再読み込み
-            self.load_db_from_path(
-                self.loaded_db_path, key_to_redisplay=key_to_update)
+            self.load_db_from_path(self.loaded_db_path, key_to_redisplay=key_to_update)
 
         except Exception as e:
             if conn:
                 conn.rollback()
             messagebox.showerror(
-                "保存エラー", f"データベースの更新に失敗しました:\n{e}", parent=self)
+                "保存エラー", f"データベースの更新に失敗しました:\n{e}", parent=self
+            )
         finally:
             if conn:
                 conn.close()
@@ -2309,7 +2290,7 @@ class Synapsen_Nexus(ctk.CTk):
             f"Key: {key_to_delete}\n"
             f"Title: {title_to_delete}\n\n"
             f"この操作は元に戻せません。",
-            parent=self
+            parent=self,
         )
 
         if answer:
@@ -2325,17 +2306,23 @@ class Synapsen_Nexus(ctk.CTk):
                 conn.commit()
 
                 # 4. 変更をUIに反映するため、DBを再読み込み
-                logger.info(f"ノート {key_to_delete} を削除しました。DBを再読み込みします。")
+                logger.info(
+                    f"ノート {key_to_delete} を削除しました。DBを再読み込みします。"
+                )
                 self.load_db_from_path(self.loaded_db_path)
 
                 messagebox.showinfo(
-                    "削除完了", f"ノート {key_to_delete} を削除しました。", parent=self)
+                    "削除完了", f"ノート {key_to_delete} を削除しました。", parent=self
+                )
 
             except Exception as e:
                 if conn:
                     conn.rollback()
                 messagebox.showerror(
-                    "削除エラー", f"データベースからの削除に失敗しました:\n{e}", parent=self)
+                    "削除エラー",
+                    f"データベースからの削除に失敗しました:\n{e}",
+                    parent=self,
+                )
             finally:
                 if conn:
                     conn.close()
@@ -2349,11 +2336,12 @@ class SearchHelpWindow(ctk.CTkToplevel):
     検索ヘルプ専用のToplevelウィンドウ。
     メインアイコンを強制的に継承するため、iconbitmapメソッドをオーバーライドする。
     """
+
     def __init__(self, parent_app):
         super().__init__(parent_app)
         self._custom_icon_path = None  # 強制設定するアイコンパス
 
-        if hasattr(parent_app, 'icon_path') and parent_app.icon_path:
+        if hasattr(parent_app, "icon_path") and parent_app.icon_path:
             self._custom_icon_path = str(parent_app.icon_path)
             # --- 初期アイコンをすぐに設定 ---
             if self._custom_icon_path:
@@ -2462,11 +2450,7 @@ Synapsen Nexus 検索クエリ リファレンス
         textbox.insert("1.0", help_text)
         textbox.configure(state="disabled")
 
-        close_button = ctk.CTkButton(
-            self,
-            text="閉じる",
-            command=self.destroy
-        )
+        close_button = ctk.CTkButton(self, text="閉じる", command=self.destroy)
         close_button.pack(pady=(0, 10), padx=10)
 
     def iconbitmap(self, *args, **kwargs):
@@ -2499,5 +2483,7 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Icon default setting error: {e}")
     else:
-        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning(
+            "警告: アイコンファイル (assets/synapsen.ico) が見つかりません。"
+        )
     app.mainloop()

@@ -8,6 +8,7 @@ from utils import get_pdf_uri_for_note
 import sqlite3
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,7 +22,7 @@ class GraphManager:
         pdf_root_folder,
         output_path=None,
         db_conn=None,
-        pdf_archive_folder=None
+        pdf_archive_folder=None,
     ):
         """
         DataFrameからネットワークグラフを生成し、HTMLファイルとして保存する。
@@ -31,7 +32,7 @@ class GraphManager:
         """
         # グラフ構築 (NetworkX)
         G = nx.DiGraph()
-        keys_in_graph = set(df['key'])
+        keys_in_graph = set(df["key"])
 
         # グラフ化対象のリンク(edge)をDBから一括取得
         edges_data = []
@@ -45,13 +46,14 @@ class GraphManager:
                 else:
                     # (ExportManagerなどから呼ばれた場合) 自分で接続を作成
                     conn_to_use = sqlite3.connect(
-                        f"file:{loaded_db_path}?mode=ro", uri=True)
+                        f"file:{loaded_db_path}?mode=ro", uri=True
+                    )
                     created_conn = True
 
                 cursor = conn_to_use.cursor()
 
                 # プレースホルダ (?) をキーの数だけ生成
-                placeholders = ','.join('?' for _ in keys_in_graph)
+                placeholders = ",".join("?" for _ in keys_in_graph)
 
                 # リンク元(source)がグラフ対象に含まれるリンクのみ取得
                 sql = (
@@ -75,17 +77,19 @@ class GraphManager:
 
         # ノードを追加
         for index, row in df.iterrows():
-            key = row.get('key')
-            title = row.get('title', 'N/A')
-            cp_key = row.get('commonplace_key', '').lower()
+            key = row.get("key")
+            title = row.get("title", "N/A")
+            cp_key = row.get("commonplace_key", "").lower()
 
-            icon_code = key_icons.get(cp_key, '•')
-            color_hex = key_colors.get(cp_key, '#FFFFFF')
+            icon_code = key_icons.get(cp_key, "•")
+            color_hex = key_colors.get(cp_key, "#FFFFFF")
 
             # PDFへのURIを取得
             file_uri = get_pdf_uri_for_note(
-                row, loaded_db_path, pdf_root_folder,
-                pdf_archive_folder=pdf_archive_folder
+                row,
+                loaded_db_path,
+                pdf_root_folder,
+                pdf_archive_folder=pdf_archive_folder,
             )
 
             tooltip = f"Key: {key}\nIndex: {cp_key}"
@@ -96,14 +100,10 @@ class GraphManager:
                 key,
                 label=title,
                 title=tooltip,
-                shape='icon',
-                icon={
-                    'code': icon_code,
-                    'color': color_hex,
-                    'size': 40
-                },
+                shape="icon",
+                icon={"code": icon_code, "color": color_hex, "size": 40},
                 color=color_hex,
-                pdf_url=file_uri if file_uri else ""
+                pdf_url=file_uri if file_uri else "",
             )
 
         # エッジを追加
@@ -126,12 +126,13 @@ class GraphManager:
             bgcolor="#222222",
             font_color="white",
             directed=True,
-            notebook=False
+            notebook=False,
         )
         nt.from_nx(G)
 
         # 物理演算設定
-        nt.set_options("""
+        nt.set_options(
+            """
         var options = {
           "physics": {
             "solver": "barnesHut",
@@ -170,14 +171,15 @@ class GraphManager:
             }
           }
         }
-        """)
+        """
+        )
 
         # 3. 保存パスの決定
         if output_path:
             save_path = Path(output_path)
         else:
             # デフォルトパス (アプリ実行位置基準)
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 base_path = Path(sys.executable).parent
             else:
                 base_path = Path(__file__).parent.parent
@@ -192,7 +194,8 @@ class GraphManager:
     @staticmethod
     def _inject_custom_js(html_path):
         """生成されたHTMLにカスタムインタラクション用JSを注入する"""
-        custom_js = dedent("""
+        custom_js = dedent(
+            """
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof network !== 'undefined') {
                 // ダブルクリック: PDFを開く
@@ -234,19 +237,19 @@ class GraphManager:
                 });
             }
         });
-        """)
+        """
+        )
 
         try:
-            with open(html_path, 'r', encoding='utf-8') as f:
+            with open(html_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             script_tag = (
-                "<script type=\"text/javascript\">\n" +
-                f"{custom_js}\n</script>\n</head>"
+                '<script type="text/javascript">\n' + f"{custom_js}\n</script>\n</head>"
             )
             content = content.replace("</head>", script_tag, 1)
 
-            with open(html_path, 'w', encoding='utf-8') as f:
+            with open(html_path, "w", encoding="utf-8") as f:
                 f.write(content)
         except Exception as e:
             logger.error(f"[GraphManager] JS注入エラー: {e}")

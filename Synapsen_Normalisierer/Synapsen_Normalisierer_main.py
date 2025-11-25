@@ -16,12 +16,13 @@ from webclip_window import WebClipWindow
 
 # PDF処理バックエンド
 from pdf_utils import (
-    high_fidelity_flatten, normalize_pdf_to_papersize,
+    high_fidelity_flatten,
+    normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
     convert_document_to_pdf,
-    embed_processing_flag
+    embed_processing_flag,
 )
 
 # --- 定数 ---
@@ -32,8 +33,16 @@ A5_HEIGHT = 595.276
 
 SUPPORTED_EXTENSIONS = [
     ".pdf",
-    ".png", ".jpg", ".jpeg", ".bmp", ".tiff",
-    ".md", ".txt", ".docx", ".rtf", ".odt"
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".tiff",
+    ".md",
+    ".txt",
+    ".docx",
+    ".rtf",
+    ".odt",
 ]
 
 # ==============================================================================
@@ -47,6 +56,7 @@ if str(root_dir) not in sys.path:
 
 try:
     from logging_setup import setup_logging
+
     # アプリ名を指定して初期化
     setup_logging("Synapsen_Normalisierer")
     logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
@@ -55,12 +65,14 @@ except ImportError:
     print("Warning: logging_setup.py not found. Logging disabled.")
 
     class MockLogger:
-        def info(self, msg): print(f"[INFO] {msg}")
+        def info(self, msg):
+            print(f"[INFO] {msg}")
 
         def error(self, msg, exc_info=None):
             print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
 
-        def warning(self, msg): print(f"[WARN] {msg}")
+        def warning(self, msg):
+            print(f"[WARN] {msg}")
 
     logger = MockLogger()
 # ==============================================================================
@@ -110,7 +122,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         # --- ウィジェットの配置 ---
         self.label = ctk.CTkLabel(
             self,
-            text="フォームのテキスト化 及び 指定サイズ正規化を、\n注釈を維持したまま行います。"
+            text="フォームのテキスト化 及び 指定サイズ正規化を、\n注釈を維持したまま行います。",
         )
         self.label.pack(pady=20, padx=20)
 
@@ -118,7 +130,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.folder_run_button = ctk.CTkButton(
             self,
             text="入力/出力フォルダを選んで処理実行",
-            command=self.run_folder_process
+            command=self.run_folder_process,
         )
         self.folder_run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -128,7 +140,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             text="D&D / ペースト (個別ファイル) で正規化",
             command=self.open_dnd_window,
             fg_color="#585a9c",  # 桔梗色
-            hover_color="#494B83"
+            hover_color="#494B83",
         )
         self.dnd_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -139,8 +151,8 @@ class Synapsen_Normalisierer(ctk.CTk):
             self,
             text="Webクリップ (URLからPDF化) で正規化",
             command=self.open_webclip_window,
-            fg_color="#00695C",    # 濃い緑
-            hover_color="#004D40"  # さらに濃い緑
+            fg_color="#00695C",  # 濃い緑
+            hover_color="#004D40",  # さらに濃い緑
         )
         self.webclip_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -163,14 +175,14 @@ class Synapsen_Normalisierer(ctk.CTk):
             Path | None: アイコンファイルへのPathオブジェクト。見つからない場合はNone。
         """
         try:
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # .exe実行の場合 (exeと同じフォルダがプロジェクトルート)
                 project_root = Path(sys.executable).parent
             else:
                 # .pyスクリプト実行の場合 (このファイルの親フォルダがプロジェクトルート)
                 project_root = Path(__file__).parent.parent
 
-            icon_path = project_root / 'assets' / 'synapsen.ico'
+            icon_path = project_root / "assets" / "synapsen.ico"
 
             if icon_path.is_file():
                 return icon_path
@@ -195,22 +207,22 @@ class Synapsen_Normalisierer(ctk.CTk):
         """
         try:
             # 0. config.ini のパスを決定
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 base_path = os.path.dirname(sys.executable)
             else:
                 base_path = os.path.dirname(os.path.abspath(__file__))
 
-            if getattr(sys, 'frozen', False):
-                config_path = os.path.join(base_path, 'config.ini')
+            if getattr(sys, "frozen", False):
+                config_path = os.path.join(base_path, "config.ini")
             else:
                 config_path = os.path.join(
-                    os.path.abspath(os.path.join(base_path, '..')),
-                    'config.ini'
+                    os.path.abspath(os.path.join(base_path, "..")), "config.ini"
                 )
 
             if not os.path.exists(config_path):
                 messagebox.showerror(
-                    "設定エラー", f"config.ini が見つかりません。\nパス: {config_path}")
+                    "設定エラー", f"config.ini が見つかりません。\nパス: {config_path}"
+                )
                 self.font_path = None
                 return
 
@@ -218,78 +230,78 @@ class Synapsen_Normalisierer(ctk.CTk):
 
             config_dir = os.path.dirname(config_path)
             config = configparser.ConfigParser(interpolation=None)
-            config.read(config_path, encoding='utf-8')
+            config.read(config_path, encoding="utf-8")
 
             # 1. フォントパスの読み込み (Normalisierer の中核機能)
-            font_path_from_config = config.get(
-                'Paths', 'font_path', fallback='')
+            font_path_from_config = config.get("Paths", "font_path", fallback="")
             expanded_path = os.path.expandvars(font_path_from_config)
             if os.path.isabs(expanded_path):
                 self.font_path = expanded_path
             else:
                 self.font_path = os.path.join(config_dir, expanded_path)
-            self.config_data['font_path'] = self.font_path
+            self.config_data["font_path"] = self.font_path
 
             # 2. 用紙サイズの読み込み
-            paper_size_str = config.get(
-                'LaTeX', 'paper_size', fallback='A4').upper()
-            if paper_size_str == 'A5':
+            paper_size_str = config.get("LaTeX", "paper_size", fallback="A4").upper()
+            if paper_size_str == "A5":
                 self.paper_width = A5_WIDTH
                 self.paper_height = A5_HEIGHT
             else:
                 self.paper_width = A4_WIDTH
                 self.paper_height = A4_HEIGHT
-            self.config_data['paper_size'] = paper_size_str
+            self.config_data["paper_size"] = paper_size_str
 
             # 3. Tesseract OCR の有効/無効 設定
             self.enable_tesseract_ocr = config.getboolean(
-                'Automation', 'enable_tesseract_ocr', fallback=False
+                "Automation", "enable_tesseract_ocr", fallback=False
             )
-            self.config_data[
-                'enable_tesseract_ocr'] = self.enable_tesseract_ocr
+            self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
 
             # 4. インク注釈のフラット化設定
             self.flatten_ink = config.getboolean(
-                'Automation', 'flatten_ink_annotations', fallback=True
+                "Automation", "flatten_ink_annotations", fallback=True
             )
-            self.config_data['flatten_ink_annotations'] = self.flatten_ink
+            self.config_data["flatten_ink_annotations"] = self.flatten_ink
 
             # 5. LaTeXフォント名の読み込み (Pandoc用)
-            self.config_data['latex_font'] = config.get(
-                'LaTeX', 'font', fallback='MS UI Gothic'
+            self.config_data["latex_font"] = config.get(
+                "LaTeX", "font", fallback="MS UI Gothic"
             )
 
             # 6. 引用Key用QRコードのサイズの読み込み
-            self.config_data['refs_qr_size'] = config.getint(
-                'Extraction', 'refs_qr_size', fallback=75
+            self.config_data["refs_qr_size"] = config.getint(
+                "Extraction", "refs_qr_size", fallback=75
             )
 
             # 7. WebClipウィンドウが参照するその他の設定
-            keys_str = config.get('CommonplaceKeys', 'options', fallback='')
-            self.config_data['commonplace_keys_options'] = [
-                key.strip() for key in keys_str.split(',') if key.strip()
+            keys_str = config.get("CommonplaceKeys", "options", fallback="")
+            self.config_data["commonplace_keys_options"] = [
+                key.strip() for key in keys_str.split(",") if key.strip()
             ]
 
-            rect_str = config.get(
-                'Extraction', 'key_rect', fallback='0,0,0,0').split(',')
-            self.config_data['key_rect'] = tuple(map(float, rect_str))
+            rect_str = config.get("Extraction", "key_rect", fallback="0,0,0,0").split(
+                ","
+            )
+            self.config_data["key_rect"] = tuple(map(float, rect_str))
 
-            if config.has_section('KeyIcons'):
-                self.config_data['key_icons'] = {
-                    k.lower(): v for k, v in config.items('KeyIcons')
+            if config.has_section("KeyIcons"):
+                self.config_data["key_icons"] = {
+                    k.lower(): v for k, v in config.items("KeyIcons")
                 }
             else:
-                self.config_data['key_icons'] = {}
+                self.config_data["key_icons"] = {}
 
-            if config.has_section('KeyColors'):
-                self.config_data['key_colors'] = {
-                    k.lower(): v for k, v in config.items('KeyColors')
+            if config.has_section("KeyColors"):
+                self.config_data["key_colors"] = {
+                    k.lower(): v for k, v in config.items("KeyColors")
                 }
             else:
-                self.config_data['key_colors'] = {}
+                self.config_data["key_colors"] = {}
 
         except Exception as e:
-            messagebox.showerror("設定エラー", f"config.ini の読み込みに失敗しました:\n{e}")
+            messagebox.showerror(
+                "設定エラー", f"config.ini の読み込みに失敗しました:\n{e}"
+            )
             self.font_path = None  # エラー時はフォントパスをNoneに
 
     def _validate_config_and_update_ui(self) -> None:
@@ -300,10 +312,10 @@ class Synapsen_Normalisierer(ctk.CTk):
         if not self.font_path or not Path(self.font_path).is_file():
             self.status_label.configure(
                 text=(
-                    "エラー: config.iniで有効なフォントパスが指定されていません。\n" +
-                    f"'{self.font_path}'"
-                    ),
-                text_color="orange"
+                    "エラー: config.iniで有効なフォントパスが指定されていません。\n"
+                    + f"'{self.font_path}'"
+                ),
+                text_color="orange",
             )
             self.folder_run_button.configure(state="disabled")
             self.dnd_window_button.configure(state="disabled")
@@ -332,8 +344,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         「Webクリップ」ボタン押下時に、WebClipWindow を開きます。
         既にウィンドウが存在する場合は、それを最前面に表示します。
         """
-        if (self.webclip_window is not None
-                and self.webclip_window.winfo_exists()):
+        if self.webclip_window is not None and self.webclip_window.winfo_exists():
             self.webclip_window.focus()
             self.webclip_window.grab_set()
         else:
@@ -350,7 +361,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             self._validate_config_and_update_ui()
             return
 
-        source_folder = filedialog.askdirectory(title="入力元フォルダを選択してください")
+        source_folder = filedialog.askdirectory(
+            title="入力元フォルダを選択してください"
+        )
         if not source_folder:
             return
 
@@ -359,7 +372,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             return
 
         if source_folder == dest_folder:
-            messagebox.showerror("エラー", "入力元と出力先は異なるフォルダを選択してください。")
+            messagebox.showerror(
+                "エラー", "入力元と出力先は異なるフォルダを選択してください。"
+            )
             return
 
         source_path = Path(source_folder)
@@ -374,14 +389,13 @@ class Synapsen_Normalisierer(ctk.CTk):
                 all_file_paths.extend(source_path.glob(f"*{ext.upper()}"))
 
         # (Pathオブジェクト, 拡張子なしのファイル名) のタプルリストを作成
-        items_to_process = [
-            (p, p.stem) for p in sorted(list(set(all_file_paths)))]
+        items_to_process = [(p, p.stem) for p in sorted(list(set(all_file_paths)))]
 
         if not items_to_process:
             messagebox.showinfo(
                 "情報",
-                "処理対象のファイルが見つかりませんでした。\n" +
-                f"(対象: {', '.join(SUPPORTED_EXTENSIONS)})"
+                "処理対象のファイルが見つかりませんでした。\n"
+                + f"(対象: {', '.join(SUPPORTED_EXTENSIONS)})",
             )
             self.status_label.configure(text="処理が完了しました（対象ファイルなし）。")
             return
@@ -390,7 +404,8 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.execute_normalization_process(items_to_process, dest_path)
 
     def execute_normalization_process(
-            self, items_to_process: list, dest_path: Path) -> None:
+        self, items_to_process: list, dest_path: Path
+    ) -> None:
         """
         [共通処理関数]
         正規化処理の本体。
@@ -422,14 +437,12 @@ class Synapsen_Normalisierer(ctk.CTk):
             temp_dir.mkdir(exist_ok=True)
 
             # configから用紙サイズ設定を取得 ("A4" or "A5")
-            paper_size_str = self.config_data.get('paper_size', 'A4')
+            paper_size_str = self.config_data.get("paper_size", "A4")
 
             for i, (item_data, base_name) in enumerate(all_items):
 
                 status_prefix = f"処理中 ({i+1}/{total_files}):"
-                self.status_label.configure(
-                    text=f"{status_prefix} {base_name}"
-                )
+                self.status_label.configure(text=f"{status_prefix} {base_name}")
                 self.update_idletasks()
 
                 # --- [ファイル名生成ロジック] ---
@@ -441,9 +454,14 @@ class Synapsen_Normalisierer(ctk.CTk):
                 path_to_flatten: Path  # フラット化対象のPDFパス
 
                 # --- [ステップ 1-A: ドキュメント形式 (MD, TXT, DOCX等) -> PDF 変換] ---
-                if (isinstance(item_data, Path) and
-                        item_data.suffix.lower() not in [
-                            ".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff"]):
+                if isinstance(item_data, Path) and item_data.suffix.lower() not in [
+                    ".pdf",
+                    ".png",
+                    ".jpg",
+                    ".jpeg",
+                    ".bmp",
+                    ".tiff",
+                ]:
 
                     self.status_label.configure(
                         text=f"{status_prefix} ドキュメント->PDF変換: {base_name}"
@@ -455,19 +473,19 @@ class Synapsen_Normalisierer(ctk.CTk):
                     try:
                         # 汎用関数 convert_document_to_pdf を使用
                         convert_document_to_pdf(
-                            item_data,
-                            temp_converted_doc_pdf,
-                            paper_size_str
+                            item_data, temp_converted_doc_pdf, paper_size_str
                         )
                         # 変換後のPDFを、次の処理（フラット化・正規化）の入力として上書き
                         item_data = temp_converted_doc_pdf
 
                     except Exception as e:
-                        logger.warning(f"警告: {base_name} のドキュメント変換に失敗: {e}")
+                        logger.warning(
+                            f"警告: {base_name} のドキュメント変換に失敗: {e}"
+                        )
                         messagebox.showerror(
                             "ドキュメント変換エラー",
                             f"{base_name} の変換に失敗しました:\n{e}",
-                            parent=self
+                            parent=self,
                         )
                         continue  # このファイルはスキップ
 
@@ -485,8 +503,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                         # 一時フォルダに {base_name}.pdf として変換
                         temp_converted_pdf = temp_dir / f"{base_name}.pdf"
                         try:
-                            convert_image_to_pdf(
-                                input_file_path, temp_converted_pdf)
+                            convert_image_to_pdf(input_file_path, temp_converted_pdf)
                             path_to_flatten = temp_converted_pdf
                         except Exception as e:
                             logger.warning(f"警告: {base_name} のPDF変換に失敗: {e}")
@@ -503,7 +520,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                         path_to_flatten = temp_converted_pdf
                     except Exception as e:
                         logger.warning(
-                            f"警告: {base_name} (クリップボード) のPDF変換に失敗: {e}")
+                            f"警告: {base_name} (クリップボード) のPDF変換に失敗: {e}"
+                        )
                         continue  # このアイテムはスキップ
 
                 # --- [ステップ2: フラット化 (フォームのテキスト化 + インク焼き込み)] ---
@@ -515,7 +533,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     str(path_to_flatten),
                     str(temp_flattened_pdf),
                     self.font_path,
-                    flatten_ink=self.flatten_ink
+                    flatten_ink=self.flatten_ink,
                 )
 
                 # --- [ステップ3: 正規化 (サイズ統一)] ---
@@ -528,7 +546,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     str(final_output_pdf),
                     self.paper_width,
                     self.paper_height,
-                    target_format=paper_size_str
+                    target_format=paper_size_str,
                 )
 
                 # --- [ステップ4: OCR埋め込み] ---
@@ -542,7 +560,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     str(final_output_pdf),
                     self.enable_tesseract_ocr,
                     self.font_path,
-                    'jpn+jpn_vert'
+                    "jpn+jpn_vert",
                 )
 
                 # --- [ステップ5: 処理済みフラグ (メタデータ) 埋め込み] ---
@@ -554,7 +572,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                 embed_processing_flag(str(final_output_pdf))
 
             messagebox.showinfo(
-                "完了", f"{total_files}個のPDF/画像/MDファイルの処理が完了しました。")
+                "完了", f"{total_files}個のPDF/画像/MDファイルの処理が完了しました。"
+            )
             self.status_label.configure(text="処理が完了しました。")
 
         except Exception as e:
@@ -582,6 +601,8 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Icon default setting error: {e}")
     else:
-        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning(
+            "警告: アイコンファイル (assets/synapsen.ico) が見つかりません。"
+        )
 
     app.mainloop()

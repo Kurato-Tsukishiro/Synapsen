@@ -4,6 +4,7 @@ from tkinter import messagebox
 import datetime
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +18,7 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.note_data = note_data
 
         self._custom_icon_path = None  # 強制設定するアイコンパス
-        if hasattr(parent, 'icon_path') and parent.icon_path:
+        if hasattr(parent, "icon_path") and parent.icon_path:
             self._custom_icon_path = str(parent.icon_path)
 
             # --- 初期アイコンをすぐに設定 ---
@@ -60,12 +61,11 @@ class DataEditorWindow(ctk.CTkToplevel):
         cp_key_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
         cp_key_frame.grid(row=current_row, column=0, pady=5, sticky="ew")
         cp_key_frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            cp_key_frame, text="Index Key:", width=150, anchor="w"
-        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(cp_key_frame, text="Index Key:", width=150, anchor="w").grid(
+            row=0, column=0, sticky="w"
+        )
         self.cp_key_combo = ctk.CTkComboBox(
-            cp_key_frame,
-            values=self.commonplace_key_options
+            cp_key_frame, values=self.commonplace_key_options
         )
         self.cp_key_combo.grid(row=0, column=1, sticky="ew")
         self.cp_key_combo.set(self.note_data.get("commonplace_key", ""))
@@ -75,9 +75,9 @@ class DataEditorWindow(ctk.CTkToplevel):
         key_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
         key_frame.grid(row=current_row, column=0, pady=5, sticky="ew")
         key_frame.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(
-            key_frame, text="ユニークID (Key):", width=150, anchor="w"
-        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(key_frame, text="ユニークID (Key):", width=150, anchor="w").grid(
+            row=0, column=0, sticky="w"
+        )
         self.key_entry = ctk.CTkEntry(key_frame)
         self.key_entry.grid(row=0, column=1, sticky="ew")
         self.key_entry.insert(0, self.note_data.get("key", ""))
@@ -86,18 +86,13 @@ class DataEditorWindow(ctk.CTkToplevel):
 
         # 2. Summary (概要)
         summary_outer_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
-        summary_outer_frame.grid(
-            row=current_row, column=0, pady=(5, 0), sticky="ew"
+        summary_outer_frame.grid(row=current_row, column=0, pady=(5, 0), sticky="ew")
+        ctk.CTkLabel(summary_outer_frame, text="概要 (140文字以内):", anchor="w").pack(
+            side="top", fill="x"
         )
-        ctk.CTkLabel(
-            summary_outer_frame, text="概要 (140文字以内):", anchor="w"
-        ).pack(side="top", fill="x")
 
         self.summary_entry = ctk.CTkTextbox(
-            summary_outer_frame,
-            height=75,
-            wrap="word",
-            activate_scrollbars=False
+            summary_outer_frame, height=75, wrap="word", activate_scrollbars=False
         )
         self.summary_entry.pack(side="top", fill="x", pady=5)
 
@@ -110,11 +105,9 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.summary_entry.insert("1.0", summary_text)
 
         # イベントバインド
-        self.summary_entry.bind('<KeyRelease>', self.update_summary_count)
-        self.summary_entry.bind('<KeyPress>', self.forbid_newline_input)
-        self.summary_entry.bind(
-            '<<Modified>>', self.update_summary_count_modified
-        )
+        self.summary_entry.bind("<KeyRelease>", self.update_summary_count)
+        self.summary_entry.bind("<KeyPress>", self.forbid_newline_input)
+        self.summary_entry.bind("<<Modified>>", self.update_summary_count_modified)
         self.summary_entry.mark_set("insert", "1.0")
         self.summary_entry.edit_modified(False)
         current_row += 1
@@ -126,9 +119,7 @@ class DataEditorWindow(ctk.CTkToplevel):
         current_row += 1
 
         self.memo_textbox = ctk.CTkTextbox(left_frame, height=275)
-        self.memo_textbox.grid(
-            row=current_row, column=0, pady=5, sticky="nsew"
-        )
+        self.memo_textbox.grid(row=current_row, column=0, pady=5, sticky="nsew")
         self.memo_textbox.insert("1.0", self.note_data.get("memo", ""))
         # 行の重み設定を適用
         left_frame.grid_rowconfigure(current_row, weight=1)
@@ -149,13 +140,8 @@ class DataEditorWindow(ctk.CTkToplevel):
         tag_input_frame.grid(row=right_row, column=0, pady=5, sticky="ew")
         tag_input_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(
-            tag_input_frame, text="新しいタグ:"
-        ).grid(row=0, column=0, padx=5)
-        self.tag_entry = ctk.CTkEntry(
-            tag_input_frame,
-            placeholder_text="Enterで追加"
-        )
+        ctk.CTkLabel(tag_input_frame, text="新しいタグ:").grid(row=0, column=0, padx=5)
+        self.tag_entry = ctk.CTkEntry(tag_input_frame, placeholder_text="Enterで追加")
         self.tag_entry.grid(row=0, column=1, padx=5, sticky="ew")
         self.tag_entry.bind("<Return>", self.add_tag_event)
         right_row += 1
@@ -164,21 +150,15 @@ class DataEditorWindow(ctk.CTkToplevel):
         tag_button_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
         tag_button_frame.grid(row=right_row, column=0, pady=5, sticky="e")
         ctk.CTkButton(
-            tag_button_frame,
-            text="タグを追加",
-            command=self.add_tag_event
+            tag_button_frame, text="タグを追加", command=self.add_tag_event
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            tag_button_frame,
-            text="既存タグから選択",
-            command=self.open_tag_selector
+            tag_button_frame, text="既存タグから選択", command=self.open_tag_selector
         ).pack(side="left", padx=5)
         right_row += 1
 
         # 6. Current Tags Display
-        self.tags_frame = ctk.CTkScrollableFrame(
-            right_frame, label_text="現在のタグ"
-        )
+        self.tags_frame = ctk.CTkScrollableFrame(right_frame, label_text="現在のタグ")
         self.tags_frame.grid(row=right_row, column=0, pady=10, sticky="nsew")
         right_row += 1
 
@@ -186,14 +166,10 @@ class DataEditorWindow(ctk.CTkToplevel):
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
-            bottom_button_frame,
-            text="保存",
-            command=self.save_and_close
+            bottom_button_frame, text="保存", command=self.save_and_close
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            bottom_button_frame,
-            text="キャンセル",
-            command=self.destroy
+            bottom_button_frame, text="キャンセル", command=self.destroy
         ).pack(side="left", padx=5)
 
         self.update_tags_display()
@@ -210,10 +186,7 @@ class DataEditorWindow(ctk.CTkToplevel):
             default_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
 
             if length > max_length:
-                self.summary_count_label.configure(
-                    text=display_text,
-                    text_color="red"
-                )
+                self.summary_count_label.configure(text=display_text, text_color="red")
                 if length > max_length:
                     self.summary_entry.delete("1.0", "end-1c")
                     self.summary_entry.insert("1.0", content[:max_length])
@@ -221,8 +194,7 @@ class DataEditorWindow(ctk.CTkToplevel):
                     self.summary_entry.after(10, self.update_summary_count)
             else:
                 self.summary_count_label.configure(
-                    text=display_text,
-                    text_color=default_color
+                    text=display_text, text_color=default_color
                 )
             self.summary_entry.edit_modified(False)
 
@@ -236,37 +208,33 @@ class DataEditorWindow(ctk.CTkToplevel):
         default_color = ctk.ThemeManager.theme["CTkLabel"]["text_color"]
 
         if length > max_length:
-            self.summary_count_label.configure(
-                text=display_text,
-                text_color="red"
-            )
-            if event and event.keysym not in ('BackSpace', 'Delete'):
+            self.summary_count_label.configure(text=display_text, text_color="red")
+            if event and event.keysym not in ("BackSpace", "Delete"):
                 self.summary_entry.delete("1.0", "end-1c")
                 self.summary_entry.insert("1.0", content[:max_length])
                 self.summary_entry.after(10, self.update_summary_count)
         else:
             self.summary_count_label.configure(
-                text=display_text,
-                text_color=default_color
+                text=display_text, text_color=default_color
             )
 
     def forbid_newline_input(self, event):
         """Enter/Return キーが押された時に、イベントをブロックし改行入力を禁止する"""
-        if event.keysym == 'Return' or event.keysym == 'KP_Enter':
+        if event.keysym == "Return" or event.keysym == "KP_Enter":
             return "break"
 
     def save_and_close(self):
         raw_summary = self.summary_entry.get("1.0", "end-1c")
 
         # 改行と連続スペースの削除/置換
-        new_summary = re.sub(r'[\r\n]+', ' ', raw_summary)
-        new_summary = re.sub(r'\s+', ' ', new_summary).strip()
+        new_summary = re.sub(r"[\r\n]+", " ", raw_summary)
+        new_summary = re.sub(r"\s+", " ", new_summary).strip()
 
         if len(new_summary) > 140:
             messagebox.showerror(
                 "入力エラー",
                 f"概要が140文字を超えています。（現在: {len(new_summary)}文字）\n保存できません。",
-                parent=self
+                parent=self,
             )
             return
 
@@ -285,19 +253,16 @@ class DataEditorWindow(ctk.CTkToplevel):
             tag_frame = ctk.CTkFrame(self.tags_frame)
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
-                tag_frame,
-                text="x",
-                width=20,
-                command=lambda t=tag: self.remove_tag(t)
+                tag_frame, text="x", width=20, command=lambda t=tag: self.remove_tag(t)
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 
     def add_tag_event(self, event=None):
         new_tag = self.tag_entry.get().strip()
         if new_tag:
-            parts = new_tag.split('_')
+            parts = new_tag.split("_")
             for i in range(len(parts)):
-                hierarchical_tag = "_".join(parts[:i+1])
+                hierarchical_tag = "_".join(parts[: i + 1])
                 if hierarchical_tag not in self.temp_tags:
                     self.temp_tags.append(hierarchical_tag)
         self.update_tags_display()
@@ -349,11 +314,11 @@ class TagSelectorWindow(ctk.CTkToplevel):
 
         # parent (DataEditorWindow) が 'parent' (メインアプリ) 属性を持ち、
         # かつ、その 'parent' (メインアプリ) が 'icon_path' を持っているか確認
-        if hasattr(
-                parent, 'parent'
-                ) and hasattr(
-                    parent.parent, 'icon_path'
-                    ) and parent.parent.icon_path:
+        if (
+            hasattr(parent, "parent")
+            and hasattr(parent.parent, "icon_path")
+            and parent.parent.icon_path
+        ):
 
             # メインアプリ (parent.parent) の icon_path を直接取得
             self._custom_icon_path = str(parent.parent.icon_path)
@@ -379,7 +344,7 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 text_color=("#1F1F1F", "#1F1F1F"),
                 fg_color="transparent",
                 anchor="w",
-                command=lambda t=tag: self.select_tag(t)
+                command=lambda t=tag: self.select_tag(t),
             )
             btn.pack(fill="x")
 
@@ -422,7 +387,7 @@ class DateInputDialog(ctk.CTkToplevel):
         super().__init__(parent)
 
         self._custom_icon_path = None  # 強制設定するアイコンパス
-        if hasattr(parent, 'icon_path') and parent.icon_path:
+        if hasattr(parent, "icon_path") and parent.icon_path:
             self._custom_icon_path = str(parent.icon_path)
 
             # --- 初期アイコンをすぐに設定 ---
@@ -457,7 +422,9 @@ class DateInputDialog(ctk.CTkToplevel):
             year = int(self.year_entry.get())
             month = int(self.month_entry.get())
             if not (1 <= month <= 12):
-                messagebox.showerror("入力エラー", "月は1から12の間で入力してください。")
+                messagebox.showerror(
+                    "入力エラー", "月は1から12の間で入力してください。"
+                )
                 return
             self.result = (year, month)
             self.destroy()
@@ -500,6 +467,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
     DataEditorWindow が使う TagSelectorWindow とほぼ同じだが、
     アイコンの参照元が異なるため別クラスとして定義する。
     """
+
     def __init__(self, parent, all_tags, current_tags):
         super().__init__(parent)
 
@@ -507,11 +475,11 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
 
         # parent (BatchEditWindow) が 'parent' (メインアプリ) 属性を持ち、
         # かつ、その 'parent' (メインアプリ) が 'icon_path' を持っているか確認
-        if hasattr(
-                parent, 'parent'
-                ) and hasattr(
-                    parent.parent, 'icon_path'
-                    ) and parent.parent.icon_path:
+        if (
+            hasattr(parent, "parent")
+            and hasattr(parent.parent, "icon_path")
+            and parent.parent.icon_path
+        ):
 
             # メインアプリ (parent.parent) の icon_path を直接取得
             self._custom_icon_path = str(parent.parent.icon_path)
@@ -520,10 +488,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 try:
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
-                    logger.error(
-                        "Initial icon set error (BatchTagSelector): "
-                        f"{e}"
-                    )
+                    logger.error("Initial icon set error (BatchTagSelector): " f"{e}")
 
         self.selection = None
         self.title("既存のタグを選択")
@@ -540,7 +505,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 text_color=("#1F1F1F", "#1F1F1F"),
                 fg_color="transparent",
                 anchor="w",
-                command=lambda t=tag: self.select_tag(t)
+                command=lambda t=tag: self.select_tag(t),
             )
             btn.pack(fill="x")
 
@@ -569,8 +534,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
 # 一括編集ウィンドウ
 # ==============================================================================
 class BatchEditWindow(ctk.CTkToplevel):
-    def __init__(
-            self, parent, selected_count, all_tags, commonplace_key_options):
+    def __init__(self, parent, selected_count, all_tags, commonplace_key_options):
         super().__init__(parent)
         self.parent = parent
         self.all_tags = all_tags
@@ -582,7 +546,7 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.tags_to_remove = []
 
         self._custom_icon_path = None
-        if hasattr(parent, 'icon_path') and parent.icon_path:
+        if hasattr(parent, "icon_path") and parent.icon_path:
             self._custom_icon_path = str(parent.icon_path)
             if self._custom_icon_path:
                 try:
@@ -599,18 +563,12 @@ class BatchEditWindow(ctk.CTkToplevel):
         cp_key_frame = ctk.CTkFrame(self)
         cp_key_frame.pack(pady=10, padx=10, fill="x")
         ctk.CTkLabel(
-            cp_key_frame,
-            text="Index Key を設定:",
-            width=150,
-            anchor="w"
+            cp_key_frame, text="Index Key を設定:", width=150, anchor="w"
         ).pack(side="left")
 
         # [変更しない] オプションを追加
         cp_key_values = ["[ 変更しない ]"] + self.commonplace_key_options
-        self.cp_key_combo = ctk.CTkComboBox(
-            cp_key_frame,
-            values=cp_key_values
-        )
+        self.cp_key_combo = ctk.CTkComboBox(cp_key_frame, values=cp_key_values)
         self.cp_key_combo.pack(side="left", expand=True, fill="x")
         self.cp_key_combo.set("[ 変更しない ]")  # デフォルト
 
@@ -620,20 +578,17 @@ class BatchEditWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(add_tag_frame, text="追加するタグ:").pack(anchor="w")
 
-        add_tag_input_frame = ctk.CTkFrame(
-            add_tag_frame, fg_color="transparent")
+        add_tag_input_frame = ctk.CTkFrame(add_tag_frame, fg_color="transparent")
         add_tag_input_frame.pack(pady=5, fill="x")
         self.add_tag_entry = ctk.CTkEntry(
-            add_tag_input_frame,
-            placeholder_text="Enterで追加"
+            add_tag_input_frame, placeholder_text="Enterで追加"
         )
-        self.add_tag_entry.pack(
-            side="left", padx=(0, 5), expand=True, fill="x")
+        self.add_tag_entry.pack(side="left", padx=(0, 5), expand=True, fill="x")
         self.add_tag_entry.bind("<Return>", self.add_tag_to_add_list)
         ctk.CTkButton(
             add_tag_input_frame,
             text="既存タグから選択",
-            command=self.open_tag_selector_for_add
+            command=self.open_tag_selector_for_add,
         ).pack(side="left")
 
         self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
@@ -645,33 +600,25 @@ class BatchEditWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(remove_tag_frame, text="削除するタグ:").pack(anchor="w")
 
-        remove_tag_input_frame = ctk.CTkFrame(
-            remove_tag_frame, fg_color="transparent")
+        remove_tag_input_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
         remove_tag_input_frame.pack(pady=5, fill="x")
         self.remove_tag_entry = ctk.CTkEntry(
-            remove_tag_input_frame,
-            placeholder_text="Enterで追加"
+            remove_tag_input_frame, placeholder_text="Enterで追加"
         )
-        self.remove_tag_entry.pack(
-            side="left", padx=(0, 5), expand=True, fill="x")
+        self.remove_tag_entry.pack(side="left", padx=(0, 5), expand=True, fill="x")
         self.remove_tag_entry.bind("<Return>", self.add_tag_to_remove_list)
 
-        self.remove_tags_display_frame = ctk.CTkScrollableFrame(
-            remove_tag_frame)
+        self.remove_tags_display_frame = ctk.CTkScrollableFrame(remove_tag_frame)
         self.remove_tags_display_frame.pack(fill="both", expand=True)
 
         # --- 4. 適用 / キャンセルボタン ---
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
-            bottom_button_frame,
-            text="適用",
-            command=self.apply_changes
+            bottom_button_frame, text="適用", command=self.apply_changes
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            bottom_button_frame,
-            text="キャンセル",
-            command=self.destroy
+            bottom_button_frame, text="キャンセル", command=self.destroy
         ).pack(side="left", padx=5)
 
     def get_input(self):
@@ -684,9 +631,9 @@ class BatchEditWindow(ctk.CTkToplevel):
             index_key_to_set = None  # 変更しない場合は None を返す
 
         self.result = {
-            'index_key': index_key_to_set,
-            'tags_to_add': self.tags_to_add,
-            'tags_to_remove': self.tags_to_remove
+            "index_key": index_key_to_set,
+            "tags_to_add": self.tags_to_add,
+            "tags_to_remove": self.tags_to_remove,
         }
         self.destroy()
 
@@ -694,9 +641,9 @@ class BatchEditWindow(ctk.CTkToplevel):
     def add_tag_to_add_list(self, event=None):
         new_tag = self.add_tag_entry.get().strip()
         if new_tag:
-            parts = new_tag.split('_')
+            parts = new_tag.split("_")
             for i in range(len(parts)):
-                hierarchical_tag = "_".join(parts[:i+1])
+                hierarchical_tag = "_".join(parts[: i + 1])
                 if hierarchical_tag not in self.tags_to_add:
                     self.tags_to_add.append(hierarchical_tag)
         self.update_add_tags_display()
@@ -716,13 +663,12 @@ class BatchEditWindow(ctk.CTkToplevel):
                 tag_frame,
                 text="x",
                 width=20,
-                command=lambda t=tag: self.remove_tag_from_add_list(t)
+                command=lambda t=tag: self.remove_tag_from_add_list(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 
     def open_tag_selector_for_add(self):
-        selector = BatchTagSelectorWindow(
-            self, self.all_tags, self.tags_to_add)
+        selector = BatchTagSelectorWindow(self, self.all_tags, self.tags_to_add)
         selected_tag = selector.get_selection()
         if selected_tag:
             self.add_tag_entry.delete(0, "end")
@@ -752,7 +698,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                 tag_frame,
                 text="x",
                 width=20,
-                command=lambda t=tag: self.remove_tag_from_remove_list(t)
+                command=lambda t=tag: self.remove_tag_from_remove_list(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 

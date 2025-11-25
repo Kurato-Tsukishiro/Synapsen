@@ -8,12 +8,14 @@ import json
 # --- 追加インポート ---
 from PIL import Image
 import io
+
 try:
     from pyzbar.pyzbar import decode
 except ImportError:
     decode = None  # ライブラリがない場合のフォールバック用
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,25 +29,15 @@ def _normalize_key_text(raw_text: str) -> str:
     # 1. 日本語(ひらがな,カタカナ,漢字), 英数字(\w), 記号(/・),
     #    半角スペース以外のすべての文字(制御文字, ゼロ幅スペース等)を除去
     #    (\w は英数字とアンダースコアにマッチします)
-    pattern_to_remove = (
-        r'[^\w\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF/\s・]'
-    )
-    cleaned_text = re.sub(
-        pattern_to_remove,
-        '',
-        raw_text
-    )
+    pattern_to_remove = r"[^\w\u3040-\u30FF\u3400-\u4DBF\u4E00-\u9FFF/\s・]"
+    cleaned_text = re.sub(pattern_to_remove, "", raw_text)
 
     # 2. 改行や連続する空白を単一のスペースに正規化
-    normalized_text = (
-        " ".join(cleaned_text.split())
-        .strip()
-    )
+    normalized_text = " ".join(cleaned_text.split()).strip()
 
     # 3. Unicode正規化 (NFKC)
     #    互換文字 (例: '識' U+F9BC) を 標準文字 (例: '識' U+8B58) に変換
-    final_text = unicodedata.normalize(
-        'NFKC', normalized_text)
+    final_text = unicodedata.normalize("NFKC", normalized_text)
 
     return final_text
 
@@ -61,14 +53,12 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
     try:
         # --- 1. まずファイル名を解析 (フォールバック用) ---
         match = re.match(
-            r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf",
-            pdf_path.name,
-            re.IGNORECASE
+            r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf", pdf_path.name, re.IGNORECASE
         )
 
         if match:
             date_str, time_val, title = match.groups()
-            time_str = time_val.ljust(6, '0') if time_val else "999999"
+            time_str = time_val.ljust(6, "0") if time_val else "999999"
             key_time = time_str if time_str != "999999" else "000000"
             auto_generated_key = date_str + key_time
             is_warning = False
@@ -105,23 +95,20 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                             logger.warning(
                                 f"QR: pyzbarは起動しましたが、QRを検出できませんでした (Page 1) "
                                 f"({pdf_path.name})",
-                                extra={'sensitive': True}
+                                extra={"sensitive": True},
                             )
 
                         for obj in decoded_objects1:
-                            if obj.type == 'QRCODE':
-                                qr_text = obj.data.decode('utf-8').strip()
+                            if obj.type == "QRCODE":
+                                qr_text = obj.data.decode("utf-8").strip()
                                 if qr_text:
                                     try:
                                         # 【JSONパース試行】
                                         qr_data = json.loads(qr_text)
                                         # cpk (IndexKey) の取得
                                         if "cpk" in qr_data:
-                                            commonplace_key = (
-                                                unicodedata.normalize(
-                                                    'NFKC',
-                                                    qr_data.get("cpk", "")
-                                                )
+                                            commonplace_key = unicodedata.normalize(
+                                                "NFKC", qr_data.get("cpk", "")
                                             )
 
                                         # key (ユニークID) の取得
@@ -137,30 +124,27 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                             f"cpk={commonplace_key}, "
                                             f"key={auto_generated_key} "
                                             f"({pdf_path.name})",
-                                            extra={'sensitive': True}
+                                            extra={"sensitive": True},
                                         )
 
                                     except json.JSONDecodeError:
                                         # 【フォールバック: 文字列のみ】
-                                        commonplace_key = (
-                                            unicodedata.normalize(
-                                                'NFKC',
-                                                qr_text
-                                            )
+                                        commonplace_key = unicodedata.normalize(
+                                            "NFKC", qr_text
                                         )
                                         qr_found = True
                                         logger.info(
                                             "QR(非JSON)読み取り成功: "
                                             f"{commonplace_key} "
                                             f"({pdf_path.name})",
-                                            extra={'sensitive': True}
+                                            extra={"sensitive": True},
                                         )
 
                                     break
                     except Exception as e:
                         logger.warning(
                             f"QR読み取り失敗 (Page 1) ({pdf_path.name}): {e}",
-                            extra={'sensitive': True}
+                            extra={"sensitive": True},
                         )
 
                 # --- 2B. QRコードからの読み取り (Last Page: Refs) ---
@@ -179,37 +163,28 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                 f"QR: pyzbarは起動しましたが、"
                                 "QRを検出できませんでした (Last Page) "
                                 f"({pdf_path.name})",
-                                extra={'sensitive': True}
+                                extra={"sensitive": True},
                             )
 
                         for obj in decoded_objectsLast:
-                            if obj.type == 'QRCODE':
-                                qr_text_refs = obj.data.decode('utf-8').strip()
+                            if obj.type == "QRCODE":
+                                qr_text_refs = obj.data.decode("utf-8").strip()
                                 if qr_text_refs:
                                     try:
                                         # 【JSONパース試行】
                                         qr_data_refs = json.loads(qr_text_refs)
 
                                         # "refs" (引用Key) の取得
-                                        if (
-                                            "refs" in qr_data_refs and
-                                            isinstance(
-                                                qr_data_refs["refs"],
-                                                list
-                                            )
+                                        if "refs" in qr_data_refs and isinstance(
+                                            qr_data_refs["refs"], list
                                         ):
                                             links_to_add = []
-                                            for ref_key in qr_data_refs[
-                                                    "refs"
-                                                    ]:
-                                                links_to_add.append(
-                                                    f"[[{ref_key}]]"
-                                                )
+                                            for ref_key in qr_data_refs["refs"]:
+                                                links_to_add.append(f"[[{ref_key}]]")
 
                                             if links_to_add:
                                                 memo_from_qr = (
-                                                    "\n".join(links_to_add)
-                                                    + "\n"
+                                                    "\n".join(links_to_add) + "\n"
                                                 )
 
                                                 log_message = (
@@ -219,7 +194,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                                 )
                                                 logger.info(
                                                     log_message,
-                                                    extra={'sensitive': True}
+                                                    extra={"sensitive": True},
                                                 )
                                     except json.JSONDecodeError:
                                         # 最終ページのQRは "refs" 専用なので、
@@ -229,7 +204,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                     except Exception as e:
                         logger.warning(
                             f"QR読み取り失敗 (Last Page) ({pdf_path.name}): {e}",
-                            extra={'sensitive': True}
+                            extra={"sensitive": True},
                         )
                 else:
                     logger.warning(
@@ -242,7 +217,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                     logger.warning(
                         f"QRデバッグ: QR(Page 1)が見つからなかったため、key_rectを検索します "
                         f"({pdf_path.name})",
-                        extra={'sensitive': True}
+                        extra={"sensitive": True},
                     )
                     raw_text = doc[0].get_textbox(key_rect)
                     commonplace_key = _normalize_key_text(raw_text)
@@ -250,8 +225,8 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         except Exception as e:
             logger.error(
                 f"PyMuPDFでのIndex Key抽出エラー ({pdf_path.name}): {e}",
-                extra={'sensitive': True}
-                )
+                extra={"sensitive": True},
+            )
         finally:
             if doc:
                 doc.close()
@@ -270,13 +245,12 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "commonplace_key": commonplace_key,
             "filepath": filepath,
             "full_text": "",
-            "is_warning": is_warning
+            "is_warning": is_warning,
         }
 
     except Exception as e:
         logger.error(
-            f"PDF情報取得エラー ({pdf_path.name}): {e}",
-            extra={'sensitive': True}
+            f"PDF情報取得エラー ({pdf_path.name}): {e}", extra={"sensitive": True}
         )
         return {
             "date": "読み込み失敗",
@@ -289,7 +263,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "commonplace_key": "",
             "filepath": str(pdf_path),
             "full_text": "",
-            "is_warning": True
+            "is_warning": True,
         }
 
 
@@ -317,7 +291,7 @@ def get_full_text(pdf_path: Path) -> str:
 
         # 抽出したfull_text全体も正規化する
         if full_text:
-            normalized_text = unicodedata.normalize('NFKC', full_text)
+            normalized_text = unicodedata.normalize("NFKC", full_text)
             return normalized_text.strip()
         else:
             return ""
@@ -325,7 +299,7 @@ def get_full_text(pdf_path: Path) -> str:
     except Exception as e:
         logger.error(
             f"PyMuPDFでのテキスト抽出エラー ({pdf_path.name}): {e}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         return ""
     finally:
