@@ -93,6 +93,10 @@ class Synapsen_Nexus(ctk.CTk):
 
         self.browser_path = None            # configから読み込むブラウザパス
 
+        self.config_data = {}               # Canvas等から参照される設定辞書
+        self.paper_width = 595.276          # デフォルト A4
+        self.paper_height = 841.89          # デフォルト A4
+
         self.key_icons = {}                 # IndexKeyごとのアイコン
         self.key_colors = {}                # IndexKeyごとの色
         self.commonplace_keys_options = []  # IndexKeyの全オプション
@@ -242,6 +246,14 @@ class Synapsen_Nexus(ctk.CTk):
             self.include_all_tags_for_autocomplete = config_data.get(
                 "include_all_tags_for_autocomplete", True
             )
+
+            paper_size = config_data.get("paper_size", "A4").upper()
+            if paper_size == "A5":
+                self.paper_width = 419.528
+                self.paper_height = 595.276
+            else:
+                self.paper_width = 595.276
+                self.paper_height = 841.89
 
             # フィルターチェックボックスをUIに反映
             self.populate_key_filters()

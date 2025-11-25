@@ -1,16 +1,17 @@
+import os
+import re
+import sys
+import tempfile
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import json
 from pathlib import Path
 import configparser
-import os
 import fitz  # PyMuPDF
 import sqlite3
-import re
 import datetime
 import shutil
-import sys
 
 # 分割したモジュールをインポート
 import logging
@@ -414,10 +415,30 @@ class CanvasWindow(ctk.CTkToplevel):
             hover_color="#004D40",
         ).pack(side="left", padx=2)
 
+        # ズーム関連
         ctk.CTkLabel(self.toolbar, text="| ズーム:").pack(side="left", padx=5)
+        # [-] ボタン
         ctk.CTkButton(
             self.toolbar, text="-", width=30, command=self._zoom_out_btn
         ).pack(side="left", padx=2)
+
+        # リセットボタン
+        self.zoom_label_var = ctk.StringVar(value="100%")
+        self.zoom_reset_button = ctk.CTkButton(
+            self.toolbar,
+            textvariable=self.zoom_label_var,  # テキストは動的に変わる
+            width=50,
+            command=self.reset_view,           # クリック時の動作
+            font=("", 12),
+            fg_color="transparent",            # 通常は背景透明（ラベル風）
+            border_width=1,                    # 枠線をつけてボタンであることを示す
+            border_color="gray",
+            text_color=("black", "white"),
+            hover_color=("gray70", "gray30"),  # ホバー時の色
+        )
+        self.zoom_reset_button.pack(side="left", padx=2)
+
+        # [+] ボタン
         ctk.CTkButton(self.toolbar, text="+", width=30, command=self._zoom_in_btn).pack(
             side="left", padx=2
         )
@@ -548,7 +569,10 @@ class CanvasWindow(ctk.CTkToplevel):
 
         self.lift()
         self.attributes("-topmost", True)
+
+        # window描写待ちの遅延が必要な処理
         self.after(500, lambda: self.attributes("-topmost", False))
+        self.after(100, self.center_view)  # 初期表示位置(中央)に移動
         self.focus_force()
 
     def show_help(self):
@@ -608,6 +632,7 @@ class CanvasWindow(ctk.CTkToplevel):
         self.canvas.delete("grid")
         scaled_step = step * self.current_scale
 
+        # --- 1. 通常のグリッド描画 ---
         for x in range(0, int(width * self.current_scale), int(scaled_step)):
             self.canvas.create_line(
                 x,
@@ -626,7 +651,82 @@ class CanvasWindow(ctk.CTkToplevel):
                 fill=self.grid_color,
                 tags=("grid",),
             )
+
+        # --- 2. 用紙サイズ補助枠 & 中央十字 の描画 ---
+        base_pw = getattr(self.parent_app, "paper_width", 595.276)
+        base_ph = getattr(self.parent_app, "paper_height", 841.89)
+        p_size_name = self.parent_app.config_data.get("paper_size", "A4")
+
+        # サイズを4倍に変更
+        pw = base_pw * 4
+        ph = base_ph * 4
+
+        # キャンバスの仮想中心 (論理座標)
+        cx = width / 2
+        cy = height / 2
+
+        # 枠の座標計算
+        x1 = (cx - pw / 2) * self.current_scale
+        y1 = (cy - ph / 2) * self.current_scale
+        x2 = (cx + pw / 2) * self.current_scale
+        y2 = (cy + ph / 2) * self.current_scale
+
+        # スタイル設定
+        guide_color = "#FF4081" if ctk.get_appearance_mode() == "Dark" else "#D81B60"
+
+        # 枠線の描画
+        self.canvas.create_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            outline=guide_color,
+            width=2,
+            dash=(10, 10),
+            tags=("grid", "guide"),
+        )
+
+        # ラベル
+        self.canvas.create_text(
+            x1 + 10,
+            y1 + 10,
+            text=f"{p_size_name} (x4) ガイド",
+            anchor="nw",
+            fill=guide_color,
+            font=("", int(12 * self.current_scale)),
+            tags=("grid", "guide"),
+        )
+
+        # 中央十字 (Crosshair) の描画
+        cross_size = 20 * self.current_scale
+        center_x = cx * self.current_scale
+        center_y = cy * self.current_scale
+
+        # 横線
+        self.canvas.create_line(
+            center_x - cross_size,
+            center_y,
+            center_x + cross_size,
+            center_y,
+            fill=guide_color,
+            width=2,
+            tags=("grid", "guide"),
+        )
+        # 縦線
+        self.canvas.create_line(
+            center_x,
+            center_y - cross_size,
+            center_x,
+            center_y + cross_size,
+            fill=guide_color,
+            width=2,
+            tags=("grid", "guide"),
+        )
+
+        # 最背面へ移動
         self.canvas.tag_lower("grid")
+
+        # スクロール領域の更新
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_mousewheel(self, event):
@@ -647,6 +747,64 @@ class CanvasWindow(ctk.CTkToplevel):
         else:
             self.zoom(0.9, center_x=event.x, center_y=event.y)
 
+    def center_view(self):
+        """キャンバスの中央が画面の中心に来るようにスクロールする"""
+        self.update_idletasks()  # ウィンドウサイズを確定させる
+
+        try:
+            # 現在のスクロール領域を取得 (例: "0 0 5000 5000")
+            sr = self.canvas.cget("scrollregion").split()
+            if not sr:
+                return
+
+            # floatに変換
+            x1, y1, x2, y2 = map(float, sr)
+            content_w = x2 - x1
+            content_h = y2 - y1
+
+            if content_w <= 0 or content_h <= 0:
+                return
+
+            # ビューポート（表示領域）のサイズ
+            view_w = self.canvas.winfo_width()
+            view_h = self.canvas.winfo_height()
+
+            # 中央を表示するためのオフセット比率を計算
+            # (コンテンツ全体の中心 - 表示領域の半分) / コンテンツ全体幅
+            x_fraction = ((content_w / 2) - (view_w / 2)) / content_w
+            y_fraction = ((content_h / 2) - (view_h / 2)) / content_h
+
+            self.canvas.xview_moveto(x_fraction)
+            self.canvas.yview_moveto(y_fraction)
+
+        except Exception as e:
+            print(f"Centering failed: {e}")
+
+    def reset_view(self):
+        """
+        ズーム倍率を切り替え、中央にスクロールする。
+        - 現在が 100% (約1.0) の場合 -> 30% (0.3) に変更 (A4全体確認用)
+        - それ以外の場合 -> 100% (1.0) に戻す (標準)
+        """
+        if self.current_scale == 0:
+            return
+
+        target_scale = 1.0
+
+        # 現在がほぼ100% (誤差許容) なら、ターゲットを30%に設定
+        if 0.99 < self.current_scale < 1.01:
+            target_scale = 0.3
+
+        # 現在の倍率からターゲット倍率へ移行するための係数を計算
+        # (例: 現在1.0 -> 目標0.3 なら、係数は 0.3)
+        scale_factor = target_scale / self.current_scale
+
+        # ズームを実行 (内部で current_scale 更新とラベル書き換えが行われる)
+        self.zoom(scale_factor)
+
+        # 中央へ移動
+        self.center_view()
+
     def zoom(self, scale_factor, center_x=None, center_y=None):
         if center_x is None:
             center_x = self.canvas.winfo_width() / 2
@@ -656,6 +814,10 @@ class CanvasWindow(ctk.CTkToplevel):
         canvas_y = self.canvas.canvasy(center_y)
         self.canvas.scale("all", canvas_x, canvas_y, scale_factor, scale_factor)
         self.current_scale *= scale_factor
+
+        # ラベルの更新
+        self.zoom_label_var.set(f"{int(self.current_scale * 100)}%")
+
         self._apply_zoom_style()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
@@ -2028,6 +2190,9 @@ class CanvasWindow(ctk.CTkToplevel):
         self.connections_on_canvas = []
         self.selected_items = set()
         self.current_scale = 1.0
+        if hasattr(self, "zoom_label_var"):
+            self.zoom_label_var.set("100%")
+        self.center_view()
 
     def export_canvas_dialog(self):
         file_path = filedialog.asksaveasfilename(
@@ -2045,6 +2210,7 @@ class CanvasWindow(ctk.CTkToplevel):
             )
         except Exception as e:
             messagebox.showerror("エラー", f"出力に失敗しました:\n{e}", parent=self)
+            logger.error(f"PDF Export Error: {e}")
 
     def _hex_to_rgb(self, hex_color):
         hex_color = hex_color.lstrip("#")
@@ -2052,10 +2218,10 @@ class CanvasWindow(ctk.CTkToplevel):
 
     def _export_to_file(self, output_path):
         """
-        キャンバスの内容をPDFとしてエクスポートする。
-        ノート、付箋に加え、接続線(Connection)と図形(Shape)も描画する。
+        キャンバスの内容を一時PDFに出力し、Normalisiererの機能を使って
+        指定用紙サイズ（A4等）に正規化して保存する。
         """
-        # 1. 全アイテムの包含矩形（バウンディングボックス）を計算し、キャンバスサイズを決定
+        # --- 1. コンテンツ領域の計算 ---
         min_x, min_y, max_x, max_y = (
             float("inf"),
             float("inf"),
@@ -2070,165 +2236,169 @@ class CanvasWindow(ctk.CTkToplevel):
             max_x = max(max_x, x + w)
             max_y = max(max_y, y + h)
 
-        # ノート (固定サイズ: 160x80)
+        # バウンディングボックス計算
         for info in self.notes_on_canvas.values():
             update_bounds(info["x"], info["y"], 160, 80)
-
-        # 付箋 (可変サイズ)
         for s in self.stickies_on_canvas:
             update_bounds(s["x"], s["y"], s["w"], s["h"])
-
-        # 図形 (Line, Rect)
         for s in self.shapes_on_canvas:
             if s["type"] == "rect":
                 update_bounds(s["x"], s["y"], s.get("w", 0), s.get("h", 0))
             elif s["type"] == "line":
-                # 線の始点と終点を考慮
                 min_x = min(min_x, s["x1"], s["x2"])
                 min_y = min(min_y, s["y1"], s["y2"])
                 max_x = max(max_x, s["x1"], s["x2"])
                 max_y = max(max_y, s["y1"], s["y2"])
 
-        # アイテムが何もない場合のデフォルトサイズ
         if min_x == float("inf"):
-            min_x = 0
-            min_y = 0
-            max_x = 100
-            max_y = 100
+            min_x, min_y, max_x, max_y = 0, 0, 100, 100
 
-        # マージンを追加
+        # コンテンツサイズ + マージン
         margin = 50
-        width = max_x - min_x + margin * 2
-        height = max_y - min_y + margin * 2
+        content_w = max_x - min_x + margin * 2
+        content_h = max_y - min_y + margin * 2
 
-        # PDFドキュメント作成
-        doc = fitz.open()
-        page = doc.new_page(width=width, height=height)
+        # --- 2. 一時PDFの生成 (Normalisiererに渡すための原版) ---
+        # 一時ディレクトリを作成して処理
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_raw_pdf = Path(temp_dir) / "raw_canvas_export.pdf"
 
-        # メタデータ設定 (Normalisiererでの再処理時にサイズ変更されないようにフラグを付与)
-        doc.set_metadata(
-            {
-                "keywords": "Synapsen:Whiteboard; Synapsen:SkipNormalization",
-                "creator": "Synapsen Canvas",
-            }
-        )
+            doc = fitz.open()
+            page = doc.new_page(width=content_w, height=content_h)
 
-        # フォント登録 (日本語対応)
-        try:
-            page.insert_font(
-                fontname="msgothic", fontfile=r"C:\Windows\Fonts\msgothic.ttc"
+            # メタデータ設定
+            doc.set_metadata(
+                {
+                    "keywords": "Synapsen:Whiteboard",
+                    "creator": "Synapsen Canvas",
+                }
             )
-        except Exception:
-            pass
 
-        shape = page.new_shape()
-
-        # 座標変換ヘルパー (論理座標 -> PDFページ座標)
-        def tx(v):
-            return v - min_x + margin
-
-        def ty(v):
-            return v - min_y + margin
-
-        # ヘルパー: ノート/付箋の中心座標を取得 (接続線描画用)
-        def get_center(type_, key_):
-            if type_ == "note":
-                if key_ in self.notes_on_canvas:
-                    info = self.notes_on_canvas[key_]
-                    # ノートサイズ 160x80 の中心
-                    return tx(info["x"]) + 80, ty(info["y"]) + 40
-            elif type_ == "sticky":
-                # stickiesはリストなのでID(str)で検索
-                s = next(
-                    (x for x in self.stickies_on_canvas if str(id(x)) == key_), None
+            try:
+                page.insert_font(
+                    fontname="msgothic", fontfile=r"C:\Windows\Fonts\msgothic.ttc"
                 )
-                if s:
-                    return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
-            return None, None
+            except Exception:
+                pass
 
-        # --- 描画順序 (レイヤー): 接続線 -> 図形 -> 付箋 -> ノート ---
+            shape = page.new_shape()
 
-        # 1. 接続線 (Connections)
-        for c in self.connections_on_canvas:
-            x1, y1 = get_center(c["from_type"], c["from_key"])
-            x2, y2 = get_center(c["to_type"], c["to_key"])
+            # 座標変換用 (左上原点 + マージン)
+            def tx(v):
+                return v - min_x + margin
 
-            if x1 is not None and x2 is not None:
-                # DBリンク状態を確認して色を決定
-                is_linked = False
-                if c["from_type"] == "note" and c["to_type"] == "note":
-                    is_linked = self._check_db_link_exists(c["from_key"], c["to_key"])
+            def ty(v):
+                return v - min_y + margin
 
-                # リンクあり: 緑, なし: 黒 (PDF背景が白のため)
-                color = (0.15, 0.65, 0.27) if is_linked else (0, 0, 0)
+            # ヘルパー: 中心座標取得
+            def get_center(type_, key_):
+                if type_ == "note":
+                    if key_ in self.notes_on_canvas:
+                        info = self.notes_on_canvas[key_]
+                        return tx(info["x"]) + 80, ty(info["y"]) + 40
+                elif type_ == "sticky":
+                    s = next(
+                        (x for x in self.stickies_on_canvas if str(id(x)) == key_), None
+                    )
+                    if s:
+                        return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
+                return None, None
 
-                # 単純な直線を描画 (矢印は省略)
-                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
-                shape.finish(color=color, width=1)
+            # --- 描画 (回転なし・単純描画) ---
 
-        # 2. 図形 (Shapes)
-        for s in self.shapes_on_canvas:
-            if s["type"] == "rect":
-                # 枠線 (赤色の破線)
+            # 1. 接続線
+            for c in self.connections_on_canvas:
+                x1, y1 = get_center(c["from_type"], c["from_key"])
+                x2, y2 = get_center(c["to_type"], c["to_key"])
+
+                if x1 is not None and x2 is not None:
+                    is_linked = False
+                    if c["from_type"] == "note" and c["to_type"] == "note":
+                        is_linked = self._check_db_link_exists(
+                            c["from_key"], c["to_key"]
+                        )
+                    color = (0.15, 0.65, 0.27) if is_linked else (0, 0, 0)
+
+                    shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                    shape.finish(color=color, width=1)
+
+            # 2. 図形
+            for s in self.shapes_on_canvas:
+                if s["type"] == "rect":
+                    rtx, rty = tx(s["x"]), ty(s["y"])
+                    shape.draw_rect(
+                        fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
+                    )
+                    shape.finish(color=(1, 0, 0), width=1, dashes=[4, 4])
+                elif s["type"] == "line":
+                    x1, y1 = tx(s["x1"]), ty(s["y1"])
+                    x2, y2 = tx(s["x2"]), ty(s["y2"])
+                    shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                    shape.finish(color=(0, 0, 0), width=1)
+
+            # 3. 付箋
+            for s in self.stickies_on_canvas:
                 rtx, rty = tx(s["x"]), ty(s["y"])
-                shape.draw_rect(
-                    fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
+                w, h = s["w"], s["h"]
+
+                # 影
+                shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
+                shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
+
+                # 本体
+                shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
+                shape.finish(
+                    fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0
                 )
-                shape.finish(color=(1, 0, 0), width=1, dashes=[4, 4])  # 破線
-            elif s["type"] == "line":
-                # 線 (黒色)
-                x1, y1 = tx(s["x1"]), ty(s["y1"])
-                x2, y2 = tx(s["x2"]), ty(s["y2"])
-                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
-                shape.finish(color=(0, 0, 0), width=1)
 
-        # 3. 付箋 (Stickies)
-        for s in self.stickies_on_canvas:
-            rtx, rty = tx(s["x"]), ty(s["y"])
-            w, h = s["w"], s["h"]
+                # テキスト
+                disp = self._create_sticky_display_text(
+                    s.get("title", ""), s.get("content", "")
+                )
+                shape.insert_textbox(
+                    fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
+                    disp,
+                    fontname="msgothic",
+                    fontsize=12,
+                    color=(0, 0, 0),
+                )
 
-            # 影
-            shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
-            shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
+            # 4. ノート
+            for key, info in self.notes_on_canvas.items():
+                rtx, rty = tx(info["x"]), ty(info["y"])
+                col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
 
-            # 本体
-            shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
-            shape.finish(fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0)
+                shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
+                shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
 
-            # テキスト描画
-            disp = self._create_sticky_display_text(
-                s.get("title", ""), s.get("content", "")
-            )
-            # テキストボックスのマージンを少し取る
-            shape.insert_textbox(
-                fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
-                disp,
-                fontname="msgothic",
-                fontsize=12,
-                color=(0, 0, 0),
-            )
+                shape.insert_textbox(
+                    fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
+                    f"[[{key}: {info['title']}]]",
+                    fontname="msgothic",
+                    fontsize=10,
+                    align=1,
+                    color=(0, 0, 0),
+                )
 
-        # 4. ノート (Notes)
-        for key, info in self.notes_on_canvas.items():
-            rtx, rty = tx(info["x"]), ty(info["y"])
-            # 色取得
-            col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
+            shape.commit()
+            doc.save(str(temp_raw_pdf))
+            doc.close()
 
-            # ノート枠
-            shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
-            shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
+            # --- 3. Normalisiererによる正規化処理 (A4化) ---
+            # 親アプリの設定から用紙サイズを取得
+            target_format = self.parent_app.config_data.get("paper_size", "A4")
+            paper_width = self.parent_app.paper_width
+            paper_height = self.parent_app.paper_height
 
-            # ノートテキスト (リンク形式)
-            shape.insert_textbox(
-                fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
-                f"[[{key}: {info['title']}]]",
-                fontname="msgothic",
-                fontsize=10,
-                align=1,  # Center
-                color=(0, 0, 0),
+            # pdf_utilsのnormalize_pdf_to_papersizeを使用
+            # これにより、コンテンツ全体が指定用紙サイズ(A4/A5)の中央にフィットするようにリサイズされます
+            normalize_pdf_to_papersize(
+                str(temp_raw_pdf),
+                str(output_path),
+                paper_width,
+                paper_height,
+                target_format=target_format,
             )
 
-        # 描画の確定と保存
-        shape.commit()
-        doc.save(str(output_path))
-        doc.close()
+            # 処理済みフラグを付与 (Normalisiererでの再処理防止)
+            embed_processing_flag(str(output_path))

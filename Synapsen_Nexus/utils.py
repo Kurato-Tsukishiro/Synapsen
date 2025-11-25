@@ -140,6 +140,12 @@ def load_app_config(base_path):
             # セクションがない場合のデフォルト値
             config_data["include_all_tags_for_autocomplete"] = True
 
+        # [LaTeX]
+        if parser.has_section("LaTeX"):
+            config_data["paper_size"] = parser.get("LaTeX", "paper_size", fallback="A4")
+        else:
+            config_data["paper_size"] = "A4"
+
         # tags_data_path
         config_data["predefined_tags"] = []
         tags_path_from_config = parser.get("Paths", "tags_data_path", fallback="")
