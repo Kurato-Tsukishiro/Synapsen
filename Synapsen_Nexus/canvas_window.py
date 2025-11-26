@@ -187,10 +187,21 @@ class ConversionDialog(ctk.CTkToplevel):
     付箋をノートに変換する際や、キャンバスをPDF出力する際に使用されます。
     """
 
-    def __init__(self, parent, default_title, key_options):
+    def __init__(
+        self,
+        parent,
+        default_title,
+        key_options,
+        initial_color="#FFFFA5",
+        show_color_option=True,
+    ):
         super().__init__(parent)
         self.title("詳細設定")
-        self.geometry("500x250")
+        # 色選択がある場合は少し縦長に、ない場合は元のサイズに
+        if show_color_option:
+            self.geometry("500x350")
+        else:
+            self.geometry("500x250")
 
         self._custom_icon_path = None
         if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
@@ -200,34 +211,87 @@ class ConversionDialog(ctk.CTkToplevel):
         self.grab_set()
         self.result = None
         self.key_options = key_options
+        self.show_color_option = show_color_option
+        self.selected_color = tk.StringVar(value=initial_color)
 
         self.grid_columnconfigure(0, weight=1)
+        current_row = 0
 
+        # 1. タイトル入力
         ctk.CTkLabel(
             self, text="タイトル (日付時刻はファイル名に自動付与されます):", anchor="w"
-        ).grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
+        ).grid(row=current_row, column=0, padx=20, pady=(20, 5), sticky="ew")
+        current_row += 1
 
         self.title_entry = ctk.CTkEntry(self)
-        self.title_entry.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="ew")
-        self.title_entry.insert(0, default_title)
-
-        ctk.CTkLabel(self, text="Index Key (分類):", anchor="w").grid(
-            row=2, column=0, padx=20, pady=(0, 5), sticky="ew"
+        self.title_entry.grid(
+            row=current_row, column=0, padx=20, pady=(0, 15), sticky="ew"
         )
-        self.title_entry = ctk.CTkEntry(self)
-        self.title_entry.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="ew")
         self.title_entry.insert(0, default_title)
+        current_row += 1
 
+        # 2. Index Key 選択
         ctk.CTkLabel(self, text="Index Key (分類):", anchor="w").grid(
-            row=2, column=0, padx=20, pady=(0, 5), sticky="ew"
+            row=current_row, column=0, padx=20, pady=(0, 5), sticky="ew"
         )
+        current_row += 1
+
         self.key_combo = ctk.CTkComboBox(self, values=self.key_options)
-        self.key_combo.grid(row=3, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.key_combo.grid(
+            row=current_row,
+            column=0,
+            padx=20,
+            pady=(0, 15 if show_color_option else 20),
+            sticky="ew",
+        )
         if self.key_options:
             self.key_combo.set(self.key_options[0])
+        current_row += 1
 
+        # 3. 色選択 (オプション)
+        if self.show_color_option:
+            ctk.CTkLabel(self, text="背景色:", anchor="w").grid(
+                row=current_row, column=0, padx=20, pady=(0, 5), sticky="ew"
+            )
+            current_row += 1
+
+            color_frame = ctk.CTkFrame(self, fg_color="transparent")
+            color_frame.grid(
+                row=current_row, column=0, padx=20, pady=(0, 15), sticky="ew"
+            )
+            current_row += 1
+
+            colors = [
+                ("イエロー", "#FFFFA5"),
+                ("ブルー", "#D1EAFF"),
+                ("レッド", "#FFD1D1"),
+                ("グリーン", "#D1FFD1"),
+                ("ホワイト", "#FFFFF0"),
+                ("グレー", "#E0E0E0"),
+            ]
+
+            for i, (name, code) in enumerate(colors):
+                if ctk.get_appearance_mode() == "Dark":
+                    text_color = "gray90"
+                else:
+                    text_color = "black"
+
+                btn = ctk.CTkRadioButton(
+                    color_frame,
+                    text=name,
+                    value=code,
+                    variable=self.selected_color,
+                    fg_color=code,
+                    border_color="gray",
+                    text_color=text_color,
+                    width=80,
+                )
+                r, c = divmod(i, 3)
+                btn.grid(row=r, column=c, padx=5, pady=5, sticky="w")
+
+        # 4. ボタン
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=4, column=0, padx=20, pady=10, sticky="e")
+        btn_frame.grid(row=current_row, column=0, padx=20, pady=10, sticky="e")
 
         ctk.CTkButton(
             btn_frame,
@@ -236,7 +300,10 @@ class ConversionDialog(ctk.CTkToplevel):
             fg_color="gray",
             command=self.destroy,
         ).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="変換実行", width=80, command=self.on_ok).pack(
+
+        # ボタンテキストの調整
+        ok_text = "変換実行" if self.show_color_option else "PDF出力"
+        ctk.CTkButton(btn_frame, text=ok_text, width=80, command=self.on_ok).pack(
             side="left", padx=5
         )
 
@@ -264,7 +331,13 @@ class ConversionDialog(ctk.CTkToplevel):
         if not title:
             title = "NOTITLE"
         key = self.key_combo.get()
-        self.result = (title, key)
+
+        if self.show_color_option:
+            color = self.selected_color.get()
+            self.result = (title, key, color)
+        else:
+            self.result = (title, key)
+
         self.destroy()
 
 
@@ -2045,20 +2118,27 @@ class CanvasWindow(ctk.CTkToplevel):
     # --- Export Pipeline ---
     def _convert_sticky_to_note_pipeline(self, sticky_obj):
         default_title = sticky_obj.get("title", "NOTITLE")
+        current_color = sticky_obj.get("bg_color", "#FFFFA5")
 
         if hasattr(self.parent_app, "commonplace_keys_options"):
             key_options = self.parent_app.commonplace_keys_options
         else:
             key_options = []
 
-        dialog = ConversionDialog(self, default_title, key_options)
+        # 初期色を渡してダイアログを開く
+        dialog = ConversionDialog(
+            self,
+            default_title,
+            key_options,
+            initial_color=current_color,
+            show_color_option=True,
+        )
         self.wait_window(dialog)
 
         if dialog.result:
-            title, key = dialog.result
+            title, key, color = dialog.result
             content = sticky_obj.get("content", "")
-            bg_color = sticky_obj.get("bg_color", "#FFFFA5")
-            self._process_md_pdf_creation(title, content, key, bg_color)
+            self._process_md_pdf_creation(title, content, key, color)
 
     def _convert_selected_stickies_pipeline(self):
         combined_content = ""
@@ -2077,17 +2157,25 @@ class CanvasWindow(ctk.CTkToplevel):
         else:
             key_options = []
 
-        dialog = ConversionDialog(self, "まとめノート", key_options)
+        # デフォルト色（イエロー）でダイアログを開く
+        dialog = ConversionDialog(
+            self,
+            "まとめノート",
+            key_options,
+            initial_color="#FFFFA5",
+            show_color_option=True,
+        )
         self.wait_window(dialog)
 
         if dialog.result:
-            title, key = dialog.result
+            title, key, color = dialog.result
             for s in targets:
                 t_ = s.get("title", "NOTITLE")
                 c_ = s.get("content", "")
                 combined_content += f"## {t_}\n{c_}\n\n"
 
-            self._process_md_pdf_creation(title, combined_content, key, "#FFFFA5")
+            # 選択された色でPDF生成
+            self._process_md_pdf_creation(title, combined_content, key, color)
 
     def _process_md_pdf_creation(self, title, content, index_key, bg_color):
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2419,14 +2507,17 @@ class CanvasWindow(ctk.CTkToplevel):
         # デフォルトのタイトル (Canvas_Export)
         default_title = "Canvas_Export"
 
-        # 既存の ConversionDialog (タイトルとKey入力用) を再利用して入力させる
-        dialog = ConversionDialog(self, default_title, key_options)
+        # show_color_option=False で色選択を隠す
+        dialog = ConversionDialog(
+            self, default_title, key_options, show_color_option=False
+        )
         self.wait_window(dialog)
 
         if not dialog.result:
             return  # キャンセルされた場合
 
         # ユーザーが入力したタイトルとIndex Keyを取得
+        # show_color_option=False の場合、戻り値は (title, key) の2要素
         title_input, index_key_input = dialog.result
 
         # 現在日時を取得 (YYYYMMDD_hhmmss)
