@@ -30,7 +30,7 @@ import latex_generator as Generator             # noqa: E402
 import gui_dialogs as Dialogs                   # noqa: E402
 from pypdf import PdfReader, PdfWriter          # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
-from logging_setup import setup_logging         # noqa: E402
+from logging_setup import setup_logging  # noqa: E402
 
 
 # ==============================================================================
@@ -661,9 +661,10 @@ class Synapsen_Ersteller(ctk.CTk):
             if (info := Process.get_note_info(pdf_file, self.key_rect))
         ]
 
-        # ノート情報に 'summary' を追加（get_note_infoで取得できないため）
+        # ノート情報に 'summary' がなければ追加（get_note_infoで取得できた場合は維持）
         for info in self.all_notes_info:
-            info["summary"] = ""
+            if "summary" not in info:
+                info["summary"] = ""
 
         side_note_suffix = "_Note"
 

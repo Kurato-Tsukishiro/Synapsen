@@ -122,9 +122,8 @@ def add_metadata_to_clip(
     refs_qr_size_pt: int = 75,
 ) -> None:
     """
-    Playwrightで生成されたPDFに対し、
-    1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報及び引用Key(QR) を書き込みます。
-    また、処理済みであることを示すキーワードも埋め込みます。
+    PDFにメタデータ(QR/テキスト)を描画し、同時にPDFプロパティにも情報を埋め込みます。
+    処理済みであることを示すキーワードも埋め込みます。
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
@@ -151,19 +150,53 @@ def add_metadata_to_clip(
             )
             return
 
-        # メタデータのキーワード更新 (スキップフラグの埋め込み)
-        # (embed_processing_flagは余計な処理(saveIncr)が含まれるため使用しない)
+        # === 1. メタデータ(PDFプロパティ)への埋め込み処理 ===
+        # 既存のメタデータを取得
         current_metadata = doc.metadata
-        keywords = current_metadata.get("keywords", "")
 
+        # 既存のキーワードを取得
+        keywords = current_metadata.get("keywords", "")
         skip_flag = "Synapsen:SkipNormalization"
         if skip_flag not in keywords:
-            new_keywords = f"{keywords}; {skip_flag}" if keywords else skip_flag
+            keywords = f"{keywords}; {skip_flag}" if keywords else skip_flag
 
-            # fitzのset_metadataは辞書全体を渡す必要があるためコピーして更新
-            new_metadata = current_metadata.copy()
-            new_metadata["keywords"] = new_keywords
-            doc.set_metadata(new_metadata)
+        # メタデータ辞書のコピーを作成して更新
+        new_metadata = current_metadata.copy()
+        new_metadata["keywords"] = keywords
+
+        # ★ カスタムメタデータとして JSON 形式で情報を埋め込む
+        # Subject(件名) や Keywords(キーワード) を汚染しすぎないよう、
+        # PyMuPDFの機能を使ってカスタムキーを設定します。
+        # (注: 一般的なPDFビューアでは見えませんが、Synapsenからは読み取れます)
+
+        meta_info = {}
+        if index_key_to_embed:
+            meta_info["cpk"] = index_key_to_embed
+        if cited_keys_list:
+            meta_info["refs"] = cited_keys_list
+        if comment_to_embed:
+            meta_info["comment"] = comment_to_embed
+
+        # キー生成ロジック
+        auto_generated_key = ""
+        if base_name:
+            match = re.match(r"(\d{8})_(?:(\d{4,6})_)?(.+)", base_name, re.IGNORECASE)
+            if match:
+                date_str, time_val, _ = match.groups()
+                time_str = time_val.ljust(6, "0") if time_val else "999999"
+                key_time = time_str if time_str != "999999" else "000000"
+                auto_generated_key = date_str + key_time
+                meta_info["key"] = auto_generated_key
+
+        if meta_info:
+            # 安全策: Subjectフィールドの末尾に隠しJSONとして追記する
+            # (多くのPDFリーダーでプロパティとして確認可能になるメリットもあります)
+            json_str = json.dumps(meta_info, ensure_ascii=False)
+            current_subject = new_metadata.get("subject", "") or ""
+            new_metadata["subject"] = f"{current_subject}\n"
+
+        # メタデータを適用
+        doc.set_metadata(new_metadata)
 
         key_rect = fitz.Rect(key_rect_tuple)
         font_alias = "embed_font"
