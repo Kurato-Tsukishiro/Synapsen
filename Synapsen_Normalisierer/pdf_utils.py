@@ -1009,6 +1009,7 @@ def convert_document_to_pdf(
     input_path: Path,
     output_pdf_path: Path,
     paper_size_str: str = "A4",
+    pdf_margins: dict = None,
 ) -> None:
     """
     Pandoc (MD, TXT, DOCX等) と Playwright (HTML->PDF) を使用して ドキュメント を PDF に変換します。
@@ -1018,8 +1019,9 @@ def convert_document_to_pdf(
     Args:
         input_path (Path): 入力ファイルのパス。
         output_pdf_path (Path): 出力先PDFファイルのパス。
-        paper_size_str (str): "A4" または "A5" (config.iniの値)。
-        latex_font_name (str): (この関数では未使用)
+        paper_size_str (str): "A4" または "A5"。
+        pdf_margins (dict, optional): Playwrightのpage.pdfに渡すマージン設定。
+                                      Noneの場合はデフォルト(上下左右0)を使用。
     """
 
     # 一時ファイル用のパスを定義
@@ -1027,6 +1029,10 @@ def convert_document_to_pdf(
     temp_html_path = output_pdf_path.with_suffix(".temp.html")
 
     file_suffix = input_path.suffix.lower()
+
+    # デフォルトマージンの設定
+    if pdf_margins is None:
+        pdf_margins = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
 
     # --- ステップ 1: 前処理 (フォーマットごとに行う) ---
     try:
@@ -1120,7 +1126,7 @@ def convert_document_to_pdf(
             f"{error_details}"
         )
 
-    # --- ステップ 2: Playwright で HTML を PDF に変換 ---
+    # --- ステップ 3: Playwright で HTML を PDF に変換 ---
     playwright_paper_format = paper_size_str.upper()
 
     pw_instance = None
@@ -1141,7 +1147,7 @@ def convert_document_to_pdf(
             path=str(output_pdf_path),
             format=playwright_paper_format,
             print_background=True,
-            margin={"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"},
+            margin=pdf_margins,
         )
         logger.info(
             f"Playwright PDF変換完了: {output_pdf_path.name}", extra={"sensitive": True}

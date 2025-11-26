@@ -751,15 +751,17 @@ class WebClipWindow(ctk.CTkToplevel):
                 # Playwrightの用紙サイズは親アプリ(A4/A5)に合わせる
                 paper_size_format = self.parent_app.config_data.get("paper_size", "A4")
 
+                # Normalisierer側でヘッダー/フッター用の余白(約2cm以上)が確保されるため、
+                # ここでは素材を最大サイズで取得。
                 self.page.pdf(
                     path=str(temp_raw_item_path),
                     format=paper_size_format,
                     print_background=True,
                     margin={
-                        "top": "1cm",
-                        "bottom": "1cm",
-                        "left": "1cm",
-                        "right": "1cm",
+                        "top": "0",
+                        "bottom": "0",
+                        "left": "0",
+                        "right": "0",
                     },
                 )
         except (PlaywrightError, PlaywrightTimeoutError, urllib.error.URLError) as e:

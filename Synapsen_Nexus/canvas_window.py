@@ -2178,6 +2178,10 @@ class CanvasWindow(ctk.CTkToplevel):
             self._process_md_pdf_creation(title, combined_content, key, color)
 
     def _process_md_pdf_creation(self, title, content, index_key, bg_color):
+        """
+        Markdownを経由してPDFを生成するパイプライン。
+        CSSとPlaywrightの設定を調整し、用紙いっぱいに背景色を適用します。
+        """
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
         base_name = f"{now_str}_{safe_title}"
@@ -2193,56 +2197,79 @@ class CanvasWindow(ctk.CTkToplevel):
                 save_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 messagebox.showerror(
-                    "エラー",
-                    f"保存先フォルダを作成できません:\n{save_dir}\n{e}",
-                    parent=self,
+                    "エラー", f"保存先を作成できません: {e}", parent=self
                 )
                 return
 
         pdf_path = save_dir / f"{base_name}.pdf"
 
         try:
-            # ▼ 変更箇所: 一時フォルダ作成を前倒しし、mdファイルをそこに保存 ▼
             temp_dir = save_dir / "temp_canvas_process"
             temp_dir.mkdir(exist_ok=True)
 
-            # MDファイルを一時フォルダ内に作成 (処理後に削除される)
             md_path = temp_dir / f"{base_name}.md"
 
+            # ★ CSS意図:
+            # 1. htmlタグにも背景色を設定（印刷範囲外の余白防止）
+            # 2. bodyタグに 'max-width: none !important' を追加して、Pandocの幅制限を強制解除
+            # 3. 'min-height: 100vh' で、内容が短くてもページ全体を色で埋める
             style_tag = (
-                "<style> body "
-                f"{{ background-color: {bg_color}; padding: 20px; }} "
+                "<style>"
+                "html { width: 100%; margin: 0; padding: 0; "
+                f"background-color: {bg_color}; }}"
+                "body { "
+                f"  background-color: {bg_color} !important; "
+                "  width: 100% !important; "
+                "  margin: 0 !important; "
+                "  padding: 0 !important; "
+                "  max-width: none !important; "  # 横幅制限を解除
+                "  min-height: 100vh; "  # 縦方向も埋める
+                "}"
+                ".content-wrapper { padding: 20px; }"
                 "</style>"
             )
             meta_comment = "\n\n"
 
             md_text = (
-                f"{style_tag}\n{meta_comment}\n" f"# {title}\n\n" f"# [内容]\n{content}"
+                f"{style_tag}\n{meta_comment}\n"
+                "<div class='content-wrapper'>\n\n"
+                f"# {title}\n\n"
+                f"# [内容]\n{content}\n\n"
+                "</div>"
             )
 
             with open(md_path, "w", encoding="utf-8") as f:
                 f.write(md_text)
 
-            # temp_pdf, temp_flat のパス定義
             temp_pdf = temp_dir / f"temp_{base_name}.pdf"
             temp_flat = temp_dir / f"flat_{base_name}.pdf"
 
-            # self.font_path を使用 (config_dataエラー回避)
             if self.font_path:
                 font_path = self.font_path
             else:
                 font_path = r"C:\Windows\Fonts\msgothic.ttc"
 
-            convert_document_to_pdf(md_path, temp_pdf, paper_size_str="A4")
+            # 1. Markdown -> PDF変換 (A4サイズ)
+            convert_document_to_pdf(
+                md_path,
+                temp_pdf,
+                paper_size_str="A4",
+                pdf_margins={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+            )
+
+            # 2. フラット化
             high_fidelity_flatten(
                 str(temp_pdf), str(temp_flat), str(font_path), flatten_ink=False
             )
+
+            # 3. 正規化 (サイズ調整・配置)
             normalize_pdf_to_papersize(
                 str(temp_flat), str(pdf_path), 595.276, 841.89, target_format="A4"
             )
+
             embed_processing_flag(str(pdf_path))
 
-            # QRコードの埋め込み
+            # 4. メタデータ埋め込み
             key_rect_str = self._get_config_value(
                 "Extraction", "key_rect", "0, 13, 391, 73"
             )
@@ -2251,19 +2278,25 @@ class CanvasWindow(ctk.CTkToplevel):
             except Exception:
                 key_rect_tuple = (0, 13, 391, 73)
 
+            text_color_rgb = (0, 0, 0)
+            if index_key:
+                hex_c = self.parent_app.key_colors.get(index_key.lower())
+                if hex_c:
+                    text_color_rgb = self._hex_to_rgb(hex_c)
+
             add_metadata_to_clip(
                 pdf_path_str=str(pdf_path),
                 font_path=str(font_path),
-                paper_width=595.276,  # A4
+                paper_width=595.276,
                 paper_height=841.89,
                 key_rect_tuple=key_rect_tuple,
                 index_key_to_embed=index_key,
-                text_color=(0, 0, 0),
-                comment_to_embed="",
-                base_name=base_name,  # ユニークID生成用
+                text_color=text_color_rgb,
+                comment_to_embed=f"Sticky Note Export: {title}",
+                base_name=base_name,
             )
 
-            shutil.rmtree(temp_dir)  # ここでMDファイルごと一時フォルダを削除
+            shutil.rmtree(temp_dir)
 
             messagebox.showinfo(
                 "完了", f"ファイルを生成しました:\n{pdf_path.name}", parent=self
