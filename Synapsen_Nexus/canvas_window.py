@@ -578,6 +578,8 @@ class CanvasWindow(BaseSubWindow):
         self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
         self.canvas.bind("<Control-MouseWheel>", self._on_zoom_wheel)
 
+        self.bind("<Delete>", self.delete_selected_items)
+
     def set_mode(self, mode, label_text):
         self.current_mode = mode
         self.status_label_var.set(f"現在のツール: {label_text}")
@@ -1708,7 +1710,7 @@ class CanvasWindow(BaseSubWindow):
             )
             if obj:
                 menu.add_command(
-                    label="PDFを作成",
+                    label="PDFを作成 (保存のみ)",
                     command=lambda: self._convert_sticky_to_note_pipeline(obj),
                 )
                 selected_stickies = [
@@ -1721,33 +1723,43 @@ class CanvasWindow(BaseSubWindow):
                     )
 
         elif type_ == "connection":
-            obj = next(
-                (c for c in self.connections_on_canvas if c["id"] == obj_id), None
-            )
+            # 接続線の特定 (IDから検索)
+            item = self.canvas.find_closest(
+                self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+            )[0]
+            # connections_on_canvasから該当する辞書を探す
+            obj = next((c for c in self.connections_on_canvas if c["id"] == item), None)
 
-            if obj:
-                # ノート間の接続ならリンク操作メニューを追加
-                if obj["from_type"] == "note" and obj["to_type"] == "note":
-                    is_linked = self._check_db_link_exists(
-                        obj["from_key"], obj["to_key"]
-                    )
-                    label = "リンク解除" if is_linked else "リンク作成"
-                    menu.add_command(
-                        label=label,
-                        command=lambda: self._handle_connection_double_click(obj),
-                    )
+            if obj and obj["from_type"] == "note" and obj["to_type"] == "note":
+                is_linked = self._check_db_link_exists(obj["from_key"], obj["to_key"])
+                label = "リンク解除" if is_linked else "リンク作成"
+                menu.add_command(
+                    label=label,
+                    command=lambda: self._handle_connection_double_click(obj),
+                )
 
         elif type_ == "shape":
             obj = next((x for x in self.shapes_on_canvas if str(id(x)) == obj_id), None)
-
         elif type_ == "note":
             obj = obj_id  # note key
 
-        # 削除メニューの表示 (objが特定できた場合、またはノートの場合)
+        # 削除メニューの表示ロジック
         if obj is not None or type_ == "note":
-            menu.add_command(
-                label="削除", command=lambda: self._delete_item(type_, obj)
-            )
+            # ★変更: 右クリックした対象が「選択中」かつ「複数選択されている」場合は一括削除を表示
+            target_is_selected = (type_, obj_id) in self.selected_items
+
+            if target_is_selected and len(self.selected_items) > 1:
+                menu.add_separator()
+                menu.add_command(
+                    label=f"選択した {len(self.selected_items)} 項目を削除",
+                    command=self.delete_selected_items,
+                )
+            else:
+                menu.add_separator()
+                menu.add_command(
+                    label="削除", command=lambda: self._delete_item(type_, obj)
+                )
+
             menu.post(event.x_root, event.y_root)
 
     # --- Connection Logic ---
@@ -1980,23 +1992,73 @@ class CanvasWindow(BaseSubWindow):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def _delete_item(self, type_, obj):
+    def _get_obj_from_key(self, type_, key):
+        if type_ == "note":
+            return key  # Noteの場合はKeyそのものがオブジェクト(ID)
+        elif type_ == "sticky":
+            return next((s for s in self.stickies_on_canvas if str(id(s)) == key), None)
+        elif type_ == "shape":
+            return next((s for s in self.shapes_on_canvas if str(id(s)) == key), None)
+        return None
+
+    def delete_selected_items(self, event=None):
+        """選択中のアイテムを一括削除する"""
+        if not self.selected_items:
+            return
+
+        # 確認ダイアログ
+        if not messagebox.askyesno(
+            "削除確認",
+            f"選択した {len(self.selected_items)} 個のアイテムを削除しますか？",
+            parent=self,
+        ):
+            return
+
+        # 削除ループ中にセットが変更されるのを防ぐためコピーを作成
+        items_to_delete = list(self.selected_items)
+
+        for type_, key in items_to_delete:
+            obj = self._get_obj_from_key(type_, key)
+            if obj is not None:
+                # 個別の自動保存はスキップ (save_after=False)
+                self._delete_item(type_, obj, save_after=False)
+
+        # 選択状態をクリアして保存
+        self._clear_selection()
+        self.save_canvas()
+
+    def _delete_item(self, type_, obj, save_after=True):
         if type_ == "sticky":
             self.canvas.delete(obj["ids"][0])
             self.canvas.delete(obj["ids"][1])
             self.canvas.delete(obj["shadow_id"])
-            self.stickies_on_canvas.remove(obj)
-            self._remove_associated_connections(str(id(obj)), "sticky")
+
+            if obj in self.stickies_on_canvas:
+                self.stickies_on_canvas.remove(obj)
+
+            # 選択リストからも削除
+            sid = str(id(obj))
+            if ("sticky", sid) in self.selected_items:
+                self.selected_items.remove(("sticky", sid))
+
+            self._remove_associated_connections(sid, "sticky")
 
         elif type_ == "note":
-            self._delete_note(obj)
+            self._delete_note(obj)  # _delete_note内でselected_items操作あり
         elif type_ == "connection":
             self.canvas.delete(obj["id"])
             self.connections_on_canvas.remove(obj)
         elif type_ == "shape":
             self.canvas.delete(obj["id"])
             self.shapes_on_canvas.remove(obj)
-        self.save_canvas()
+
+            # 選択リストからも削除
+            sid = str(id(obj))
+            if ("shape", sid) in self.selected_items:
+                self.selected_items.remove(("shape", sid))
+
+        if save_after:
+            self.save_canvas()
 
     def _delete_note(self, key):
         ids = self.notes_on_canvas[key]["ids"]
