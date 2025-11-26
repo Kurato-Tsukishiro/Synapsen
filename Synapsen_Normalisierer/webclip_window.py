@@ -163,7 +163,7 @@ class WebClipWindow(ctk.CTkToplevel):
             return
 
         self.title("Webクリップで正規化")
-        self.geometry("450x730")
+        self.geometry("450x830")
 
         # アイコン設定
         self._custom_icon_path = None
