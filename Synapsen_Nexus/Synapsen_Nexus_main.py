@@ -2093,7 +2093,15 @@ class Synapsen_Nexus(ctk.CTk):
             messagebox.showinfo("エクスポート", "対象データがありません。", parent=self)
             return
 
-        export_folder = filedialog.askdirectory(title="エクスポート先を選択")
+        initial_dir = None
+        if hasattr(self, "nexus_output_folder") and self.nexus_output_folder:
+            if self.nexus_output_folder.exists():
+                initial_dir = str(self.nexus_output_folder)
+
+        export_folder = filedialog.askdirectory(
+            title="エクスポート先を選択",
+            initialdir=initial_dir,
+        )
         if not export_folder:
             return
 
@@ -2133,11 +2141,19 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         time_text = datetime.datetime.now().strftime("%Y%m%d")
+
+        initial_dir = None
+        if hasattr(self, "nexus_output_folder") and self.nexus_output_folder:
+            if self.nexus_output_folder.exists():
+                initial_dir = str(self.nexus_output_folder)
+
         save_path = filedialog.asksaveasfilename(
             title="統合PDFを保存",
             defaultextension=".pdf",
             filetypes=[("PDF Files", "*.pdf")],
             initialfile=f"Merged_Notes_{time_text}.pdf",
+            initialdir=initial_dir,
+            parent=self,
         )
         if not save_path:
             return
