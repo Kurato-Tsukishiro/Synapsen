@@ -34,12 +34,12 @@ CM_TO_PT: float = 72 / 2.54
 # (単位: cm)
 LAYOUT_MARGINS = {
     "A4": {
-        "top": 3.8,     # ヘッダー(2.5cm) + headsep(1.0cm) + 余裕
-        "bottom": 2.5,  # footskip(1.5cm) + 余裕
-        "left": 2.0,    # LaTeX margin(2.5cm) より少し広げて視認性確保
-        "right": 2.0,
+        "top": 2.2,
+        "bottom": 2.8,
+        "left": 1.0,
+        "right": 1.0,
     },
-    "A5": {"top": 3.2, "bottom": 2.0, "left": 1.5, "right": 1.5},  # A5用に少し縮小
+    "A5": {"top": 2.0, "bottom": 2.5, "left": 0.8, "right": 0.8},
 }
 
 # ==============================================================================
@@ -643,14 +643,15 @@ def normalize_pdf_to_papersize(
         return
     # -----------------------
 
-    # マージン設定の取得 (デフォルトはA4)
+    # マージン設定の取得
     margins = LAYOUT_MARGINS.get(target_format.upper(), LAYOUT_MARGINS["A4"])
 
     # cm -> pt 変換
     m_top = margins["top"] * CM_TO_PT
     m_bottom = margins["bottom"] * CM_TO_PT
-    m_left = margins["left"] * CM_TO_PT
-    m_right = margins["right"] * CM_TO_PT
+
+    # 左右マージン緩和の設定
+    min_side_margin = 0.5 * CM_TO_PT
 
     reader = None
     try:
@@ -658,8 +659,8 @@ def normalize_pdf_to_papersize(
         writer = PdfWriter()
 
         # 描画可能領域（Safe Area）の計算
-        drawable_width: float = paper_width - m_left - m_right
         drawable_height: float = paper_height - m_top - m_bottom
+        drawable_width_relaxed: float = paper_width - (min_side_margin * 2)
 
         for content_page in reader.pages:
             # 指定された用紙サイズの白紙ページを作成
@@ -677,16 +678,18 @@ def normalize_pdf_to_papersize(
                 )
                 continue
 
-            # 描画可能領域に収まるようスケーリング (アスペクト比維持)
-            scale = min(
-                drawable_width / original_width, drawable_height / original_height
-            )
+            # スケーリング倍率の計算
+            scale_h = drawable_height / original_height
+            scale_w = drawable_width_relaxed / original_width
+            scale = min(scale_w, scale_h)
 
-            # 描画可能領域内で中央に配置するためのオフセット計算
-            # (左マージン + 描画領域内でのセンタリング)
-            tx = m_left + (drawable_width - original_width * scale) / 2
-            # (下マージン + 描画領域内でのセンタリング)
-            ty = m_bottom + (drawable_height - original_height * scale) / 2
+            # --- 配置オフセット計算 ---
+
+            # 横方向: センタリング
+            tx = (paper_width - original_width * scale) / 2
+
+            # 縦方向: ヘッダー直下
+            ty = paper_height - m_top - (original_height * scale)
 
             transform = (
                 Transformation().scale(sx=scale, sy=scale).translate(tx=tx, ty=ty)
