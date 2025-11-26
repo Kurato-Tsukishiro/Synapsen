@@ -461,6 +461,10 @@ class CanvasWindow(ctk.CTkToplevel):
         self.base_font_size_sticky = 12
         self.base_line_width = 2
 
+        # --- ★ ズーム時のオフセット管理用変数 ---
+        self.canvas_offset_x = 0.0
+        self.canvas_offset_y = 0.0
+
         self.current_mode = "select"
         self.drag_data = {
             "x": 0,
@@ -924,6 +928,14 @@ class CanvasWindow(ctk.CTkToplevel):
         self.canvas.scale("all", canvas_x, canvas_y, scale_factor, scale_factor)
         self.current_scale *= scale_factor
 
+        # オフセットの更新 (原点の移動)
+        self.canvas_offset_x = self.canvas_offset_x * scale_factor + canvas_x * (
+            1 - scale_factor
+        )
+        self.canvas_offset_y = self.canvas_offset_y * scale_factor + canvas_y * (
+            1 - scale_factor
+        )
+
         # ラベルの更新
         self.zoom_label_var.set(f"{int(self.current_scale * 100)}%")
 
@@ -1148,8 +1160,9 @@ class CanvasWindow(ctk.CTkToplevel):
             )
             return
         df = self.parent_app.df
-        start_x = self.canvas.canvasx(100)
-        start_y = self.canvas.canvasy(100)
+        # ★ 論理座標に変換 (オフセット考慮)
+        start_x = (self.canvas.canvasx(100) - self.canvas_offset_x) / self.current_scale
+        start_y = (self.canvas.canvasy(100) - self.canvas_offset_y) / self.current_scale
         added = 0
         for _, row in df[df["key"].isin(selected_keys)].iterrows():
             key = row["key"]
@@ -1158,8 +1171,9 @@ class CanvasWindow(ctk.CTkToplevel):
             self.create_note_item(
                 key, row["title"], row.get("commonplace_key", ""), start_x, start_y
             )
-            start_x += 30 * self.current_scale
-            start_y += 30 * self.current_scale
+            # 30pxずつずらす（論理座標）
+            start_x += 30
+            start_y += 30
             added += 1
         if added > 0:
             self.save_canvas()
@@ -1168,9 +1182,10 @@ class CanvasWindow(ctk.CTkToplevel):
         # x, y, w, h は論理座標(スケール1.0)として受け取る
         color = self.parent_app.key_colors.get(cp_key.lower(), "#aaaaaa")
 
-        # 描画用サイズ・座標計算 (画面表示用)
+        # 描画用サイズ・座標計算 (画面表示用 - オフセット考慮)
         sw, sh = w * self.current_scale, h * self.current_scale
-        sx, sy = x * self.current_scale, y * self.current_scale
+        sx = x * self.current_scale + self.canvas_offset_x
+        sy = y * self.current_scale + self.canvas_offset_y
 
         fs = max(6, int(self.base_font_size_note * self.current_scale))
         lw = max(1, int(self.base_line_width * self.current_scale))
@@ -1218,9 +1233,10 @@ class CanvasWindow(ctk.CTkToplevel):
     def create_sticky_item(
         self, x, y, title="", content="", bg_color="#FFFFA5", w=180, h=120
     ):
-        # 描画用サイズ・座標計算
+        # 描画用サイズ・座標計算 (オフセット考慮)
         sw, sh = w * self.current_scale, h * self.current_scale
-        sx, sy = x * self.current_scale, y * self.current_scale
+        sx = x * self.current_scale + self.canvas_offset_x
+        sy = y * self.current_scale + self.canvas_offset_y
 
         # パディングもスケールさせる (論理10px)
         pad = 10 * self.current_scale
@@ -1381,10 +1397,12 @@ class CanvasWindow(ctk.CTkToplevel):
     ):
         lw = max(1, int(self.base_line_width * self.current_scale))
 
-        # 描画用座標変換
-        sx, sy = x * self.current_scale, y * self.current_scale
+        # 描画用座標変換 (オフセット考慮)
+        sx = x * self.current_scale + self.canvas_offset_x
+        sy = y * self.current_scale + self.canvas_offset_y
         sw, sh = w * self.current_scale, h * self.current_scale
-        sx2, sy2 = x2 * self.current_scale, y2 * self.current_scale
+        sx2 = x2 * self.current_scale + self.canvas_offset_x
+        sy2 = y2 * self.current_scale + self.canvas_offset_y
 
         if shape_type == "rect":
             iid = self.canvas.create_rectangle(
@@ -1544,7 +1562,10 @@ class CanvasWindow(ctk.CTkToplevel):
             if dialog.result:
                 title, content, color = dialog.result
                 if title or content:
-                    self.create_sticky_item(cx, cy, title, content, bg_color=color)
+                    # 論理座標に変換 (オフセット考慮)
+                    lx = (cx - self.canvas_offset_x) / self.current_scale
+                    ly = (cy - self.canvas_offset_y) / self.current_scale
+                    self.create_sticky_item(lx, ly, title, content, bg_color=color)
                     self.save_canvas()
 
         elif self.current_mode in ("rect", "line"):
@@ -1874,10 +1895,15 @@ class CanvasWindow(ctk.CTkToplevel):
                 or abs(cy - self.drag_data["start_y"]) > 5
             ):
 
-                lx1 = self.drag_data["start_x"] / self.current_scale
-                ly1 = self.drag_data["start_y"] / self.current_scale
-                lx2 = cx / self.current_scale
-                ly2 = cy / self.current_scale
+                # 論理座標に変換 (オフセット考慮)
+                lx1 = (
+                    self.drag_data["start_x"] - self.canvas_offset_x
+                ) / self.current_scale
+                ly1 = (
+                    self.drag_data["start_y"] - self.canvas_offset_y
+                ) / self.current_scale
+                lx2 = (cx - self.canvas_offset_x) / self.current_scale
+                ly2 = (cy - self.canvas_offset_y) / self.current_scale
 
                 selected_color_name = self.color_var.get()
                 selected_color_code = self.shape_colors.get(selected_color_name, "red")
@@ -2526,6 +2552,9 @@ class CanvasWindow(ctk.CTkToplevel):
         self.connections_on_canvas = []
         self.selected_items = set()
         self.current_scale = 1.0
+        # ★ オフセットリセット
+        self.canvas_offset_x = 0.0
+        self.canvas_offset_y = 0.0
         if hasattr(self, "zoom_label_var"):
             self.zoom_label_var.set("100%")
         self.center_view()
