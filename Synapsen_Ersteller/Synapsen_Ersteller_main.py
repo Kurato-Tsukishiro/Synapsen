@@ -20,17 +20,17 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 # === 3. プロジェクト内モジュールとサードパーティ ===
-import db_recovery_tool               # noqa: E402
-from tkinter import messagebox        # noqa: E402 (tkinterグループ)
-import customtkinter as ctk           # noqa: E402
-import pandas as pd                   # noqa: E402
-import PDFMargeHelper as Helper       # noqa: E402
-import pdf_processor as Process       # noqa: E402
-import latex_generator as Generator   # noqa: E402
-import gui_dialogs as Dialogs         # noqa: E402
-from pypdf import PdfReader, PdfWriter, Transformation  # noqa: E402
-from Synapsen_Nexus import utils as NexusUtils          # noqa: E402
-from logging_setup import setup_logging                 # noqa: E402
+import db_recovery_tool                         # noqa: E402
+from tkinter import messagebox                  # noqa: E402 (tkinterグループ)
+import customtkinter as ctk                     # noqa: E402
+import pandas as pd                             # noqa: E402
+import PDFMargeHelper as Helper                 # noqa: E402
+import pdf_processor as Process                 # noqa: E402
+import latex_generator as Generator             # noqa: E402
+import gui_dialogs as Dialogs                   # noqa: E402
+from pypdf import PdfReader, PdfWriter          # noqa: E402
+from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
+from logging_setup import setup_logging         # noqa: E402
 
 
 # ==============================================================================
@@ -1142,23 +1142,7 @@ class Synapsen_Ersteller(ctk.CTk):
 
                     template_page = draft_reader.pages[note_page_cursor]
                     content_page = original_reader.pages[i]
-
-                    original_width = float(content_page.mediabox.width)
-                    original_height = float(content_page.mediabox.height)
-                    if original_width == 0 or original_height == 0:
-                        continue
-
-                    scale_w = self.paper_width / original_width
-                    scale_h = self.paper_height / original_height
-                    scale = min(scale_w, scale_h)
-                    tx = (self.paper_width - original_width * scale) / 2
-                    ty = (self.paper_height - original_height * scale) / 2
-                    transform = (
-                        Transformation()
-                        .scale(sx=scale, sy=scale)
-                        .translate(tx=tx, ty=ty)
-                    )
-                    template_page.merge_transformed_page(content_page, transform)
+                    template_page.merge_page(content_page)
 
                     final_writer.add_page(template_page)
                     note_page_cursor += 1
