@@ -149,67 +149,71 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
 
                 # --- 2B. QRコードからの読み取り (Last Page: Refs) ---
                 # (1ページ目と最終ページが異なる場合のみ実行)
-                if decode is not None and len(doc) > 1:
-                    try:
-                        pageLast = doc[-1]  # 最終ページを取得
-                        pixLast = pageLast.get_pixmap(dpi=200)
-                        img_dataLast = pixLast.tobytes("png")
-                        pil_imageLast = Image.open(io.BytesIO(img_dataLast))
+                if len(doc) > 1:
+                    if decode is not None:
+                        try:
+                            pageLast = doc[-1]  # 最終ページを取得
+                            pixLast = pageLast.get_pixmap(dpi=200)
+                            img_dataLast = pixLast.tobytes("png")
+                            pil_imageLast = Image.open(io.BytesIO(img_dataLast))
 
-                        decoded_objectsLast = decode(pil_imageLast)
+                            decoded_objectsLast = decode(pil_imageLast)
 
-                        if not decoded_objectsLast:
+                            if not decoded_objectsLast:
+                                logger.warning(
+                                    f"QR: pyzbarは起動しましたが、"
+                                    "QRを検出できませんでした (Last Page) "
+                                    f"({pdf_path.name})",
+                                    extra={"sensitive": True},
+                                )
+
+                            for obj in decoded_objectsLast:
+                                if obj.type == "QRCODE":
+                                    qr_text_refs = obj.data.decode("utf-8").strip()
+                                    if qr_text_refs:
+                                        try:
+                                            # 【JSONパース試行】
+                                            qr_data_refs = json.loads(qr_text_refs)
+
+                                            # "refs" (引用Key) の取得
+                                            if "refs" in qr_data_refs and isinstance(
+                                                qr_data_refs["refs"], list
+                                            ):
+                                                links_to_add = []
+                                                for ref_key in qr_data_refs["refs"]:
+                                                    links_to_add.append(
+                                                        f"[[{ref_key}]]"
+                                                    )
+
+                                                if links_to_add:
+                                                    memo_from_qr = (
+                                                        "\n".join(links_to_add) + "\n"
+                                                    )
+
+                                                    log_message = (
+                                                        f"QR(Last Page)読み取り成功: "
+                                                        f"refs={len(links_to_add)}"
+                                                        f" ({pdf_path.name})"
+                                                    )
+                                                    logger.info(
+                                                        log_message,
+                                                        extra={"sensitive": True},
+                                                    )
+                                        except json.JSONDecodeError:
+                                            # 最終ページのQRは "refs" 専用なので、
+                                            # JSON以外 (Page 1 の cpk のみQR等) は無視
+                                            pass
+                                        break  # 最終ページの最初のQRデコード成功でループを抜ける
+                        except Exception as e:
                             logger.warning(
-                                f"QR: pyzbarは起動しましたが、"
-                                "QRを検出できませんでした (Last Page) "
-                                f"({pdf_path.name})",
+                                f"QR読み取り失敗 (Last Page) ({pdf_path.name}): {e}",
                                 extra={"sensitive": True},
                             )
-
-                        for obj in decoded_objectsLast:
-                            if obj.type == "QRCODE":
-                                qr_text_refs = obj.data.decode("utf-8").strip()
-                                if qr_text_refs:
-                                    try:
-                                        # 【JSONパース試行】
-                                        qr_data_refs = json.loads(qr_text_refs)
-
-                                        # "refs" (引用Key) の取得
-                                        if "refs" in qr_data_refs and isinstance(
-                                            qr_data_refs["refs"], list
-                                        ):
-                                            links_to_add = []
-                                            for ref_key in qr_data_refs["refs"]:
-                                                links_to_add.append(f"[[{ref_key}]]")
-
-                                            if links_to_add:
-                                                memo_from_qr = (
-                                                    "\n".join(links_to_add) + "\n"
-                                                )
-
-                                                log_message = (
-                                                    f"QR(Last Page)読み取り成功: "
-                                                    f"refs={len(links_to_add)}"
-                                                    f" ({pdf_path.name})"
-                                                )
-                                                logger.info(
-                                                    log_message,
-                                                    extra={"sensitive": True},
-                                                )
-                                    except json.JSONDecodeError:
-                                        # 最終ページのQRは "refs" 専用なので、
-                                        # JSON以外 (Page 1 の cpk のみQR等) は無視
-                                        pass
-                                    break  # 最終ページの最初のQRデコード成功でループを抜ける
-                    except Exception as e:
+                    else:
+                        # ページ数が複数あるが、pyzbarがない場合のみ警告を出す
                         logger.warning(
-                            f"QR読み取り失敗 (Last Page) ({pdf_path.name}): {e}",
-                            extra={"sensitive": True},
+                            "QRデバッグ: pyzbarがインポートされていない (decode is None)"
                         )
-                else:
-                    logger.warning(
-                        "QRデバッグ: pyzbarがインポートされていない (decode is None)"
-                    )
 
                 # --- 2C. 指定座標からのテキスト抽出 (基本処理) ---
                 # (qr_found は Page 1 のQRが見つかったかのフラグ)
