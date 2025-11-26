@@ -2560,11 +2560,18 @@ class CanvasWindow(ctk.CTkToplevel):
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title_input)
         initial_file = f"{now_str}_{safe_title}.pdf"
 
+        initial_dir = None
+        if hasattr(self.parent_app, "nexus_output_folder"):
+            output_dir = self.parent_app.nexus_output_folder
+            if output_dir.exists():
+                initial_dir = str(output_dir)
+
         file_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDF Document", "*.pdf")],
             title="PDFとして保存",
             initialfile=initial_file,
+            initialdir=initial_dir,
             parent=self,
         )
         if not file_path:

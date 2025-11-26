@@ -2171,11 +2171,16 @@ class Synapsen_Nexus(ctk.CTk):
 
         # 保存先ダイアログ
         time_text = datetime.datetime.now().strftime("%Y%m%d")
+        initial_dir = None
+        if hasattr(self, "nexus_output_folder") and self.nexus_output_folder:
+            if self.nexus_output_folder.exists():
+                initial_dir = str(self.nexus_output_folder)
         save_path = filedialog.asksaveasfilename(
             title="MOC (Markdown) を保存",
             defaultextension=".md",
             filetypes=[("Markdown Files", "*.md")],
             initialfile=f"MOC_{time_text}.md",
+            initialdir=initial_dir,
         )
         if not save_path:
             return
