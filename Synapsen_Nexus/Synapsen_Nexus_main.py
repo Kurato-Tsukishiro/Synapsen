@@ -379,7 +379,7 @@ class Synapsen_Nexus(ctk.CTk):
             search_container,
             placeholder_text=(
                 "検索 (例: (date:>=20240101 AND date:<=20240131) AND"
-                + " (tag:Python OR tag:C#))"
+                + " (tag:Type_Fleeting OR tag:Question))"
             ),
         )
         self.search_entry.pack(fill="x", expand=True)
@@ -2394,13 +2394,13 @@ Synapsen Nexus 検索クエリ リファレンス
 
 ■ 基本
 - 検索語をスペースで区切ると `AND` 検索になります。
-  (例: `Python ノート術`)
+  (例: `Type_Permanent 薬物動態学`)
 - `OR` を使用すると `OR` 検索ができます。
-  (例: `Python OR C#`)
+  (例: `Type_Fleeting OR Question`)
 - `()` でグループ化できます。
-  (例: `(Python OR C#) AND (ikey:学習 OR ikey:タスク)`)
+  (例: `(tag:Type_Fleeting OR tag:Question) AND (ikey:学習 OR ikey:タスク)`)
 - `-` (ハイフン) を検索語の前に付けると `NOT` 検索になります。
-  (例: `Python -memo:古い`)
+  (例: `衛生 -memo:古い`)
 
 ---
 ■ プレフィックスとエイリアス
