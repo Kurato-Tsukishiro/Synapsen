@@ -164,24 +164,59 @@ class Synapsen_Nexus(ctk.CTk):
             logger.error(f"ウィンドウの最大化に失敗しました: {e}")
 
     def on_closing(self):
-        """アプリ終了時の処理 (バックアップ作成 - 強制上書き)"""
+        """
+        アプリ終了時の処理
+        1. バックアップ作成 (同日は上書き保存)
+        2. 古いバックアップの削除 (日単位でのローテーション)
+        """
         if self.loaded_db_path and Path(self.loaded_db_path).exists():
             try:
-                # バックアップフォルダ作成
                 db_path = Path(self.loaded_db_path)
                 backup_dir = db_path.parent / "db_backups"
                 backup_dir.mkdir(exist_ok=True)
 
-                # 日付付きファイル名でコピー (例: Synapsen_Master_20231027.db)
-                today = datetime.datetime.now().strftime("%Y%m%d")
-                backup_path = backup_dir / f"{db_path.stem}_{today}.db"
+                # --- 1. バックアップの作成 (同日は上書き) ---
+                # ファイル名: Synapsen_Master_YYYYMMDD.db
+                today_str = datetime.datetime.now().strftime("%Y%m%d")
+                backup_filename = f"{db_path.stem}_{today_str}.db"
+                backup_path = backup_dir / backup_filename
 
-                # 常に上書きコピー
+                # copy2 は同名ファイルがあれば上書きするため、
+                # その日の最後に終了した時点のデータが残ります
                 shutil.copy2(db_path, backup_path)
-                print(f"DBバックアップを更新しました: {backup_path.name}")
+                logger.info(f"DBバックアップを更新しました: {backup_path.name}")
+
+                # --- 2. 古いバックアップの削除 (ローテーション) ---
+                # 保持する日数 (例: 最新7日分を残す)
+                MAX_BACKUP_DAYS = 7
+
+                # バックアップファイルを検索
+                # globパターン: "Synapsen_Master_*.db"
+                # 日付形式 (YYYYMMDD) は文字列ソートで時系列順になるため、sorted()だけで古い順になります
+                backup_files = sorted(list(backup_dir.glob(f"{db_path.stem}_*.db")))
+
+                # 保持数を超えている場合、古いファイルを削除
+                if len(backup_files) > MAX_BACKUP_DAYS:
+                    # 削除対象: リストの先頭から (総数 - 保持数) 個
+                    files_to_delete = backup_files[:-MAX_BACKUP_DAYS]
+
+                    for old_file in files_to_delete:
+                        try:
+                            # 念のため、今日作成したばかりのファイル(バックアップ対象)は除外
+                            if old_file.name == backup_filename:
+                                continue
+
+                            old_file.unlink()
+                            logger.info(
+                                f"古いバックアップ(ローテーション)を削除しました: {old_file.name}"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"バックアップ削除エラー ({old_file.name}): {e}"
+                            )
 
             except Exception as e:
-                print(f"DBバックアップ失敗: {e}")
+                logger.error(f"DBバックアップ処理全体でエラー: {e}")
 
         # DB接続を閉じる
         if self.db_conn:
