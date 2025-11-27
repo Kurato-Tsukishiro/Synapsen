@@ -2389,9 +2389,6 @@ class CanvasWindow(BaseSubWindow):
                     else ("white" if self.bg_color == "#2b2b2b" else "black")
                 )
                 color_val = s.get("color", default_color)
-
-                # 色名("red"等)の場合はカラーコードに変換、そうでなければそのまま使用
-                # (既存データ互換のためのマッピング)
                 color_map = {"red": "#FF0000", "white": "#FFFFFF", "black": "#000000"}
 
                 if color_val in SHAPE_COLORS:
@@ -2399,7 +2396,6 @@ class CanvasWindow(BaseSubWindow):
                 else:
                     hex_code = color_map.get(color_val, color_val)
 
-                # 16進数コードをRGBタプルに変換 (エラー時は黒などのデフォルトへ)
                 try:
                     rgb_color = self._hex_to_rgb(hex_code)
                 except Exception:
@@ -2467,7 +2463,7 @@ class CanvasWindow(BaseSubWindow):
             doc.save(str(temp_raw_pdf))
             doc.close()
 
-            # 3. 正規化とメタデータ埋め込み
+            # 5. 正規化とメタデータ埋め込み
             normalize_pdf_to_papersize(
                 str(temp_raw_pdf), str(output_path), 595.276, 841.89, target_format="A4"
             )
@@ -2480,6 +2476,19 @@ class CanvasWindow(BaseSubWindow):
                 if hex_color:
                     text_color = self._hex_to_rgb(hex_color)
 
+            # キャンバス上のノートKeyを収集
+            cited_keys = sorted(list(self.notes_on_canvas.keys()))
+
+            # config.ini から QRコードサイズを取得 (デフォルト 75)
+            # _get_config_value は文字列を返すため int に変換する
+            refs_qr_size_str = self._get_config_value(
+                "Extraction", "refs_qr_size", "75"
+            )
+            try:
+                refs_qr_size_pt = int(refs_qr_size_str)
+            except ValueError:
+                refs_qr_size_pt = 75
+
             add_metadata_to_clip(
                 pdf_path_str=str(output_path),
                 font_path=str(font_path),
@@ -2490,4 +2499,6 @@ class CanvasWindow(BaseSubWindow):
                 text_color=text_color,
                 comment_to_embed=f"Canvas Export: {title}",
                 base_name=output_path.stem,
+                cited_keys_list=cited_keys,
+                refs_qr_size_pt=refs_qr_size_pt,
             )
