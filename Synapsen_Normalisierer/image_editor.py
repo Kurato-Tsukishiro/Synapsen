@@ -11,6 +11,26 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         4隅指定による台形補正エディタ (ズーム・パン・辺移動[軸固定]対応版)
         """
         super().__init__(parent)
+
+        # --- アイコン設定 ---
+        self._custom_icon_path = None
+        # 親ウィンドウ等からアイコンパスの取得を試みる
+        if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
+            self._custom_icon_path = parent._custom_icon_path
+        elif hasattr(parent, "icon_path") and parent.icon_path:
+            self._custom_icon_path = str(parent.icon_path)
+        elif (
+            hasattr(parent, "parent_app")
+            and hasattr(parent.parent_app, "icon_path")
+            and parent.parent_app.icon_path
+        ):
+            self._custom_icon_path = str(parent.parent_app.icon_path)
+
+        if self._custom_icon_path:
+            # ウィンドウ生成直後のリセットを防ぐため、少し遅延させて適用
+            self.after(200, lambda: self.iconbitmap(default=self._custom_icon_path))
+        # -------------------------
+
         self.title("画像変形・トリミング")
         self.geometry("1000x800")
         self.on_save_callback = on_save_callback
@@ -536,3 +556,18 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             return H
         except np.linalg.LinAlgError:
             return None
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        CustomTkinterがアイコンをリセットするのを防ぐためのオーバーライドメソッド。
+        """
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                pass
+        else:
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
