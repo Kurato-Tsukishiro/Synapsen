@@ -136,9 +136,16 @@ def load_app_config(base_path):
             config_data["include_all_tags_for_autocomplete"] = parser.getboolean(
                 "Search", "include_all_tags_for_autocomplete", fallback=True
             )
+            exclude_tags_str = parser.get(
+                "Search", "exclude_tags_by_default", fallback=""
+            )
+            config_data["exclude_tags_by_default"] = [
+                t.strip() for t in exclude_tags_str.split(",") if t.strip()
+            ]
         else:
             # セクションがない場合のデフォルト値
             config_data["include_all_tags_for_autocomplete"] = True
+            config_data["exclude_tags_by_default"] = []
 
         # [LaTeX]
         if parser.has_section("LaTeX"):
