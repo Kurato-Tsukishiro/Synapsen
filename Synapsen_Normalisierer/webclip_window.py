@@ -858,6 +858,7 @@ class WebClipWindow(ctk.CTkToplevel):
                 base_name=base_name,
                 cited_keys_list=cited_keys_list,
                 refs_qr_size_pt=refs_qr_size_pt,
+                extra_keywords=["Synapsen:WebClip"]
             )
 
         except Exception as e:

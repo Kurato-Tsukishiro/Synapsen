@@ -5,37 +5,64 @@
 # "#" で始まる行はコメントとして無視されます。
 # 日本語も使用可能です
 
-# "_" を使用して 階層化したタグも使用できます
-# 階層タグで入力すると 前の階層のタグも自動的に付加されます
+# --- ZTypes (Zettelkasten Types: 思考の段階) ---
 
-# --- タグの例 ---
+## Fleeting: 走り書き。一時的なメモやアイデア。
+ZTypes_Fleeting
 
-# --- Zettelkasten Types ---
-## Fleeting: 走り書き, Literature: 読書メモ, Source: 情報源
-Type_Fleeting
-Type_Literature
-Type_Source
+## Source: 参考文献、情報源。Webクリップや資料そのもの。
+ZTypes_Source
 
-## MOC: 目次ノート
-Type_MOC
-## Permanent: FleetingやLiteratureを元に、自分の言葉で再構築した知識。
-Type_Permanent
+## Literature: 読書メモ。文献を読んで得た知見や引用のメモ。
+ZTypes_Literature
 
-# --- Workflow Status ---
-## Inbox: 未処理, WIP: 編集中, Review: 要復習・後で見返す, Done: 実行済み
+## Permanent: 永久保存版。自分の言葉で再構築・清書した知識。
+ZTypes_Permanent
 
+## Structure: 構造化ノート。手動で整理・体系化された目次やアウトライン。 (SType_MOCが完成したらこちらに移行)
+ZTypes_Structure
+
+
+# --- STypes (Synapsen Types: システム出力形式) ---
+
+## Canvas: キャンバス全体の出力PDF
+STypes_Canvas
+
+## Sticky: キャンバス上の「付箋」から作成されたノート
+STypes_Sticky
+
+## WebClip: Webクリップ機能で保存されたPDF
+STypes_WebClip
+
+## MOC: Nexusの検索結果や選択範囲から自動生成されたリスト (Map of Content)
+STypes_MOC
+
+
+# --- Status (ワークフローの状態) ---
+## Inbox: 未処理 / WIP: 作業中 / Review: 要復習 / Done: 完了
 Status_Inbox
 Status_WIP
 Status_Review
 Status_Done
 
-## Task: 期日付き作業, ToDo: 期日無し作業
+## Task: 期日付きタスク / ToDo: タスク
 Status_Task
 Status_ToDo
 
-# --- Concepts ---
-Idea
-Question
-Evidence
 
-# --- Contents ---
+# --- Concepts (概念・種別) ---
+
+## Idea: 着想、思いつき。
+Concepts_Idea
+
+## Question: 問い、疑問。解決すべき課題やリサーチクエスチョン。
+Concepts_Question
+
+## Evidence: 証拠、根拠。客観的なデータや事実。
+Concepts_Evidence
+
+## Argument: 議論、主張。論理的な理由付けや、Evidenceに基づく結論。
+Concepts_Argument
+
+
+# --- User Contents ---

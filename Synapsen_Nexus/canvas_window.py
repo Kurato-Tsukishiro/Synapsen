@@ -2036,6 +2036,22 @@ class CanvasWindow(BaseSubWindow):
             normalize_pdf_to_papersize(
                 str(temp_flat), str(pdf_path), 595.276, 841.89, target_format="A4"
             )
+            try:
+                doc = fitz.open(pdf_path)
+                meta = doc.metadata
+                # 既存のキーワードを取得し、識別子を追記
+                current_keywords = meta.get("keywords", "")
+                new_keywords = (
+                    f"{current_keywords}; Synapsen:Sticky"
+                    if current_keywords
+                    else "Synapsen:Sticky"
+                )
+                meta["keywords"] = new_keywords
+                doc.set_metadata(meta)
+                doc.saveIncr()  # 増分保存
+                doc.close()
+            except Exception as e:
+                logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
             embed_processing_flag(str(pdf_path))
 
             # メタデータ埋め込み
@@ -2067,6 +2083,7 @@ class CanvasWindow(BaseSubWindow):
                 base_name=base_name,
                 cited_keys_list=cited_keys,
                 refs_qr_size_pt=refs_qr_size_pt,
+                extra_keywords=["Synapsen:Sticky"],
             )
             messagebox.showinfo(
                 "完了", f"ファイルを生成しました:\n{pdf_path.name}", parent=self
@@ -2607,4 +2624,5 @@ class CanvasWindow(BaseSubWindow):
                 base_name=output_path.stem,
                 cited_keys_list=cited_keys,
                 refs_qr_size_pt=refs_qr_size_pt,
+                extra_keywords=["Synapsen:Whiteboard"],
             )

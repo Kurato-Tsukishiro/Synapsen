@@ -71,10 +71,12 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
 
         # 変数初期化
         commonplace_key = ""
-        memo_from_refs = ""   # 引用リンクなど
+        memo_from_refs = ""  # 引用リンクなど
         summary_content = ""  # コメント/概要
+        auto_detected_tags = []  # 自動検出されたタグを格納するリスト
 
         doc = None
+        data_found_priority = False
 
         # ハイブリッド処理のステータス管理
         # (メタデータが見つかれば、後の重い処理をスキップするため)
@@ -88,6 +90,30 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                 # Phase 1: PDFメタデータ(Subject)からの高速読み取り
                 # ============================================================
                 metadata = doc.metadata
+
+                # --- Keywords からの自動タグ付けロジック ---
+                keywords = metadata.get("keywords", "") or ""
+
+                # Canvas (全体) -> STypes_Canvas
+                if "Synapsen:Whiteboard" in keywords:
+                    if "STypes_Canvas" not in auto_detected_tags:
+                        auto_detected_tags.append("STypes_Canvas")
+
+                # Sticky (付箋) -> STypes_Sticky
+                if "Synapsen:Sticky" in keywords:
+                    if "STypes_Sticky" not in auto_detected_tags:
+                        auto_detected_tags.append("STypes_Sticky")
+
+                # WebClip -> SType_WebClip AND ZTypes_Source
+                if "Synapsen:WebClip" in keywords:
+                    # 出自を示すタグ
+                    if "SType_WebClip" not in auto_detected_tags:
+                        auto_detected_tags.append("SType_WebClip")
+                    # 役割を示すタグ
+                    if "ZTypes_Source" not in auto_detected_tags:
+                        auto_detected_tags.append("ZTypes_Source")
+                # ----------------------------------------------------
+
                 subject = metadata.get("subject", "") or ""
 
                 # 隠しJSONを探す
@@ -231,6 +257,11 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             if doc:
                 doc.close()
 
+        # --- タイトルからの MOC 自動検出 (STypes_MOC) ---
+        if "MOC" in title.upper() or "Map of Content" in title:
+            if "STypes_MOC" not in auto_detected_tags:
+                auto_detected_tags.append("STypes_MOC")
+
         # --- 3. 結果の返却 ---
         # ページ数の再取得 (pypdfの方が軽量な場合があるが、ここでは正確性のため再オープンせずdoc情報を使いたいがclose済み)
         # pypdfで安全にページ数を取得
@@ -244,7 +275,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "time": time_str,
             "title": title,
             "pages": page_count,
-            "tags": [],
+            "tags": auto_detected_tags,
             "key": auto_generated_key,
             "memo": memo_from_refs,
             "commonplace_key": commonplace_key,

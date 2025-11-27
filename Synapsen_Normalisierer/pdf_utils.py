@@ -120,6 +120,7 @@ def add_metadata_to_clip(
     base_name: str | None = None,
     cited_keys_list: list[str] | None = None,
     refs_qr_size_pt: int = 75,
+    extra_keywords: list[str] | None = None,
 ) -> None:
     """
     PDFにメタデータ(QR/テキスト)を描画し、同時にPDFプロパティにも情報を埋め込みます。
@@ -156,13 +157,25 @@ def add_metadata_to_clip(
 
         # 既存のキーワードを取得
         keywords = current_metadata.get("keywords", "")
-        skip_flag = "Synapsen:SkipNormalization"
-        if skip_flag not in keywords:
-            keywords = f"{keywords}; {skip_flag}" if keywords else skip_flag
 
-        # メタデータ辞書のコピーを作成して更新
+        # キーワード追加ロジック
+        keywords_list = [k.strip() for k in keywords.split(";") if k.strip()]
+
+        # 基本フラグ
+        skip_flag = "Synapsen:SkipNormalization"
+        if skip_flag not in keywords_list:
+            keywords_list.append(skip_flag)
+
+        # 追加キーワード (extra_keywords) の結合
+        if extra_keywords:
+            for kw in extra_keywords:
+                if kw not in keywords_list:
+                    keywords_list.append(kw)
+
+        new_keywords = "; ".join(keywords_list)
+
         new_metadata = current_metadata.copy()
-        new_metadata["keywords"] = keywords
+        new_metadata["keywords"] = new_keywords
 
         # ★ カスタムメタデータとして JSON 形式で情報を埋め込む
         # Subject(件名) や Keywords(キーワード) を汚染しすぎないよう、
