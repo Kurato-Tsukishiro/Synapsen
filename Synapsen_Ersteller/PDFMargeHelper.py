@@ -18,6 +18,6 @@ def hex_to_rgb_frac(hex_color):
     Returns:
         _type_: RGB形式のカラーコード
     """
-    hex_color = hex_color.lstrip('#')
-    r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+    hex_color = hex_color.lstrip("#")
+    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
     return f"{{{r/255:.4f},{g/255:.4f},{b/255:.4f}}}"

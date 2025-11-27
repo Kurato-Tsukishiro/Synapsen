@@ -20,17 +20,17 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 # === 3. プロジェクト内モジュールとサードパーティ ===
-import db_recovery_tool               # noqa: E402
-from tkinter import messagebox        # noqa: E402 (tkinterグループ)
-import customtkinter as ctk           # noqa: E402
-import pandas as pd                   # noqa: E402
-import PDFMargeHelper as Helper       # noqa: E402
-import pdf_processor as Process       # noqa: E402
-import latex_generator as Generator   # noqa: E402
-import gui_dialogs as Dialogs         # noqa: E402
-from pypdf import PdfReader, PdfWriter, Transformation  # noqa: E402
-from Synapsen_Nexus import utils as NexusUtils          # noqa: E402
-from logging_setup import setup_logging                 # noqa: E402
+import db_recovery_tool                         # noqa: E402
+from tkinter import messagebox                  # noqa: E402 (tkinterグループ)
+import customtkinter as ctk                     # noqa: E402
+import pandas as pd                             # noqa: E402
+import PDFMargeHelper as Helper                 # noqa: E402
+import pdf_processor as Process                 # noqa: E402
+import latex_generator as Generator             # noqa: E402
+import gui_dialogs as Dialogs                   # noqa: E402
+from pypdf import PdfReader, PdfWriter          # noqa: E402
+from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
+from logging_setup import setup_logging  # noqa: E402
 
 
 # ==============================================================================
@@ -51,12 +51,14 @@ except ImportError:
     print("Warning: logging_setup.py not found. Logging disabled.")
 
     class MockLogger:
-        def info(self, msg): print(f"[INFO] {msg}")
+        def info(self, msg):
+            print(f"[INFO] {msg}")
 
         def error(self, msg, exc_info=None):
             print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
 
-        def warning(self, msg): print(f"[WARN] {msg}")
+        def warning(self, msg):
+            print(f"[WARN] {msg}")
 
     logger = MockLogger()
 # ==============================================================================
@@ -90,8 +92,9 @@ class Synapsen_Ersteller(ctk.CTk):
         self.selected_notes = set()  # 選択されたノートの 'key' を保持する
 
         self.label = ctk.CTkLabel(
-            self, text="Synapsen Normalisiererで処理済みのフォルダを読み込んでください。"
-            )
+            self,
+            text="Synapsen Normalisiererで処理済みのフォルダを読み込んでください。",
+        )
         self.label.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
         # --- 1段目のボタフレーム (ファイル操作 + PDF生成) ---
@@ -103,28 +106,35 @@ class Synapsen_Ersteller(ctk.CTk):
         load_frame.pack(side="left", padx=0)
         ctk.CTkButton(
             load_frame, text="フォルダから新規読み込み", command=self.scan_folder
-            ).pack(side="left", padx=5)
+        ).pack(side="left", padx=5)
         ctk.CTkButton(
             load_frame, text="リスト読込 (CSV)", command=self.load_from_csv
-            ).pack(side="left", padx=5)
+        ).pack(side="left", padx=5)
         ctk.CTkButton(
             load_frame, text="リストをフォルダと同期", command=self.sync_with_folder
-            ).pack(side="left", padx=5)
+        ).pack(side="left", padx=5)
         ctk.CTkButton(
             load_frame, text="リスト保存 (CSV)", command=self.save_to_csv
-            ).pack(side="left", padx=5)
+        ).pack(side="left", padx=5)
 
         # PDF生成 (右側)
         ctk.CTkButton(
-            top_button_frame, text="統合PDFを生成", command=self.generate_pdf,
-            fg_color="green", hover_color="darkgreen"
-            ).pack(side="right", padx=10)  # 1段目の右側に配置
+            top_button_frame,
+            text="統合PDFを生成",
+            command=self.generate_pdf,
+            fg_color="green",
+            hover_color="darkgreen",
+        ).pack(
+            side="right", padx=10
+        )  # 1段目の右側に配置
 
         ctk.CTkButton(
-            top_button_frame, text="DB復旧ツール",
+            top_button_frame,
+            text="DB復旧ツール",
             command=self.open_recovery_tool,
-            fg_color="#17a2b8", hover_color="#138496",  # シアン系（ユーティリティ）
-            width=100
+            fg_color="#17a2b8",
+            hover_color="#138496",  # シアン系（ユーティリティ）
+            width=100,
         ).pack(side="right", padx=5)
 
         # --- 2段目のボタフレーム (一括編集) ---
@@ -132,20 +142,22 @@ class Synapsen_Ersteller(ctk.CTk):
         batch_button_frame.grid(row=2, column=0, padx=10, pady=0, sticky="ew")
 
         self.batch_edit_button = ctk.CTkButton(
-            batch_button_frame, text="一括編集 (0)",
+            batch_button_frame,
+            text="一括編集 (0)",
             command=self.open_batch_editor,
             state="disabled",
-            fg_color="#585a9c",      # 桔梗色
-            hover_color="#494B83"   # 濃い桔梗色
+            fg_color="#585a9c",  # 桔梗色
+            hover_color="#494B83",  # 濃い桔梗色
         )
         self.batch_edit_button.pack(side="left", padx=5)
 
         self.deselect_all_button = ctk.CTkButton(
-            batch_button_frame, text="選択解除",
+            batch_button_frame,
+            text="選択解除",
             command=self.deselect_all,
             state="disabled",
-            fg_color="#6C757D",      # セカンダリ・グレー
-            hover_color="#5A6268"   # 濃いグレー
+            fg_color="#6C757D",  # セカンダリ・グレー
+            hover_color="#5A6268",  # 濃いグレー
         )
         self.deselect_all_button.pack(side="left", padx=5)
 
@@ -155,16 +167,12 @@ class Synapsen_Ersteller(ctk.CTk):
             command=self.copy_selected_links,
             state="disabled",
             fg_color="#28a745",
-            hover_color="#218838"
+            hover_color="#218838",
         )
         self.copy_links_button.pack(side="left", padx=5)
 
-        self.scrollable_frame = ctk.CTkScrollableFrame(
-            self, label_text="読み込み結果"
-            )
-        self.scrollable_frame.grid(
-            row=3, column=0, padx=10, pady=10, sticky="nsew"
-            )
+        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="読み込み結果")
+        self.scrollable_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
 
     def get_icon_path(self):
         """
@@ -173,14 +181,14 @@ class Synapsen_Ersteller(ctk.CTk):
         'synapsen.ico' のパスを返す。
         """
         try:
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # .exe実行の場合 (exeと同じフォルダがプロジェクトルート)
                 project_root = Path(sys.executable).parent
             else:
                 # .pyスクリプト実行の場合 (このファイルの親フォルダがプロジェクトルート)
                 project_root = Path(__file__).parent.parent
 
-            icon_path = project_root / 'assets' / 'synapsen.ico'
+            icon_path = project_root / "assets" / "synapsen.ico"
 
             if icon_path.is_file():
                 return icon_path
@@ -190,7 +198,7 @@ class Synapsen_Ersteller(ctk.CTk):
 
     def load_config(self):
         # 1. 実行ファイルの場所を基準としたbase_pathを最初に定義します
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # .exe実行の場合
             base_path = os.path.dirname(sys.executable)
         else:
@@ -198,14 +206,14 @@ class Synapsen_Ersteller(ctk.CTk):
             base_path = os.path.dirname(os.path.abspath(__file__))
 
         # 2. .exeか.pyかでconfig.iniの場所を決定します
-        if getattr(sys, 'frozen', False):
+        if getattr(sys, "frozen", False):
             # .exe実行の場合（config.ini は .exe と同じフォルダ）
-            config_path = os.path.join(base_path, 'config.ini')
+            config_path = os.path.join(base_path, "config.ini")
         else:
             # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
             config_path = os.path.join(
-                os.path.abspath(os.path.join(base_path, '..')), 'config.ini'
-                )
+                os.path.abspath(os.path.join(base_path, "..")), "config.ini"
+            )
         logger.debug(f"Loading config from: {config_path}")
 
         # config.ini があるフォルダのパスを基準として定義
@@ -215,46 +223,44 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 3. configファイルが存在しない場合の処理
         if not os.path.exists(config_path):
-            config['Paths'] = {
-                'tags_data_path': 'tags.txt',
-                'font_path': r'C:\windows\fonts\msgothic.ttc'
-                }
-            config['LaTeX'] = {
-                'paper_size': "A4",
-                'font': 'MS UI Gothic',
-                'author': 'Your Name',
-                'title_prefix': '月刊 統合ノート'
-                }
-            config['CommonplaceKeys'] = {
-                'options': 'タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他'
-                }
-            config['Extraction'] = {
-                'key_rect': '26, 13, 400, 73'
-                }
-            config['KeyIcons'] = {
-                'タスク': '♥',
-                'アイデア': '♥',
-                '思考・考察': '♥',
-                'コミュニケーション': '♥',
-                '学習・情報収集': '♥',
-                '日常・その他': '♥'
-                }
-            config['KeyColors'] = {
-                'タスク': 'FE0000',
-                'アイデア': 'FFFF02',
-                '思考・考察': '8802FF',
-                'コミュニケーション': '02FF01',
-                '学習・情報収集': '02FFFF',
-                '日常・その他': 'F2F2F2'
-                }
-            with open(config_path, 'w', encoding='utf-8') as f:
+            config["Paths"] = {
+                "tags_data_path": "tags.txt",
+                "font_path": r"C:\windows\fonts\msgothic.ttc",
+            }
+            config["LaTeX"] = {
+                "paper_size": "A4",
+                "font": "MS UI Gothic",
+                "author": "Your Name",
+                "title_prefix": "月刊 統合ノート",
+            }
+            config["CommonplaceKeys"] = {
+                "options": "タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他"
+            }
+            config["Extraction"] = {"key_rect": "26, 13, 400, 73"}
+            config["KeyIcons"] = {
+                "タスク": "♥",
+                "アイデア": "♥",
+                "思考・考察": "♥",
+                "コミュニケーション": "♥",
+                "学習・情報収集": "♥",
+                "日常・その他": "♥",
+            }
+            config["KeyColors"] = {
+                "タスク": "FE0000",
+                "アイデア": "FFFF02",
+                "思考・考察": "8802FF",
+                "コミュニケーション": "02FF01",
+                "学習・情報収集": "02FFFF",
+                "日常・その他": "F2F2F2",
+            }
+            with open(config_path, "w", encoding="utf-8") as f:
                 config.write(f)
 
-        config.read(config_path, encoding='utf-8')
+        config.read(config_path, encoding="utf-8")
 
         # 4. configから読み込んだパスを、config.ini の場所 (config_dir) を基準に絶対パスへ変換します
         #    環境変数（%LOCALAPPDATA%など）も展開します
-        font_path_from_config = config.get('Paths', 'font_path', fallback='')
+        font_path_from_config = config.get("Paths", "font_path", fallback="")
         expanded_path = os.path.expandvars(font_path_from_config)  # 環境変数を展開
 
         if os.path.isabs(expanded_path):
@@ -264,28 +270,22 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.font_path = os.path.join(config_dir, expanded_path)
-            logger.debug(
-                f"Font path is RELATIVE, resolved to: {self.font_path}"
-            )
+            logger.debug(f"Font path is RELATIVE, resolved to: {self.font_path}")
 
         # 5. tags_data_pathの解決
         tags_path_from_config = config.get(
-            'Paths', 'tags_data_path', fallback='tags.txt'
-            )
+            "Paths", "tags_data_path", fallback="tags.txt"
+        )
         expanded_path = os.path.expandvars(tags_path_from_config)  # 環境変数を展開
 
         if os.path.isabs(expanded_path):
             self.tags_data_path = expanded_path
         else:
             # configの値が相対パスの場合、config_dir と結合する
-            self.tags_data_path = os.path.join(
-                config_dir, tags_path_from_config
-                )
+            self.tags_data_path = os.path.join(config_dir, tags_path_from_config)
 
         # 6. default_db_path (追記先のマスターDBパス) の解決
-        default_db_path_str = config.get(
-            'Paths', 'database_path', fallback=''
-            )
+        default_db_path_str = config.get("Paths", "database_path", fallback="")
         expanded_path = os.path.expandvars(default_db_path_str)  # 環境変数を展開
 
         if not expanded_path:
@@ -300,51 +300,67 @@ class Synapsen_Ersteller(ctk.CTk):
         # 7. Automation設定の読み込み
         # 自動結合設定の読み込み
         self.auto_append_db = config.getboolean(
-            'Automation', 'auto_append_to_default_db', fallback=False
-            )
+            "Automation", "auto_append_to_default_db", fallback=False
+        )
         if self.auto_append_db and not self.default_db_path:
             logger.warning(
-                "警告: auto_append_to_default_db が True ですが、" +
-                "database_path が未設定のため無効化されます。"
+                "警告: auto_append_to_default_db が True ですが、"
+                + "database_path が未設定のため無効化されます。"
             )
             self.auto_append_db = False
 
         # 個別出力設定の読み込み
         self.create_individual_csv = config.getboolean(
-            'Automation', 'create_individual_csv', fallback=False
-            )
+            "Automation", "create_individual_csv", fallback=False
+        )
 
-        self.paper_size = config.get(
-            'LaTeX', 'paper_size', fallback='A4').upper()
-        if self.paper_size == 'A5':
+        self.paper_size = config.get("LaTeX", "paper_size", fallback="A4").upper()
+        if self.paper_size == "A5":
             self.paper_width = Helper.A5_WIDTH
             self.paper_height = Helper.A5_HEIGHT
             logger.debug("Ersteller paper size set to A5")
         else:
-            self.paper_size = 'A4'  # 不正な値はA4に
+            self.paper_size = "A4"  # 不正な値はA4に
             self.paper_width = Helper.A4_WIDTH
             self.paper_height = Helper.A4_HEIGHT
             logger.debug("Ersteller paper size set to A4")
 
-        self.latex_font = config.get('LaTeX', 'font', fallback='Yu Gothic')
-        self.latex_author = config.get('LaTeX', 'author', fallback='Your Name')
+        self.latex_font = config.get("LaTeX", "font", fallback="Yu Gothic")
+        self.latex_author = config.get("LaTeX", "author", fallback="Your Name")
 
         self.latex_title_prefix = config.get(
-            'LaTeX', 'title_prefix', fallback='月刊 統合ノート'
-            )
-        self.commonplace_key_options = [opt.strip() for opt in config.get('CommonplaceKeys', 'options', fallback='').split(',')]
-        rect_str = config.get('Extraction', 'key_rect', fallback='0,0,0,0').split(',')
+            "LaTeX", "title_prefix", fallback="月刊 統合ノート"
+        )
+        self.commonplace_key_options = [
+            opt.strip()
+            for opt in config.get("CommonplaceKeys", "options", fallback="").split(",")
+        ]
+        rect_str = config.get("Extraction", "key_rect", fallback="0,0,0,0").split(",")
         self.key_rect = tuple(map(float, rect_str))
-        self.key_icons = {k.lower(): v for k, v in config.items('KeyIcons')} if config.has_section('KeyIcons') else {}
-        self.key_colors = {k.lower(): v for k, v in config.items('KeyColors')} if config.has_section('KeyColors') else {}
+        self.key_icons = (
+            {k.lower(): v for k, v in config.items("KeyIcons")}
+            if config.has_section("KeyIcons")
+            else {}
+        )
+        self.key_colors = (
+            {k.lower(): v for k, v in config.items("KeyColors")}
+            if config.has_section("KeyColors")
+            else {}
+        )
 
     def load_predefined_tags(self):
         try:
             tag_file = Path(self.tags_data_path)
             if tag_file.is_file():
                 with open(tag_file, "r", encoding="utf-8") as f:
-                    self.predefined_tags = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-                logger.info(f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。")
+                    self.predefined_tags = [
+                        line.strip()
+                        for line in f
+                        if line.strip() and not line.startswith("#")
+                    ]
+                logger.info(
+                    f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。"
+                )
                 logger.debug(f"{self.tags_data_path}")
         except Exception as e:
             logger.error(f"tags.txtの読み込み中にエラーが発生しました: {e}")
@@ -352,7 +368,11 @@ class Synapsen_Ersteller(ctk.CTk):
     def save_to_csv(self):
         if not self.all_notes_info:
             return
-        filepath = tkinter.filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV", "*.csv")], title="CSVファイルを保存")
+        filepath = tkinter.filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")],
+            title="CSVファイルを保存",
+        )
         if not filepath:
             return
         try:
@@ -366,17 +386,16 @@ class Synapsen_Ersteller(ctk.CTk):
                     "key",
                     "memo",
                     "commonplace_key",
-                    "filepath"
-                    ]
-                writer = csv.DictWriter(
-                    f, fieldnames=header, extrasaction='ignore'
-                    )
+                    "filepath",
+                    "summary",
+                ]
+                writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
                 writer.writeheader()
                 for note in self.all_notes_info:
                     note_to_write = note.copy()
                     note_to_write["tags"] = ";".join(
                         sorted(note_to_write.get("tags", []))
-                        )
+                    )
                     writer.writerow(note_to_write)
             self.label.configure(text=f"保存完了: {os.path.basename(filepath)}")
         except Exception as e:
@@ -385,7 +404,7 @@ class Synapsen_Ersteller(ctk.CTk):
     def load_from_csv(self):
         filepath = tkinter.filedialog.askopenfilename(
             filetypes=[("CSV", "*.csv")], title="CSVファイルを開く"
-            )
+        )
         if not filepath:
             return
         try:
@@ -393,10 +412,14 @@ class Synapsen_Ersteller(ctk.CTk):
             with open(filepath, "r", encoding="utf-8-sig") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    row["tags"] = row.get("tags", "").split(";") if row.get("tags") else []
+                    if row.get("tags"):
+                        row["tags"] = row.get("tags", "").split(";")
+                    else:
+                        row["tags"] = []
                     row["pages"] = int(row.get("pages", 0))
                     row["is_warning"] = row.get("date") in ["日付不明", "読み込み失敗"]
                     row["full_text"] = row.get("full_text", "")
+                    row["summary"] = row.get("summary", "")
                     new_notes_info.append(row)
             self.all_notes_info = new_notes_info
             self.deselect_all()  # 読み込み時は選択をリセット
@@ -411,32 +434,30 @@ class Synapsen_Ersteller(ctk.CTk):
         重複をチェックしながらノート情報を追記する。
         """
         master_db_path = Path(self.default_db_path)
-        table_name = 'notes'
+        table_name = "notes"
 
         if not notes_to_append:
             return
 
         df_new_notes = pd.DataFrame(notes_to_append)
         df_new_notes = df_new_notes[
-            df_new_notes['key'].notna() & (df_new_notes['key'] != '')
+            df_new_notes["key"].notna() & (df_new_notes["key"] != "")
         ]
         if df_new_notes.empty:
             logger.info("DB追記対象のノート（有効なKeyを持つもの）がありません。")
             return
 
         # タグリストを ';' 区切りの文字列に変換
-        if 'tags' in df_new_notes.columns:
+        if "tags" in df_new_notes.columns:
 
             # タグをソートし、';'区切りの文字列に変換する関数を定義
             def format_tags_for_db(tags):
                 if isinstance(tags, list):
                     return ";".join(sorted(tags))
-                return ''  # リストでない場合は空文字を返す
+                return ""  # リストでない場合は空文字を返す
 
             # apply に定義した関数を渡す
-            df_new_notes['tags'] = (
-                df_new_notes['tags'].apply(format_tags_for_db)
-            )
+            df_new_notes["tags"] = df_new_notes["tags"].apply(format_tags_for_db)
 
         conn = sqlite3.connect(self.default_db_path)
         cursor = conn.cursor()
@@ -448,7 +469,8 @@ class Synapsen_Ersteller(ctk.CTk):
                 "date" TEXT, "time" TEXT, "title" TEXT, "pages" INTEGER,
                 "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
                 "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
-                "merged_pdf_filename" TEXT, "merged_start_page" TEXT
+                "merged_pdf_filename" TEXT, "merged_start_page" TEXT,
+                "summary" TEXT
             )
             """
             cursor.execute(create_table_sql)
@@ -456,58 +478,65 @@ class Synapsen_Ersteller(ctk.CTk):
             create_fts_sql = """
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 key, title, memo, tags, full_text,
+                summary,
                 content='notes', content_rowid='key'
             );
             """
             cursor.execute(create_fts_sql)
 
-            trigger_sql = dedent("""
+            trigger_sql = dedent(
+                """
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_insert
                 AFTER INSERT ON notes
             BEGIN
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_delete
                 AFTER DELETE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
             END;
 
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_update
                 AFTER UPDATE ON notes
             BEGIN
                 INSERT INTO notes_fts(notes_fts, rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES ('delete', old.key, old.key, old.title,
-                        old.memo, old.tags, old.full_text);
+                        old.memo, old.tags, old.full_text, old.summary);
                 INSERT INTO notes_fts(rowid, key, title,
-                                      memo, tags, full_text)
+                                      memo, tags, full_text, summary)
                 VALUES (new.key, new.key, new.title,
-                        new.memo, new.tags, new.full_text);
+                        new.memo, new.tags, new.full_text, new.summary);
             END;
-        """)
+        """
+            )
             cursor.executescript(trigger_sql)
 
             # --- リンクテーブル作成 ▼▼▼ ---
-            cursor.execute("""
+            cursor.execute(
+                """
             CREATE TABLE IF NOT EXISTS note_links (
                 source_key TEXT NOT NULL,
                 target_key TEXT NOT NULL,
                 PRIMARY KEY (source_key, target_key)
             )
-            """)
+            """
+            )
 
-            cursor.execute("""
+            cursor.execute(
+                """
             CREATE INDEX IF NOT EXISTS idx_target_key
                 ON note_links (target_key)
-            """)
+            """
+            )
 
             conn.commit()
 
@@ -515,14 +544,16 @@ class Synapsen_Ersteller(ctk.CTk):
             existing_keys = set()
             try:
                 # テーブルが存在するか確認し、存在すればキーを取得
-                existing_keys = set(pd.read_sql_query(
-                    f"SELECT key FROM {table_name}", conn
-                )['key'])
+                existing_keys = set(
+                    pd.read_sql_query(f"SELECT key FROM {table_name}", conn)["key"]
+                )
             except pd.io.sql.DatabaseError:
-                logger.info(f"テーブル '{table_name}' が存在しません。新規に作成します。")
+                logger.info(
+                    f"テーブル '{table_name}' が存在しません。新規に作成します。"
+                )
 
             # 3. 既存キーと重複しないノートのみをフィルタリング
-            keys_to_append = df_new_notes['key']
+            keys_to_append = df_new_notes["key"]
             df_to_append = df_new_notes[~keys_to_append.isin(existing_keys)]
 
             if df_to_append.empty:
@@ -532,9 +563,19 @@ class Synapsen_Ersteller(ctk.CTk):
             # 4. 新規ノートのみをDBに追記
             #    (カラムが完全一致しなくても追記できるよう、必要なカラムを揃える)
             all_columns = [
-                "date", "time", "title", "pages", "tags", "key", "memo",
-                "commonplace_key", "filepath", "full_text",
-                "merged_pdf_filename", "merged_start_page"
+                "date",
+                "time",
+                "title",
+                "pages",
+                "tags",
+                "key",
+                "memo",
+                "commonplace_key",
+                "filepath",
+                "full_text",
+                "merged_pdf_filename",
+                "merged_start_page",
+                "summary",
             ]
 
             # 追記用DataFrameのカラムをマスターリストに合わせて整える
@@ -543,33 +584,29 @@ class Synapsen_Ersteller(ctk.CTk):
                 if col in df_to_append.columns:
                     df_final_append[col] = df_to_append[col]
                 else:
-                    df_final_append[col] = ''  # 足りないカラムは空文字で埋める
+                    df_final_append[col] = ""  # 足りないカラムは空文字で埋める
 
-            df_final_append.to_sql(
-                table_name,
-                conn,
-                if_exists='append',
-                index=False
-            )
+            df_final_append.to_sql(table_name, conn, if_exists="append", index=False)
 
             # 5. 追記したノートのリンク情報を解析して note_links に書き込む
             #    (Nexusのutils.pyにあるヘルパーを流用)
-            logger.info(f"{len(df_to_append)} 件の新規ノートのリンクを解析・登録します...")
+            logger.info(
+                f"{len(df_to_append)} 件の新規ノートのリンクを解析・登録します..."
+            )
 
             for _, row in df_to_append.iterrows():
                 source_key = row.get("key")
                 memo_text = row.get("memo", "")
                 if source_key and memo_text:
                     # (utils._update_note_links は DELETE & INSERT を行う)
-                    NexusUtils._update_note_links(
-                        cursor, source_key, memo_text
-                    )
+                    NexusUtils._update_note_links(cursor, source_key, memo_text)
 
             conn.commit()  # リンクテーブルの変更をコミット
 
             logger.info(
-                f"{len(df_to_append)} 件の新規ノートを " +
-                f"{master_db_path.name} に追記しました。")
+                f"{len(df_to_append)} 件の新規ノートを "
+                + f"{master_db_path.name} に追記しました。"
+            )
 
         except Exception as e:
             conn.rollback()
@@ -578,14 +615,9 @@ class Synapsen_Ersteller(ctk.CTk):
             conn.close()
 
     def save_merged_index_csv(self, notes_with_merged_info, merged_pdf_path):
-        csv_filepath = Path(merged_pdf_path).with_suffix('.csv')
+        csv_filepath = Path(merged_pdf_path).with_suffix(".csv")
         try:
-            with open(
-                csv_filepath,
-                "w",
-                newline="",
-                encoding="utf-8-sig"
-            ) as f:
+            with open(csv_filepath, "w", newline="", encoding="utf-8-sig") as f:
 
                 header = [
                     "date",
@@ -596,33 +628,43 @@ class Synapsen_Ersteller(ctk.CTk):
                     "key",
                     "memo",
                     "commonplace_key",
+                    "filepath",
                     "merged_pdf_filename",
-                    "merged_start_page"
+                    "merged_start_page",
+                    "summary",
                 ]
-                writer = csv.DictWriter(
-                    f,
-                    fieldnames=header,
-                    extrasaction='ignore'
-                )
+                writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
                 writer.writeheader()
                 for note in notes_with_merged_info:
                     note_to_write = note.copy()
-                    note_to_write["tags"] =\
-                        ";".join(sorted(note_to_write.get("tags", [])))
+                    note_to_write["tags"] = ";".join(
+                        sorted(note_to_write.get("tags", []))
+                    )
                     writer.writerow(note_to_write)
         except Exception as e:
-            messagebox.showerror("CSV保存エラー", f"統合後目次CSVの保存に失敗しました: {e}")
+            messagebox.showerror(
+                "CSV保存エラー", f"統合後目次CSVの保存に失敗しました: {e}"
+            )
 
     def scan_folder(self):
-        folder_path = tkinter.filedialog.askdirectory(title="新規読み込みするフォルダを選択")
+        folder_path = tkinter.filedialog.askdirectory(
+            title="新規読み込みするフォルダを選択"
+        )
         if not folder_path:
             return
         self.label.configure(text=f"読み込み中: {folder_path}")
         self.update_idletasks()
         target_dir = Path(folder_path)
         self.all_notes_info = [
-            info for pdf_file in target_dir.glob("*.pdf") if (info := Process.get_note_info(pdf_file, self.key_rect))
-            ]
+            info
+            for pdf_file in target_dir.glob("*.pdf")
+            if (info := Process.get_note_info(pdf_file, self.key_rect))
+        ]
+
+        # ノート情報に 'summary' がなければ追加（get_note_infoで取得できた場合は維持）
+        for info in self.all_notes_info:
+            if "summary" not in info:
+                info["summary"] = ""
 
         side_note_suffix = "_Note"
 
@@ -648,7 +690,7 @@ class Synapsen_Ersteller(ctk.CTk):
             if title.endswith(side_note_suffix) and not info.get("commonplace_key"):
 
                 # 親のタイトル名を取得 (例: "Example_Note" -> "Example")
-                parent_title = title[:-len(side_note_suffix)]
+                parent_title = title[: -len(side_note_suffix)]
 
                 # 親がマップに存在すれば、そのKeyを継承する
                 if parent_title in parent_key_map:
@@ -656,12 +698,16 @@ class Synapsen_Ersteller(ctk.CTk):
                     keys_inherited_count += 1
 
         if keys_inherited_count > 0:
-            logger.debug(f"{keys_inherited_count}件のサイドノートにIndex Keyを継承しました。")
+            logger.debug(
+                f"{keys_inherited_count}件のサイドノートにIndex Keyを継承しました。"
+            )
 
-        self.all_notes_info.sort(key=lambda note: (note['date'], note['time']))
+        self.all_notes_info.sort(key=lambda note: (note["date"], note["time"]))
         self.deselect_all()  # 読み込み時は選択をリセット
         self.update_note_list()
-        self.label.configure(text=f"読み込み完了！ {len(self.all_notes_info)}件のファイルを読み込みました。")
+        self.label.configure(
+            text=f"読み込み完了！ {len(self.all_notes_info)}件のファイルを読み込みました。"
+        )
 
     def update_note_list(self):
         """
@@ -683,22 +729,26 @@ class Synapsen_Ersteller(ctk.CTk):
             unknown_key_text_color = ("#D35400", "#FFC107")
 
             for note_data in self.all_notes_info:
-                row_frame = ctk.CTkFrame(
-                    self.scrollable_frame,
-                    fg_color="transparent"
-                )
+                row_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
 
                 # チェックボックスの追加
-                note_key = note_data.get('key')
+                note_key = note_data.get("key")
                 var = ctk.StringVar(
-                    value='on' if note_key and note_key in self.selected_notes else 'off')
+                    value=(
+                        "on" if note_key and note_key in self.selected_notes else "off"
+                    )
+                )
 
                 checkbox = ctk.CTkCheckBox(
-                    row_frame, text="",
+                    row_frame,
+                    text="",
                     variable=var,
-                    onvalue='on', offvalue='off',
+                    onvalue="on",
+                    offvalue="off",
                     width=25,
-                    command=lambda note=note_data, v=var: self.toggle_selection(note, v.get())
+                    command=lambda note=note_data, v=var: self.toggle_selection(
+                        note, v.get()
+                    ),
                 )
                 # keyがないノート (読み込み失敗など) は選択不可に
                 if not note_key:
@@ -707,64 +757,77 @@ class Synapsen_Ersteller(ctk.CTk):
                 checkbox.pack(side="left", padx=(0, 5))
 
                 # --- Index Key の判定 ---
-                cp_key = note_data.get('commonplace_key', '')
+                cp_key = note_data.get("commonplace_key", "")
 
                 # config.ini に登録されているキーと一致するか確認
                 is_registered_key = cp_key in self.commonplace_key_options
 
                 # アイコン表示 (小文字化して辞書検索)
-                icon = self.key_icons.get(cp_key.lower(), '')
-                icon_color = self.key_colors.get(
-                    cp_key.lower(),
-                    default_text_color
-                )
+                icon = self.key_icons.get(cp_key.lower(), "")
+                icon_color = self.key_colors.get(cp_key.lower(), default_text_color)
 
                 icon_label = None  # icon_labelを初期化
                 if icon:
                     icon_label = ctk.CTkLabel(
-                        row_frame,
-                        text=icon, text_color=icon_color, font=("", 14)
-                        )
+                        row_frame, text=icon, text_color=icon_color, font=("", 14)
+                    )
                     icon_label.pack(side="left", padx=(0, 5))
 
                 # --- テキストラベルの構築 ---
                 key_display = f" [ID: {note_key}]" if note_key else ""
-                tags_display = " [タグ: " + ", ".join(sorted(note_data.get("tags", []))) + "]" if note_data.get("tags") else ""
+                tags_display = (
+                    " [タグ: " + ", ".join(sorted(note_data.get("tags", []))) + "]"
+                    if note_data.get("tags")
+                    else ""
+                )
 
                 display_text = ""
                 text_color = default_text_color
 
                 if note_data.get("is_warning"):
                     # ファイル名解析失敗などの重大な警告
-                    display_text = f"【警告】[{note_data.get('date')}] {note_data.get('title')}{key_display}{tags_display}"
+                    display_text = (
+                        f"【警告】[{note_data.get('date')}] "
+                        f"{note_data.get('title')}{key_display}{tags_display}"
+                    )
                     text_color = warning_text_color
 
                 elif cp_key and not is_registered_key:
                     # ★未登録のIndex Key (OCR誤認識など) の場合
-                    t = note_data.get('time', '')
-                    time_display = f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
+                    t = note_data.get("time", "")
+                    time_display = (
+                        f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
+                    )
 
                     # 黄色文字で「未登録: XXX」と表示
-                    display_text = f"【未登録: {cp_key}】 日付: {note_data.get('date')} {time_display},{key_display} タイトル: {note_data.get('title')}{tags_display}"
+                    display_text = (
+                        f"【未登録: {cp_key}】 "
+                        f"日付: {note_data.get('date')} {time_display},{key_display} "
+                        f"タイトル: {note_data.get('title')}{tags_display}"
+                    )
                     text_color = unknown_key_text_color
 
                 else:
                     # 正常なノート
-                    t = note_data.get('time', '')
-                    time_display = f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
-                    display_text = f"日付: {note_data.get('date')} {time_display},{key_display} タイトル: {note_data.get('title')}{tags_display}"
+                    t = note_data.get("time", "")
+                    time_display = (
+                        f"({t[0:2]}:{t[2:4]}:{t[4:6]})" if t != "999999" else ""
+                    )
+                    display_text = (
+                        f"日付: {note_data.get('date')} {time_display},{key_display} "
+                        f"タイトル: {note_data.get('title')}{tags_display}"
+                    )
                     text_color = default_text_color
 
                 text_label = ctk.CTkLabel(
-                    row_frame,
-                    text=display_text, text_color=text_color, anchor="w"
-                    )
+                    row_frame, text=display_text, text_color=text_color, anchor="w"
+                )
                 text_label.pack(side="left")
 
                 # --- イベントバインド ---
 
                 # 1. 左クリック (編集ウィンドウを開く)
-                edit_command = lambda e, note=note_data: self.open_data_editor(note)
+                edit_command = lambda e, note=note_data: self.open_data_editor(note)  # noqa: E501,E731
                 row_frame.bind("<Button-1>", edit_command)  # フレーム全体
                 text_label.bind("<Button-1>", edit_command)
                 if icon_label:
@@ -777,8 +840,8 @@ class Synapsen_Ersteller(ctk.CTk):
                         def handler(event):
                             try:
                                 # [変更] KeyとTitleを取得
-                                key = note_to_copy.get('key', '')
-                                title = note_to_copy.get('title', '')
+                                key = note_to_copy.get("key", "")
+                                title = note_to_copy.get("title", "")
 
                                 # [変更] [[Key: Title]] 形式の文字列を生成
                                 text_to_copy = f"[[{key}: {title}]]"
@@ -788,21 +851,19 @@ class Synapsen_Ersteller(ctk.CTk):
                                 self.update()  # クリップボードを確定
                                 logger.info(
                                     f"リンクをクリップボードにコピーしました: {text_to_copy}",
-                                    extra={'sensitive': True}
+                                    extra={"sensitive": True},
                                 )
 
                                 # (フィードバック)
                                 self.label.configure(
-                                    text=f"コピーしました: {text_to_copy}")
-                                self.after(
-                                    2000,
-                                    lambda: self.label.configure(text="")
+                                    text=f"コピーしました: {text_to_copy}"
                                 )
+                                self.after(2000, lambda: self.label.configure(text=""))
                             except Exception as e:
                                 logger.error(f"リンクのコピーに失敗: {e}")
+
                         return handler
 
-                    # [変更] note_key ではなく note_data を渡す
                     copy_command = create_copy_key_handler(note_data)
                     row_frame.bind("<Button-3>", copy_command)
                     text_label.bind("<Button-3>", copy_command)
@@ -811,8 +872,7 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 row_frame.pack(fill="x", padx=5, pady=2)
 
-    def _copy_bookmarks_recursive(
-            self, outline_items, writer, reader, parent=None):
+    def _copy_bookmarks_recursive(self, outline_items, writer, reader, parent=None):
         """
         pypdfの目次(outline)の階層構造を再帰的にたどり、writerにコピーする関数
         """
@@ -826,24 +886,25 @@ class Synapsen_Ersteller(ctk.CTk):
             if page_num is not None:
                 new_parent = writer.add_outline_item(
                     item.title, page_num, parent=parent
-                    )
+                )
 
                 # 次の要素がリスト（＝子要素のリスト）かチェック
-                if i + 1 < len(outline_items) and isinstance(outline_items[i+1], list):
+                if i + 1 < len(outline_items) and isinstance(
+                    outline_items[i + 1], list
+                ):
                     # 子要素のリストに対して再帰的にこの関数を呼び出す
                     self._copy_bookmarks_recursive(
-                        outline_items[i+1], writer, reader, parent=new_parent
-                        )
+                        outline_items[i + 1], writer, reader, parent=new_parent
+                    )
                     i += 1  # 子要素リストをスキップするためインデックスを1つ進める
             i += 1
 
     def open_data_editor(self, note_data):
         session_tags = set()
         for note in self.all_notes_info:
-            session_tags.update(note.get('tags', []))
+            session_tags.update(note.get("tags", []))
         combined_tags = session_tags.union(set(self.predefined_tags))
-        if hasattr(
-                self, 'editor_window') and self.editor_window.winfo_exists():
+        if hasattr(self, "editor_window") and self.editor_window.winfo_exists():
             self.editor_window.focus()
             return
         self.editor_window = Dialogs.DataEditorWindow(
@@ -874,16 +935,19 @@ class Synapsen_Ersteller(ctk.CTk):
                         logger.warning(f"{pdf_path.name} のfull_text抽出に失敗: {e}")
                 else:
                     logger.warning(
-                        f"警告: {note.get('title')} のファイルパスが見つかりません" +
-                        "（full_text取得不可）。"
-                        )
+                        f"警告: {note.get('title')} のファイルパスが見つかりません"
+                        + "（full_text取得不可）。"
+                    )
 
         if missing_text_count > 0:
             logger.info(
-                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした" +
-                "（画像のみのPDFの可能性）。")
+                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした"
+                + "（画像のみのPDFの可能性）。"
+            )
 
-        self.label.configure(text="PDF生成中... しばらくお待ちください。")  # 元のラベルに戻す
+        self.label.configure(
+            text="PDF生成中... しばらくお待ちください。"
+        )  # 元のラベルに戻す
         self.update_idletasks()
 
         dialog = Dialogs.DateInputDialog(self)
@@ -897,7 +961,7 @@ class Synapsen_Ersteller(ctk.CTk):
             defaultextension=".pdf",
             filetypes=[("PDFファイル", "*.pdf")],
             title="統合PDFの保存先を選択",
-            initialfile=f"統合ノート_{year}_{month:02d}.pdf"
+            initialfile=f"統合ノート_{year}_{month:02d}.pdf",
         )
         if not save_filepath:
             return
@@ -909,10 +973,10 @@ class Synapsen_Ersteller(ctk.CTk):
         try:
             # LaTeX生成に必要な設定情報を辞書にまとめる
             latex_config = {
-                'latex_font': self.latex_font,
-                'latex_author': self.latex_author,
-                'key_icons': self.key_icons,
-                'key_colors': self.key_colors
+                "latex_font": self.latex_font,
+                "latex_author": self.latex_author,
+                "key_icons": self.key_icons,
+                "key_colors": self.key_colors,
             }
             # 新しいモジュールの関数を呼び出す
             latex_source = Generator.create_latex_source(
@@ -932,26 +996,29 @@ class Synapsen_Ersteller(ctk.CTk):
                         "lualatex",
                         "--shell-escape",
                         "-interaction=nonstopmode",
-                        "mokuji.tex"
+                        "mokuji.tex",
                     ],
                     cwd=temp_dir,
-                    capture_output=True, text=True, encoding='utf-8',
-                    errors='ignore'
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
                 )
                 if "Output written on" not in process.stdout:
-                    logger.error(
-                        f"--- LaTeX Compilation Error (Pass {i+1}) ---")
+                    logger.error(f"--- LaTeX Compilation Error (Pass {i+1}) ---")
                     logger.error(process.stdout)
                     logger.error(process.stderr)
                     messagebox.showerror(
                         "LaTeX エラー",
-                        f"PDFのコンパイルに失敗しました。(Pass {i+1})\n詳細はターミナルを確認してください。"
+                        f"PDFのコンパイルに失敗しました。(Pass {i+1})\n詳細はターミナルを確認してください。",
                     )
                     return
 
             draft_pdf_path = Path(temp_dir) / "mokuji.pdf"
             if not draft_pdf_path.is_file():
-                messagebox.showerror("エラー", "LaTeXによる設計図PDFの生成に失敗しました。")
+                messagebox.showerror(
+                    "エラー", "LaTeXによる設計図PDFの生成に失敗しました。"
+                )
                 return
 
             self.label.configure(text="PDF生成中... (2/3) ノートを結合中")
@@ -963,9 +1030,11 @@ class Synapsen_Ersteller(ctk.CTk):
             note_content_start_page = -1
 
             first_note = self.all_notes_info[0]
-            d = first_note['date']
-            date_formatted = f"{d[0:4]}/{d[4:6]}/{d[6:8]}" if d.isdigit() and len(d) == 8 else d
-            title_in_outline = first_note["title"].replace('_', ' ')
+            d = first_note["date"]
+            date_formatted = (
+                f"{d[0:4]}/{d[4:6]}/{d[6:8]}" if d.isdigit() and len(d) == 8 else d
+            )
+            title_in_outline = first_note["title"].replace("_", " ")
 
             expected_outline_title = f"{date_formatted} – {title_in_outline}"
 
@@ -975,21 +1044,28 @@ class Synapsen_Ersteller(ctk.CTk):
                         result = find_title_in_outline(item, target_title)
                         if result:
                             return result
-                    elif hasattr(item, 'title') and item.title.strip() == target_title.strip():
+                    elif (
+                        hasattr(item, "title")
+                        and item.title.strip() == target_title.strip()
+                    ):
                         return item
                 return None
 
-            destination = find_title_in_outline(draft_reader.outline, expected_outline_title)
+            destination = find_title_in_outline(
+                draft_reader.outline, expected_outline_title
+            )
 
             # 本文の開始ページを取得
             if destination:
-                note_content_start_page = draft_reader.get_destination_page_number(destination)
+                note_content_start_page = draft_reader.get_destination_page_number(
+                    destination
+                )
             else:
                 messagebox.showerror(
                     "エラー",
                     f"設計図PDFの目次（しおり）から最初のノートの開始ページを見つけられませんでした。\n\n"
                     f"検索したタイトル:\n'{expected_outline_title}'\n\n"
-                    "CSVやファイル名に特殊文字が含まれていないか確認してください。"
+                    "CSVやファイル名に特殊文字が含まれていないか確認してください。",
                 )
                 logger.error("--- PDF Outline Search Debug ---")
                 logger.error(f"Searching for: '{expected_outline_title}'")
@@ -999,8 +1075,9 @@ class Synapsen_Ersteller(ctk.CTk):
                     for item in items:
                         if isinstance(item, list):
                             print_outline(item, indent + 1)
-                        elif hasattr(item, 'title'):
-                            logger.info('  ' * indent + f"- '{item.title}'")
+                        elif hasattr(item, "title"):
+                            logger.info("  " * indent + f"- '{item.title}'")
+
                 print_outline(draft_reader.outline)
                 return
 
@@ -1021,10 +1098,16 @@ class Synapsen_Ersteller(ctk.CTk):
                         break
 
             if index_start_page == -1:
-                messagebox.showerror("エラー", "設計図PDFから索引ページを特定できませんでした。")
+                messagebox.showerror(
+                    "エラー", "設計図PDFから索引ページを特定できませんでした。"
+                )
                 return
 
-            note_total_pages = sum(note['pages'] for note in self.all_notes_info if Path(note.get("filepath", "")).is_file())
+            note_total_pages = sum(
+                note["pages"]
+                for note in self.all_notes_info
+                if Path(note.get("filepath", "")).is_file()
+            )
             if index_start_page - note_content_start_page != note_total_pages:
                 messagebox.showwarning(
                     "ページ計算の警告",
@@ -1033,7 +1116,7 @@ class Synapsen_Ersteller(ctk.CTk):
                     f"索引の開始ページ: {index_start_page + 1}\n"
                     f"確保されたページ数: {index_start_page - note_content_start_page}\n"
                     f"ノートの合計ページ数: {note_total_pages}\n\n"
-                    "処理を続行します。"
+                    "処理を続行します。",
                 )
 
             for i in range(note_content_start_page):
@@ -1042,8 +1125,8 @@ class Synapsen_Ersteller(ctk.CTk):
             updated_notes_info = []
             note_page_cursor = note_content_start_page
             for note in self.all_notes_info:
-                note['merged_start_page'] = note_page_cursor + 1
-                note['merged_pdf_filename'] = Path(save_filepath).name
+                note["merged_start_page"] = note_page_cursor + 1
+                note["merged_pdf_filename"] = Path(save_filepath).name
                 updated_notes_info.append(note)
 
                 if not Path(note.get("filepath", "")).is_file():
@@ -1052,31 +1135,15 @@ class Synapsen_Ersteller(ctk.CTk):
                 original_reader = PdfReader(note["filepath"])
                 for i in range(len(original_reader.pages)):
                     if note_page_cursor >= index_start_page:
-                        logger.error(f"ページ数計算エラー:note_page_cursor({
-                            note_page_cursor})が上限({index_start_page})を超えました。")
+                        logger.error(
+                            "ページ数計算エラー:note_page_cursor"
+                            f"({note_page_cursor})が上限({index_start_page})を超えました。"
+                        )
                         continue
 
                     template_page = draft_reader.pages[note_page_cursor]
                     content_page = original_reader.pages[i]
-
-                    original_width = float(content_page.mediabox.width)
-                    original_height = float(content_page.mediabox.height)
-                    if original_width == 0 or original_height == 0:
-                        continue
-
-                    scale_w = self.paper_width / original_width
-                    scale_h = self.paper_height / original_height
-                    scale = min(scale_w, scale_h)
-                    tx = (self.paper_width - original_width * scale) / 2
-                    ty = (self.paper_height - original_height * scale) / 2
-                    transform = Transformation().scale(
-                        sx=scale, sy=scale
-                        ).translate(
-                            tx=tx, ty=ty
-                            )
-                    template_page.merge_transformed_page(
-                        content_page, transform
-                        )
+                    template_page.merge_page(content_page)
 
                     final_writer.add_page(template_page)
                     note_page_cursor += 1
@@ -1089,10 +1156,8 @@ class Synapsen_Ersteller(ctk.CTk):
 
             if draft_reader.outline:
                 self._copy_bookmarks_recursive(
-                    draft_reader.outline,
-                    final_writer,
-                    draft_reader
-                    )
+                    draft_reader.outline, final_writer, draft_reader
+                )
 
             # ==================================================================
             # 復旧用メタデータの埋め込み処理
@@ -1114,21 +1179,26 @@ class Synapsen_Ersteller(ctk.CTk):
                         "pages": note.get("pages"),
                         "merged_start_page": note.get("merged_start_page"),
                         "merged_pdf_filename": note.get("merged_pdf_filename"),
+                        "summary": note.get("summary"),
                         # full_text は pdfから直接取得する為 埋め込まない
                     }
                     metadata_to_embed.append(clean_note)
 
-                # 2. JSON文字列に変換 (日本語対応)
-                json_data = json.dumps(
-                    metadata_to_embed, ensure_ascii=False, indent=2)
+                # 2. スキーマバージョンを含む親辞書を作成
+                data_to_save = {
+                    "schema_version": 1.1,  # 現在のスキーマ
+                    "notes_data": metadata_to_embed,
+                }
 
-                # 3. バイトデータに変換
-                json_bytes = json_data.encode('utf-8')
+                # 3. JSON文字列に変換 (日本語対応)
+                json_data = json.dumps(data_to_save, ensure_ascii=False, indent=2)
 
-                # 4. PDFに添付ファイルとして追加
+                # 4. バイトデータに変換
+                json_bytes = json_data.encode("utf-8")
+
+                # 5. PDFに添付ファイルとして追加
                 # ファイル名: "synapsen_metadata_backup.json"
-                final_writer.add_attachment(
-                    "synapsen_metadata_backup.json", json_bytes)
+                final_writer.add_attachment("synapsen_metadata_backup.json", json_bytes)
 
                 logger.info("復旧用メタデータをPDFに埋め込みました。")
 
@@ -1144,8 +1214,10 @@ class Synapsen_Ersteller(ctk.CTk):
             # --- 保存処理とメッセージング ---
             db_saved = False
             csv_saved = False
-            db_name = os.path.basename(self.default_db_path) if self.default_db_path else ""
-            csv_name = Path(save_filepath).with_suffix('.csv').name
+            db_name = (
+                os.path.basename(self.default_db_path) if self.default_db_path else ""
+            )
+            csv_name = Path(save_filepath).with_suffix(".csv").name
             pdf_name = os.path.basename(save_filepath)
 
             try:
@@ -1161,38 +1233,55 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 # --- C. 成功メッセージの生成 ---
                 if db_saved and csv_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"目次情報はマスターDB ({db_name}) に追記され、\n"
-                           f"個別CSV ({csv_name}) としても保存されました。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"目次情報はマスターDB ({db_name}) に追記され、\n"
+                        f"リストCSV ({csv_name}) としても保存されました。"
+                    )
                     self.label.configure(
-                        text="成功！ 統合PDFを生成し、DBと個別CSVに保存しました。")
+                        text="成功！ 統合PDFを生成し、DBと個別CSVに保存しました。"
+                    )
 
                 elif db_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"目次情報は {db_name} に自動追記されました。")
-                    self.label.configure(text="成功！ 統合PDFを生成し、マスターDBに追記しました。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"目次情報は {db_name} に自動追記されました。"
+                    )
+                    self.label.configure(
+                        text="成功！ 統合PDFを生成し、マスターDBに追記しました。"
+                    )
 
                 elif csv_saved:
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"個別CSV ({csv_name}) として保存されました。\n"
-                           f"（マスターDBへの自動追記は無効です）")
-                    self.label.configure(text="成功！ 統合PDFと専用目次CSVを生成しました。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"リストCSV ({csv_name}) として保存されました。\n"
+                        f"（マスターDBへの自動追記は無効です）"
+                    )
+                    self.label.configure(
+                        text="成功！ 統合PDFと専用目次CSVを生成しました。"
+                    )
 
                 else:
                     # どちらもOFFの場合
-                    msg = (f"統合PDFの生成が完了しました。\n"
-                           f"PDF: {pdf_name}\n\n"
-                           f"（マスターDBへの追記、個別CSVの保存は両方無効です）")
-                    self.label.configure(text="成功！ 統合PDFを生成しました（保存なし）。")
+                    msg = (
+                        f"統合PDFの生成が完了しました。\n"
+                        f"PDF: {pdf_name}\n\n"
+                        f"（マスターDBへの追記、リストCSVの保存は両方無効です）"
+                    )
+                    self.label.configure(
+                        text="成功！ 統合PDFを生成しました（保存なし）。"
+                    )
 
                 messagebox.showinfo("成功", msg)
 
             except Exception as e:
                 messagebox.showerror(
-                    "保存エラー", f"統合PDFの生成には成功しましたが、保存処理中にエラーが発生しました:\n{e}")
+                    "保存エラー",
+                    f"統合PDFの生成には成功しましたが、保存処理中にエラーが発生しました:\n{e}",
+                )
                 self.label.configure(text="エラー: 保存処理中に失敗しました。")
 
         finally:
@@ -1207,30 +1296,26 @@ class Synapsen_Ersteller(ctk.CTk):
             return
         self.label.configure(text=f"同期中: {folder_path}")
         self.update_idletasks()
-        app_paths = {note.get('filepath') for note in self.all_notes_info}
-        disk_paths = {
-            str(pdf_file) for pdf_file in Path(folder_path).glob("*.pdf")
-            }
+        app_paths = {note.get("filepath") for note in self.all_notes_info}
+        disk_paths = {str(pdf_file) for pdf_file in Path(folder_path).glob("*.pdf")}
         added_paths = disk_paths - app_paths
         deleted_paths = app_paths - disk_paths
         added_count, deleted_count = 0, 0
         if deleted_paths:
-            deleted_filenames = "\n".join(
-                [f"- {Path(p).name}" for p in deleted_paths]
-                )
+            deleted_filenames = "\n".join([f"- {Path(p).name}" for p in deleted_paths])
             user_response = messagebox.askyesno(
                 "削除の確認",
-                f"以下のファイルがフォルダから見つかりませんでした。リストから削除しますか？\n\n{deleted_filenames}"
-                )
+                f"以下のファイルがフォルダから見つかりませんでした。リストから削除しますか？\n\n{deleted_filenames}",
+            )
             if user_response:
                 self.all_notes_info = [
-                    note for note in self.all_notes_info if note.get(
-                        'filepath'
-                        ) not in deleted_paths
-                    ]
+                    note
+                    for note in self.all_notes_info
+                    if note.get("filepath") not in deleted_paths
+                ]
                 deleted_count = len(deleted_paths)
                 # 削除されたノートが選択されていた場合、選択状態からも削除
-                keys_in_memory = {note.get('key') for note in self.all_notes_info}
+                keys_in_memory = {note.get("key") for note in self.all_notes_info}
                 self.selected_notes = self.selected_notes.intersection(keys_in_memory)
 
         if added_paths:
@@ -1241,14 +1326,12 @@ class Synapsen_Ersteller(ctk.CTk):
             added_count = len(added_paths)
 
         if added_count > 0 or deleted_count > 0:
-            self.all_notes_info.sort(
-                key=lambda note: (note['date'], note['time'])
-                )
+            self.all_notes_info.sort(key=lambda note: (note["date"], note["time"]))
             self.update_note_list()  # UIを再描画
             self.update_batch_buttons_state()  # ボタン状態を更新
             self.label.configure(
                 text=f"同期完了！ {added_count}件追加, {deleted_count}件削除"
-                )
+            )
         else:
             self.label.configure(text="変更はありませんでした。")
 
@@ -1257,14 +1340,16 @@ class Synapsen_Ersteller(ctk.CTk):
         チェックボックスがクリックされたときに呼び出され、
         ノートの選択状態を切り替える。
         """
-        key = note_data.get('key')
+        key = note_data.get("key")
         if not key:
             return  # key がないノートは選択不可
 
-        if state_str == 'on':
+        if state_str == "on":
             self.selected_notes.add(key)
         else:
-            self.selected_notes.discard(key)   # removeと違い、存在しなくてもエラーにならない
+            self.selected_notes.discard(
+                key
+            )  # removeと違い、存在しなくてもエラーにならない
 
         self.update_batch_buttons_state()
 
@@ -1275,21 +1360,15 @@ class Synapsen_Ersteller(ctk.CTk):
         """
         count = len(self.selected_notes)
         if count > 0:
-            self.batch_edit_button.configure(
-                text=f"一括編集 ({count})", state="normal"
-                )
+            self.batch_edit_button.configure(text=f"一括編集 ({count})", state="normal")
             self.deselect_all_button.configure(state="normal")
             self.copy_links_button.configure(
                 text=f"リンクコピー ({count})", state="normal"
             )
         else:
-            self.batch_edit_button.configure(
-                text="一括編集 (0)", state="disabled"
-                )
+            self.batch_edit_button.configure(text="一括編集 (0)", state="disabled")
             self.deselect_all_button.configure(state="disabled")
-            self.copy_links_button.configure(
-                text="リンクコピー (0)", state="disabled"
-            )
+            self.copy_links_button.configure(text="リンクコピー (0)", state="disabled")
 
     def deselect_all(self):
         """
@@ -1310,7 +1389,7 @@ class Synapsen_Ersteller(ctk.CTk):
         # ダイアログの「既存タグから選択」で使うためのタグリストを作成
         session_tags = set()
         for note in self.all_notes_info:
-            session_tags.update(note.get('tags', []))
+            session_tags.update(note.get("tags", []))
         combined_tags = session_tags.union(set(self.predefined_tags))
 
         # gui_dialogs.py に追加した BatchEditWindow を呼び出す
@@ -1318,7 +1397,7 @@ class Synapsen_Ersteller(ctk.CTk):
             self,
             len(self.selected_notes),
             list(combined_tags),
-            self.commonplace_key_options
+            self.commonplace_key_options,
         )
 
         # ダイアログの結果待機
@@ -1327,9 +1406,9 @@ class Synapsen_Ersteller(ctk.CTk):
         if result:
             # ユーザーが「適用」を押した場合
             self.apply_batch_edits(
-                result.get('index_key'),
-                result.get('tags_to_add', []),
-                result.get('tags_to_remove', [])
+                result.get("index_key"),
+                result.get("tags_to_add", []),
+                result.get("tags_to_remove", []),
             )
 
     def apply_batch_edits(self, index_key_to_set, tags_to_add, tags_to_remove):
@@ -1345,27 +1424,27 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # メモリ上の self.all_notes_info を直接変更
         for note in self.all_notes_info:
-            note_key = note.get('key')
+            note_key = note.get("key")
             if note_key and note_key in self.selected_notes:
 
                 # 1. Index Key の設定
                 if index_key_to_set is not None:
-                    note['commonplace_key'] = index_key_to_set
+                    note["commonplace_key"] = index_key_to_set
 
                 # 2. タグの変更
-                current_tags = set(note.get('tags', []))
+                current_tags = set(note.get("tags", []))
 
                 # 2a. タグの追加 (階層も考慮)
                 for tag_to_add in tags_to_add:
-                    parts = tag_to_add.split('_')
+                    parts = tag_to_add.split("_")
                     for i in range(len(parts)):
-                        hierarchical_tag = "_".join(parts[:i+1])
+                        hierarchical_tag = "_".join(parts[: i + 1])
                         current_tags.add(hierarchical_tag)
 
                 # 2b. タグの削除
                 current_tags.difference_update(tags_to_remove)
 
-                note['tags'] = sorted(list(current_tags))
+                note["tags"] = sorted(list(current_tags))
                 modified_count += 1
 
         logger.info(f"{modified_count} 件のノートを一括編集しました。")
@@ -1390,7 +1469,7 @@ class Synapsen_Ersteller(ctk.CTk):
         # 1. 選択されたノートの辞書を抽出
         selected_notes_data = []
         for note in self.all_notes_info:
-            key = note.get('key')
+            key = note.get("key")
             if key and key in self.selected_notes:
                 selected_notes_data.append(note)
 
@@ -1398,13 +1477,13 @@ class Synapsen_Ersteller(ctk.CTk):
             return
 
         # 2. 日付・時刻順にソート (Erstellerのデフォルト順)
-        selected_notes_data.sort(key=lambda note: (note['date'], note['time']))
+        selected_notes_data.sort(key=lambda note: (note["date"], note["time"]))
 
         # 3. リンク文字列を生成
         link_texts = []
         for note in selected_notes_data:
-            key = note['key']
-            title = note['title']
+            key = note["key"]
+            title = note["title"]
             # Synapsenのリンク形式: [[Key: Title]]
             link_texts.append(f"[[{key}: {title}]]")
 
@@ -1421,16 +1500,16 @@ class Synapsen_Ersteller(ctk.CTk):
                 "コピー完了",
                 f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
                 "ノートのメモ欄にペーストして利用できます。",
-                parent=self
+                parent=self,
             )
-            self.label.configure(
-                text=f"{len(link_texts)}件のリンクをコピーしました。")
+            self.label.configure(text=f"{len(link_texts)}件のリンクをコピーしました。")
 
         except Exception as e:
             logger.error(f"リンクのコピーに失敗: {e}")
             messagebox.showerror(
-                "コピー失敗", f"クリップボードへのコピーに失敗しました:\n{e}",
-                parent=self
+                "コピー失敗",
+                f"クリップボードへのコピーに失敗しました:\n{e}",
+                parent=self,
             )
 
     def open_recovery_tool(self):
@@ -1440,7 +1519,8 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # ツールウィンドウの作成
         recovery_win = db_recovery_tool.DBRecoveryWindow(
-            self, default_db_path=default_db)
+            self, default_db_path=default_db
+        )
         recovery_win.focus()
 
 
@@ -1454,6 +1534,8 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Icon default setting error: {e}")
     else:
-        logger.warning("警告: アイコンファイル (assets/synapsen.ico) が見つかりません。")
+        logger.warning(
+            "警告: アイコンファイル (assets/synapsen.ico) が見つかりません。"
+        )
 
     app.mainloop()

@@ -13,24 +13,35 @@ import subprocess
 import qrcode
 import json
 
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+# Playwrightのインポート (エラーハンドリング付き)
+try:
+    from playwright.sync_api import sync_playwright, Error as PlaywrightError
+except ImportError:
+    sync_playwright = None
+    PlaywrightError = Exception
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# 定数定義 (ポイント単位)
+# 定数定義
 # ==============================================================================
 
 CM_TO_PT: float = 72 / 2.54
-MARGIN_CM: float = 0
-HEAD_SEP_CM: float = 1.0
-MARGIN: float = MARGIN_CM * CM_TO_PT
-HEAD_SEP: float = HEAD_SEP_CM * CM_TO_PT
-TOP_MARGIN: float = MARGIN + HEAD_SEP
-BOTTOM_MARGIN: float = MARGIN
-LEFT_MARGIN: float = 0
-RIGHT_MARGIN: float = 0
+
+# Ersteller (LaTeX) のレイアウトに合わせた安全な余白設定
+# (単位: cm)
+LAYOUT_MARGINS = {
+    "A4": {
+        "top": 2.2,
+        "bottom": 2.8,
+        "left": 1.0,
+        "right": 1.0,
+    },
+    "A5": {"top": 2.0, "bottom": 2.5, "left": 0.8, "right": 0.8},
+}
+
 # ==============================================================================
 
 
@@ -48,14 +59,51 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
             fitz用のRGBタプル。変換失敗時はNone。
     """
     try:
-        hex_color = hex_color.lstrip('#')
+        hex_color = hex_color.lstrip("#")
         # 16進数を 0-255 の整数に変換
-        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
         # 0-1 の浮動小数点数に変換
         return (r / 255.0, g / 255.0, b / 255.0)
     except Exception as e:
         logger.error(f"警告: 16進数カラーコード '{hex_color}' の変換に失敗: {e}")
         return None
+
+
+def embed_processing_flag(pdf_path_str: str) -> None:
+    """
+    PDFのメタデータ(Keywords)に 'Synapsen:SkipNormalization' を追記します。
+    これにより、次回以降の正規化処理でサイズ変更がスキップされます。
+    """
+    doc = None
+    try:
+        doc = fitz.open(pdf_path_str)
+        current_metadata = doc.metadata
+        keywords = current_metadata.get("keywords", "")
+
+        skip_flag = "Synapsen:SkipNormalization"
+
+        # まだフラグがない場合のみ追記
+        if skip_flag not in keywords:
+            new_keywords = f"{keywords}; {skip_flag}" if keywords else skip_flag
+
+            # fitzのset_metadataは辞書全体を渡す必要があるためコピーして更新
+            new_metadata = current_metadata.copy()
+            new_metadata["keywords"] = new_keywords
+
+            doc.set_metadata(new_metadata)
+
+            # 増分保存 (高速かつ安全)
+            doc.saveIncr()
+
+    except Exception as e:
+        # メタデータ付与に失敗しても処理自体は止めない（ログのみ）
+        logger.warning(
+            f"Warning: Failed to embed processing flag to {pdf_path_str}: {e}",
+            extra={"sensitive": True},
+        )
+    finally:
+        if doc:
+            doc.close()
 
 
 def add_metadata_to_clip(
@@ -69,20 +117,27 @@ def add_metadata_to_clip(
     comment_to_embed: str,
     sist_string_formal: str | None = None,
     sist_string_readable: str | None = None,
-    base_name: str | None = None
+    base_name: str | None = None,
+    cited_keys_list: list[str] | None = None,
+    refs_qr_size_pt: int = 75,
+    extra_keywords: list[str] | None = None,
 ) -> None:
     """
-    Playwrightで生成されたPDFに対し、
-    1ページ目に IndexKey (テキスト+QR) を、最終ページ（新規追加）に コメントと書誌情報 を書き込みます。
+    PDFにメタデータ(QR/テキスト)を描画し、同時にPDFプロパティにも情報を埋め込みます。
+    処理済みであることを示すキーワードも埋め込みます。
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
-    if (not index_key_to_embed and
-        not comment_to_embed and
-            not sist_string_formal):
+    if (
+        not index_key_to_embed
+        and not comment_to_embed
+        and not sist_string_formal
+        and not cited_keys_list
+        and not base_name
+    ):
         logger.info(
             f"埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         return
 
@@ -92,9 +147,69 @@ def add_metadata_to_clip(
         if len(doc) == 0:
             logger.error(
                 f"メタデータ埋め込みスキップ: ページが存在しません {pdf_path_str}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             return
+
+        # === 1. メタデータ(PDFプロパティ)への埋め込み処理 ===
+        # 既存のメタデータを取得
+        current_metadata = doc.metadata
+
+        # 既存のキーワードを取得
+        keywords = current_metadata.get("keywords", "")
+
+        # キーワード追加ロジック
+        keywords_list = [k.strip() for k in keywords.split(";") if k.strip()]
+
+        # 基本フラグ
+        skip_flag = "Synapsen:SkipNormalization"
+        if skip_flag not in keywords_list:
+            keywords_list.append(skip_flag)
+
+        # 追加キーワード (extra_keywords) の結合
+        if extra_keywords:
+            for kw in extra_keywords:
+                if kw not in keywords_list:
+                    keywords_list.append(kw)
+
+        new_keywords = "; ".join(keywords_list)
+
+        new_metadata = current_metadata.copy()
+        new_metadata["keywords"] = new_keywords
+
+        # ★ カスタムメタデータとして JSON 形式で情報を埋め込む
+        # Subject(件名) や Keywords(キーワード) を汚染しすぎないよう、
+        # PyMuPDFの機能を使ってカスタムキーを設定します。
+        # (注: 一般的なPDFビューアでは見えませんが、Synapsenからは読み取れます)
+
+        meta_info = {}
+        if index_key_to_embed:
+            meta_info["cpk"] = index_key_to_embed
+        if cited_keys_list:
+            meta_info["refs"] = cited_keys_list
+        if comment_to_embed:
+            meta_info["comment"] = comment_to_embed
+
+        # キー生成ロジック
+        auto_generated_key = ""
+        if base_name:
+            match = re.match(r"(\d{8})_(?:(\d{4,6})_)?(.+)", base_name, re.IGNORECASE)
+            if match:
+                date_str, time_val, _ = match.groups()
+                time_str = time_val.ljust(6, "0") if time_val else "999999"
+                key_time = time_str if time_str != "999999" else "000000"
+                auto_generated_key = date_str + key_time
+                meta_info["key"] = auto_generated_key
+
+        if meta_info:
+            # 安全策: Subjectフィールドの末尾に隠しJSONとして追記する
+            # (多くのPDFリーダーでプロパティとして確認可能になるメリットもあります)
+            json_str = json.dumps(meta_info, ensure_ascii=False)
+            current_subject = new_metadata.get("subject", "") or ""
+            new_metadata["subject"] = f"{current_subject}\n"
+
+        # メタデータを適用
+        doc.set_metadata(new_metadata)
 
         key_rect = fitz.Rect(key_rect_tuple)
         font_alias = "embed_font"
@@ -107,27 +222,8 @@ def add_metadata_to_clip(
             except Exception as e:
                 logger.warning(f"フォント埋め込み警告 (Page 1): {e}")
 
-            shape1 = page1.new_shape()
-
             # ============================================================
-            # レイアウト計算: 左端にQR、その右にテキスト
-            # ============================================================
-            # 1. QRコードの領域計算 (左端に配置)
-            qr_size = 35  # ポイント
-            qr_margin = 5
-            qr_x = key_rect.x0 + qr_margin
-            qr_y = key_rect.y0
-
-            qr_rect = fitz.Rect(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size)
-
-            # 2. テキストの領域計算 (QRコードの分だけ右にずらす)
-            text_rect = fitz.Rect(
-                qr_rect.x1 + qr_margin, key_rect.y0,
-                key_rect.x1, key_rect.y1
-            )
-
-            # ============================================================
-            # A. QRコードの生成と描画
+            # A. QRコードの生成と描画 (Page 1: cpk と key のみ)
             # ============================================================
             try:
                 # --- QRコードに埋め込むJSONデータを構築 (cpk と key のみ) ---
@@ -137,17 +233,17 @@ def add_metadata_to_clip(
                 if base_name:
                     # base_name をパースして Ersteller と同じ "key" のみ生成
                     match = re.match(
-                        r"(\d{8})_(?:(\d{4,6})_)?(.+)",
-                        base_name,
-                        re.IGNORECASE)
+                        r"(\d{8})_(?:(\d{4,6})_)?(.+)", base_name, re.IGNORECASE
+                    )
 
                     if match:
                         date_str, time_val, _ = match.groups()
 
                         if time_val:
-                            time_str = time_val.ljust(6, '0')
+                            time_str = time_val.ljust(6, "0")
                         else:
                             time_str = "999999"
+
                         if time_str != "999999":
                             key_time = time_str
                         else:
@@ -167,23 +263,37 @@ def add_metadata_to_clip(
 
                 # バイト列に変換
                 img_byte_arr = io.BytesIO()
-                qr_img.save(img_byte_arr, format='PNG')
+                qr_img.save(img_byte_arr, format="PNG")
                 img_bytes = img_byte_arr.getvalue()
 
-                # ページに画像を挿入
+                # (Page 1 QR のレイアウト計算 ... 変更なし)
+                qr_size = 35
+                qr_margin = 5
+                qr_x = key_rect.x0 + qr_margin
+                qr_y = key_rect.y0
+                qr_rect = fitz.Rect(qr_x, qr_y, qr_x + qr_size, qr_y + qr_size)
+
                 page1.insert_image(qr_rect, stream=img_bytes)
 
             except Exception as e:
-                logger.error(f"QRコード生成エラー: {e}")
+                logger.error(f"QRコード生成エラー (Page 1): {e}")
 
             # ============================================================
             # B. テキストの描画 (Index Key がある場合のみ)
             # ============================================================
             # Index Key がある場合のみテキストを描画
+            shape1 = page1.new_shape()
+            text_rect = fitz.Rect(
+                qr_rect.x1 + qr_margin, key_rect.y0, key_rect.x1, key_rect.y1
+            )
             if index_key_to_embed:
                 shape1.insert_textbox(
-                    text_rect, index_key_to_embed, fontname=font_alias,
-                    fontsize=10, color=text_color, align=0
+                    text_rect,
+                    index_key_to_embed,
+                    fontname=font_alias,
+                    fontsize=10,
+                    color=text_color,
+                    align=0,
                 )
 
             shape1.commit()
@@ -210,47 +320,101 @@ def add_metadata_to_clip(
 
             if sist_string_formal:
                 sist_rect = fitz.Rect(
-                    x0, current_y_pos,
-                    page_last.rect.width - 50, current_y_pos + 60
+                    x0, current_y_pos, page_last.rect.width - 50, current_y_pos + 60
                 )
                 rc_sist = shape_last.insert_textbox(
-                    sist_rect, f"書誌情報 (SIST 02):\n{sist_string_formal}",
-                    fontname=font_alias, fontsize=6, align=0
+                    sist_rect,
+                    f"書誌情報 (SIST 02):\n{sist_string_formal}",
+                    fontname=font_alias,
+                    fontsize=6,
+                    align=0,
                 )
                 actual_sist_y1 = (
                     sist_rect.y0 + (sist_rect.height - rc_sist)
-                    if rc_sist >= 0 else sist_rect.y1
+                    if rc_sist >= 0
+                    else sist_rect.y1
                 )
                 current_y_pos = actual_sist_y1 + 10
 
             if sist_string_readable:
                 readable_rect = fitz.Rect(
-                    x0, current_y_pos,
-                    page_last.rect.width - 50, info_rect_y_end
+                    x0, current_y_pos, page_last.rect.width - 50, info_rect_y_end
                 )
                 rc_readable = shape_last.insert_textbox(
-                    readable_rect, f"書誌情報:\n{sist_string_readable}",
-                    fontname=font_alias, fontsize=9, align=0
+                    readable_rect,
+                    f"書誌情報:\n{sist_string_readable}",
+                    fontname=font_alias,
+                    fontsize=9,
+                    align=0,
                 )
                 actual_readable_y1 = (
                     readable_rect.y0 + (readable_rect.height - rc_readable)
-                    if rc_readable >= 0 else readable_rect.y1
+                    if rc_readable >= 0
+                    else readable_rect.y1
                 )
                 current_y_pos = actual_readable_y1 + 40
             else:
                 current_y_pos = info_rect_y_start + 40
 
             comment_rect = fitz.Rect(
-                x0, current_y_pos,
-                page_last.rect.width - 50, info_rect_y_end
+                x0, current_y_pos, page_last.rect.width - 50, info_rect_y_end
             )
             if comment_to_embed:
                 shape_last.insert_textbox(
-                    comment_rect, f"コメント:\n{comment_to_embed}",
-                    fontname=font_alias, fontsize=9, align=0
+                    comment_rect,
+                    f"コメント:\n{comment_to_embed}",
+                    fontname=font_alias,
+                    fontsize=9,
+                    align=0,
                 )
 
             shape_last.commit()
+
+        # 最終ページに「引用Key専用QRコード」を描画
+        if cited_keys_list:
+            # (page_last がまだ定義されていない場合 = コメント等が空だった場合)
+            if "page_last" not in locals():
+                page_last = doc.new_page(
+                    pno=len(doc), width=paper_width, height=paper_height
+                )
+
+            try:
+                # 1. Prepare JSON (refs only)
+                qr_data_refs = {"refs": cited_keys_list}
+                qr_data_str_refs = json.dumps(qr_data_refs, ensure_ascii=False)
+
+                # 2. Generate QR image (Larger size)
+                qr_refs = qrcode.QRCode(box_size=4, border=1)
+                qr_refs.add_data(qr_data_str_refs)
+                qr_refs.make(fit=True)
+                qr_img_refs = qr_refs.make_image(fill_color="black", back_color="white")
+
+                # 3. Get image bytes
+                img_byte_arr_refs = io.BytesIO()
+                qr_img_refs.save(img_byte_arr_refs, format="PNG")
+                img_bytes_refs = img_byte_arr_refs.getvalue()
+
+                # 4. Define position (Bottom-Right)
+                qr_size_refs = refs_qr_size_pt  # Default: 75x75 pt (約 2.6 cm)
+                margin_refs = 30  # 右下からのマージン
+                qr_x_refs = page_last.rect.width - qr_size_refs - margin_refs
+                qr_y_refs = page_last.rect.height - qr_size_refs - margin_refs
+                qr_rect_refs = fitz.Rect(
+                    qr_x_refs,
+                    qr_y_refs,
+                    qr_x_refs + qr_size_refs,
+                    qr_y_refs + qr_size_refs,
+                )
+
+                # 5. Insert QR image
+                page_last.insert_image(qr_rect_refs, stream=img_bytes_refs)
+                logger.info(
+                    f"引用Key専用QRコードを最終ページに埋め込みました: {Path(pdf_path_str).name}",
+                    extra={"sensitive": True},
+                )
+
+            except Exception as e:
+                logger.error(f"最終ページの引用Key用QRコード生成エラー: {e}")
 
         # 変更を上書き保存
         doc.saveIncr()
@@ -258,7 +422,7 @@ def add_metadata_to_clip(
     except Exception as e:
         logger.error(
             f"Webクリップへのメタデータ埋め込み中にエラー ({pdf_path_str}): {e}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         raise
     finally:
@@ -266,29 +430,154 @@ def add_metadata_to_clip(
             doc.close()
 
 
+def _flatten_annot_manually(page: fitz.Page, annot: fitz.Annot) -> bool:
+    """
+    注釈のプロパティを読み取り、PyMuPDFの描画機能でページ本体に焼き付けます。
+    筆圧情報（線の強弱）は失われますが、確実に背景化できます。
+
+    Returns:
+        bool: 描画に成功し、注釈を削除した場合は True
+    """
+    try:
+        annot_type = annot.type[0]
+        rect = annot.rect
+
+        # 色・透明度・線幅の取得 (None対策)
+        colors = annot.colors if annot.colors else {}
+        stroke_color = colors.get("stroke")
+        fill_color = colors.get("fill")
+        opacity = annot.opacity if annot.opacity is not None else 1.0
+
+        # ボーダー情報の取得 (borderがdictでない場合やNoneの場合に対応)
+        line_width = 1
+        if annot.border and isinstance(annot.border, dict):
+            line_width = annot.border.get("width", 1)
+        elif hasattr(annot.border, "__getitem__") and len(annot.border) > 0:
+            # 古いバージョン等でリストの場合
+            line_width = annot.border[0]
+
+        # --- タイプ別の描画処理 ---
+
+        # 1. インク (手書き)
+        if annot_type == fitz.PDF_ANNOT_INK:
+            # vertices は「ストローク(点列)」のリスト
+            if annot.vertices:
+                for stroke in annot.vertices:
+                    page.draw_polyline(
+                        stroke,
+                        color=stroke_color,
+                        width=line_width,
+                        stroke_opacity=opacity,
+                    )
+
+        # 2. 線
+        elif annot_type == fitz.PDF_ANNOT_LINE:
+            if annot.vertices and len(annot.vertices) >= 2:
+                page.draw_line(
+                    annot.vertices[0],
+                    annot.vertices[1],
+                    color=stroke_color,
+                    width=line_width,
+                    stroke_opacity=opacity,
+                )
+
+        # 3. 四角形 / 円
+        elif annot_type == fitz.PDF_ANNOT_SQUARE:
+            page.draw_rect(
+                rect,
+                color=stroke_color,
+                fill=fill_color,
+                width=line_width,
+                stroke_opacity=opacity,
+                fill_opacity=opacity,
+            )
+        elif annot_type == fitz.PDF_ANNOT_CIRCLE:
+            # draw_circleは中心+半径だが、draw_ovalはRect指定で便利
+            page.draw_oval(
+                rect,
+                color=stroke_color,
+                fill=fill_color,
+                width=line_width,
+                stroke_opacity=opacity,
+                fill_opacity=opacity,
+            )
+
+        # 4. 多角形 / 折れ線
+        elif annot_type == fitz.PDF_ANNOT_POLYGON:
+            if annot.vertices:
+                page.draw_polygon(
+                    annot.vertices,
+                    color=stroke_color,
+                    fill=fill_color,
+                    width=line_width,
+                    stroke_opacity=opacity,
+                    fill_opacity=opacity,
+                )
+        elif annot_type == fitz.PDF_ANNOT_POLY_LINE:
+            if annot.vertices:
+                page.draw_polyline(
+                    annot.vertices,
+                    color=stroke_color,
+                    width=line_width,
+                    stroke_opacity=opacity,
+                )
+
+        # 5. スタンプ (画像として焼き込み)
+        elif annot_type == fitz.PDF_ANNOT_STAMP:
+            # 注釈の見た目をPixmapとして取得し、画像として埋め込む
+            pix = annot.get_pixmap()
+            page.insert_image(rect, pixmap=pix)
+
+        # 6. フリーテキスト (テキストボックスとして焼き込み)
+        elif annot_type == fitz.PDF_ANNOT_FREE_TEXT:
+            text_content = annot.info.get("content", "")
+            if text_content:
+                # フォントサイズ取得 (0以下の場合はデフォルト設定)
+                fs = annot.fontsize if annot.fontsize > 0 else 11
+                # テキスト挿入 (フォントの完全再現は難しいが内容は残す)
+                page.insert_textbox(
+                    rect,
+                    text_content,
+                    color=stroke_color,  # テキスト色は通常strokeに入る
+                    fontsize=fs,
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+
+        else:
+            # その他の注釈はサポート外としてスキップ（削除しない）
+            return False
+
+        # 描画に成功したら、元の注釈を削除
+        page.delete_annot(annot)
+        return True
+
+    except Exception as e:
+        logger.warning(f"Manual flatten failed (Type {annot.type}): {e}")
+        return False
+
+
 def high_fidelity_flatten(
-        input_path: str,
-        output_path: str,
-        font_path: str
+    input_path: str, output_path: str, font_path: str, flatten_ink: bool = True
 ) -> None:
     """
-    PyMuPDFを使い、指定フォントでフォームをテキストに変換（高精度フラット化）します。
-
-    Acrobatの「フォームをフラット化」とは異なり、
-    フォームフィールドの「値」を指定フォントでベタ書きし、
-    フィールド自体を削除することで、注釈（アノテーション）を維持します。
+    PyMuPDFを使い、以下の処理を行います。
+    1. フォーム（Widget）をテキスト化してフラット化 (常時実行)
+    2. ハイライトとリンク以外の注釈（手書き等）をフラット化 (flatten_ink=Trueの場合)
 
     Args:
         input_path (str): 入力PDFファイルのパス。
         output_path (str): フラット化後の出力PDFファイルのパス。
         font_path (str): 埋め込むフォントファイル（.ttf, .otfなど）のパス。
+        flatten_ink (bool): Trueなら手書き注釈等を背景化（筆圧消失）。Falseなら注釈のまま維持（筆圧維持）。
 
     Raises:
         FileNotFoundError: 指定されたフォントファイルが見つからない場合。
         Exception: PDFのオープンや保存に失敗した場合。
     """
     if not Path(font_path).is_file():
-        raise FileNotFoundError(f"指定されたフォントファイルが見つかりません: {font_path}")
+        raise FileNotFoundError(
+            f"指定されたフォントファイルが見つかりません: {font_path}"
+        )
 
     doc = None
     try:
@@ -296,25 +585,33 @@ def high_fidelity_flatten(
         if doc.is_encrypted:
             logger.warning(
                 f"暗号化されたPDFはスキップします: {Path(input_path).name}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             return  # 暗号化ファイルは処理せず終了
 
-        font_name_in_pdf = "synapsen-embed-font"  # PDF内部で使うフォントのエイリアス名
+        font_name_in_pdf = "synapsen-embed-font"
+
+        # 全ページ共通でフォント登録を試みる
+        try:
+            if len(doc) > 0:
+                doc[0].insert_font(fontname=font_name_in_pdf, fontfile=font_path)
+        except Exception:
+            pass
 
         for page in doc:
-            try:
-                page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
-            except Exception as e:
-                logger.info(f"Font insertion issue ({e}). Continuing.")
-
-            # フォームウィジェットを処理
+            # --- 1. フォーム（Widget）のテキスト化 ---
             for widget in page.widgets():
-                if widget.field_type in (
-                    fitz.PDF_WIDGET_TYPE_TEXT,
-                    fitz.PDF_WIDGET_TYPE_COMBOBOX
-                ) and widget.field_value:
-                    # フィールドの値をページに直接描画
+                if (
+                    widget.field_type
+                    in (fitz.PDF_WIDGET_TYPE_TEXT, fitz.PDF_WIDGET_TYPE_COMBOBOX)
+                    and widget.field_value
+                ):
+                    try:
+                        page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
+                    except (FileNotFoundError, RuntimeError):
+                        # 登録済みの可能性が高いため、エラーログは記録せず無視
+                        pass
+
                     page.insert_textbox(
                         widget.rect,
                         widget.field_value,
@@ -325,13 +622,27 @@ def high_fidelity_flatten(
                 # 元のインタラクティブなウィジェットを削除
                 page.delete_widget(widget)
 
-        # PDFを保存 (ガベージコレクション、圧縮を有効化)
+            # --- 2. 注釈の手動フラット化 (設定依存) ---
+            if flatten_ink:
+                annot_list = list(page.annots())
+                if annot_list:
+                    for annot in annot_list:
+                        # ハイライト(8) と リンク(1) は除外
+                        if annot.type[0] in (
+                            fitz.PDF_ANNOT_HIGHLIGHT,
+                            fitz.PDF_ANNOT_LINK,
+                        ):
+                            continue
+
+                        # それ以外（インク等）は手動フラット化を実行
+                        _flatten_annot_manually(page, annot)
+
+        # PDFを保存
         doc.save(output_path, garbage=4, deflate=True)
 
     except Exception as e:
         logger.error(
-            f"フラット化処理中にエラー ({input_path}): {e}",
-            extra={'sensitive': True}
+            f"フラット化処理中にエラー ({input_path}): {e}", extra={"sensitive": True}
         )
         # エラーが発生した場合も、finally で doc.close() が呼ばれる
         raise  # エラーを再送出
@@ -342,40 +653,66 @@ def high_fidelity_flatten(
 
 
 def normalize_pdf_to_papersize(
-        input_path: str,
-        output_path: str,
-        paper_width: float,
-        paper_height: float
-        ) -> None:
+    input_path: str,
+    output_path: str,
+    paper_width: float,
+    paper_height: float,
+    target_format: str = "A4",
+) -> None:
     """
     pypdfを使い、PDFの全ページを、指定された用紙サイズの中央にリサイズ・配置します。
-
-    マージン領域 (TOP_MARGIN, BOTTOM_MARGIN など) を考慮し、
-    コンテンツがその領域内に収まるようにアスペクト比を維持して
-    スケーリングおよび中央配置を行います。
+    Erstellerのヘッダー・フッターと重ならないよう、マージンを考慮します。
 
     Args:
-        input_path (str): 入力PDFファイル（通常はフラット化済み）のパス。
-        output_path (str): 正規化された出力PDFファイルのパス。
+        input_path (str): 入力PDFファイルパス。
+        output_path (str): 出力PDFファイルパス。
         paper_width (float): ターゲットの用紙幅 (ポイント単位)。
         paper_height (float): ターゲットの用紙高 (ポイント単位)。
-
-    Raises:
-        Exception: PDFの読み込み、書き込みに失敗した場合。
+        target_format (str): "A4" または "A5"。マージン決定に使用。
     """
+
+    # --- 処理スキップ判定 ---
+    skip_processing = False
+    try:
+        with fitz.open(input_path) as doc:
+            keywords = doc.metadata.get("keywords", "")
+            if keywords and "Synapsen:SkipNormalization" in keywords:
+                skip_processing = True
+    except Exception as e:
+        logger.warning(f"メタデータ確認中にエラー (スキップ判定失敗): {e}")
+
+    if skip_processing:
+        logger.info(
+            f"正規化スキップフラグを検出しました。コピーのみ行います: {input_path}"
+        )
+        shutil.copy2(input_path, output_path)
+        return
+    # -----------------------
+
+    # マージン設定の取得
+    margins = LAYOUT_MARGINS.get(target_format.upper(), LAYOUT_MARGINS["A4"])
+
+    # cm -> pt 変換
+    m_top = margins["top"] * CM_TO_PT
+    m_bottom = margins["bottom"] * CM_TO_PT
+
+    # 左右マージン緩和の設定
+    min_side_margin = 0.5 * CM_TO_PT
+
     reader = None
     try:
         reader = PdfReader(input_path)
         writer = PdfWriter()
 
-        # 渡された用紙サイズから描画可能領域を計算
-        drawable_width: float = paper_width - LEFT_MARGIN - RIGHT_MARGIN
-        drawable_height: float = paper_height - TOP_MARGIN - BOTTOM_MARGIN
+        # 描画可能領域（Safe Area）の計算
+        drawable_height: float = paper_height - m_top - m_bottom
+        drawable_width_relaxed: float = paper_width - (min_side_margin * 2)
 
         for content_page in reader.pages:
             # 指定された用紙サイズの白紙ページを作成
             template_page = writer.add_blank_page(
-                width=paper_width, height=paper_height)
+                width=paper_width, height=paper_height
+            )
 
             original_width = float(content_page.mediabox.width)
             original_height = float(content_page.mediabox.height)
@@ -383,26 +720,25 @@ def normalize_pdf_to_papersize(
             if original_width == 0 or original_height == 0:
                 logger.warning(
                     f"Skipping empty or invalid page in {input_path}",
-                    extra={'sensitive': True}
+                    extra={"sensitive": True},
                 )
                 continue
 
-            # 描画可能領域 (drawable_width, drawable_height) に収まるようスケーリング
-            scale = min(
-                drawable_width / original_width,
-                drawable_height / original_height
-            )
+            # スケーリング倍率の計算
+            scale_h = drawable_height / original_height
+            scale_w = drawable_width_relaxed / original_width
+            scale = min(scale_w, scale_h)
 
-            # 描画可能領域内で中央に配置
-            tx = LEFT_MARGIN + (drawable_width - original_width * scale) / 2
-            ty = (
-                BOTTOM_MARGIN + (drawable_height - original_height * scale) / 2
-            )
+            # --- 配置オフセット計算 ---
+
+            # 横方向: センタリング
+            tx = (paper_width - original_width * scale) / 2
+
+            # 縦方向: ヘッダー直下
+            ty = paper_height - m_top - (original_height * scale)
 
             transform = (
-                Transformation()
-                .scale(sx=scale, sy=scale)
-                .translate(tx=tx, ty=ty)
+                Transformation().scale(sx=scale, sy=scale).translate(tx=tx, ty=ty)
             )
 
             template_page.merge_transformed_page(content_page, transform)
@@ -412,19 +748,16 @@ def normalize_pdf_to_papersize(
 
     except Exception as e:
         logger.error(
-            f"正規化処理中にエラー ({input_path}): {e}",
-            extra={'sensitive': True}
+            f"正規化処理中にエラー ({input_path}): {e}", extra={"sensitive": True}
         )
         raise
-
-    # pypdf (PdfReader) は明示的な close() を必要としない
 
 
 def embed_ocr_text_in_pdf(
     pdf_path_str: str,
     enable_tesseract: bool,
     font_path: str,
-    lang: str = 'jpn+jpn_vert'
+    lang: str = "jpn+jpn_vert",
 ) -> None:
     """
     PDFを解析し、既存のテキストレイヤーが存在しない場合、
@@ -451,7 +784,7 @@ def embed_ocr_text_in_pdf(
         if doc.is_encrypted:
             logger.info(
                 f"暗号化されたPDFはスキップします: {Path(pdf_path_str).name}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             return
 
@@ -476,14 +809,14 @@ def embed_ocr_text_in_pdf(
             if len(page_text) > meaningful_text_threshold:
                 logger.info(
                     f"Page {page_num + 1} には既存テキストがあるためスキップ。",
-                    extra={'sensitive': True}
+                    extra={"sensitive": True},
                 )
                 continue
 
             # --- 既存テキストがないページのみ、以下を実行 ---
             logger.info(
                 f"Tesseract OCR を実行中 (Page {page_num + 1})...",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             pages_processed_count += 1
 
@@ -508,24 +841,24 @@ def embed_ocr_text_in_pdf(
                 # 8. TesseractのTSVデータを解析
                 df = pd.read_csv(
                     io.StringIO(tsv_data),
-                    sep='\t',
+                    sep="\t",
                     quoting=csv.QUOTE_NONE,
-                    on_bad_lines='skip'
+                    on_bad_lines="skip",
                 )
-                df = df.dropna(subset=['conf', 'text'])
-                df = df[df['conf'] > 30]  # 信頼度が低いものは除外
+                df = df.dropna(subset=["conf", "text"])
+                df = df[df["conf"] > 30]  # 信頼度が低いものは除外
 
                 if df.empty:
                     logger.info(
                         "Tesseract OCR は実行されましたが、"
                         "埋め込み可能なテキスト(conf > 30)が見つかりませんでした "
-                        f"(Page {page_num + 1})。")
+                        f"(Page {page_num + 1})。"
+                    )
                     continue
 
                 # 9. ページに日本語フォントを登録
                 try:
-                    page.insert_font(
-                        fontname=OCR_FONT_NAME, fontfile=font_path)
+                    page.insert_font(fontname=OCR_FONT_NAME, fontfile=font_path)
                 except Exception:
                     pass  # 既に登録済みなどのエラーは無視
 
@@ -533,29 +866,35 @@ def embed_ocr_text_in_pdf(
                 dpi_scale = 72 / 300  # DPI=300 -> 72 DPI (ポイント) に座標を戻す
                 for _, row in df.iterrows():
                     x0, y0, w, h = (
-                        row['left'], row['top'], row['width'], row['height']
+                        row["left"],
+                        row["top"],
+                        row["width"],
+                        row["height"],
                     )
                     rect = fitz.Rect(
-                        x0 * dpi_scale, y0 * dpi_scale,
-                        (x0 + w) * dpi_scale, (y0 + h) * dpi_scale
+                        x0 * dpi_scale,
+                        y0 * dpi_scale,
+                        (x0 + w) * dpi_scale,
+                        (y0 + h) * dpi_scale,
                     )
                     fs = max(h * dpi_scale * 0.8, 6.0)  # フォントサイズ
 
                     page.insert_text(
                         rect.bottom_left,
-                        str(row['text']),
+                        str(row["text"]),
                         fontname=OCR_FONT_NAME,
                         fontsize=fs,
                         render_mode=3,  # 3 = 透明 (描画せず、テキスト選択・検索のみ可能)
-                        rotate=0
+                        rotate=0,
                     )
 
             except pytesseract.TesseractNotFoundError:
                 # このエラーは回復不能なので、ループを抜けて上位に投げる
-                raise Exception("Tesseract-OCRが見つかりません。PATHを確認してください。")
+                raise Exception(
+                    "Tesseract-OCRが見つかりません。PATHを確認してください。"
+                )
             except Exception as ocr_err:
-                logger.warning(
-                    f"Tesseract OCRエラー (Page {page_num + 1}): {ocr_err}")
+                logger.warning(f"Tesseract OCRエラー (Page {page_num + 1}): {ocr_err}")
                 continue
 
         if pages_processed_count == 0:
@@ -564,20 +903,17 @@ def embed_ocr_text_in_pdf(
 
         # 11. 変更を「一時ファイル」に保存
         doc.save(
-            temp_output_path,
-            garbage=4,
-            deflate=True,
-            encryption=fitz.PDF_ENCRYPT_NONE
+            temp_output_path, garbage=4, deflate=True, encryption=fitz.PDF_ENCRYPT_NONE
         )
         logger.info(
             f"テキスト埋め込み完了 (一時ファイル): {Path(temp_output_path).name}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
 
     except Exception as e:
         logger.error(
             f"PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         if Path(temp_output_path).is_file():
             try:
@@ -598,12 +934,12 @@ def embed_ocr_text_in_pdf(
             shutil.move(temp_output_path, pdf_path_str)
             logger.info(
                 f"元ファイルに上書き完了: {Path(pdf_path_str).name}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
         except Exception as e_move:
             logger.error(
                 f"PDFファイルの上書き保存に失敗 ({pdf_path_str}): {e_move}",
-                extra={'sensitive': True}
+                extra={"sensitive": True},
             )
             if Path(temp_output_path).is_file():
                 try:
@@ -616,6 +952,7 @@ def embed_ocr_text_in_pdf(
 # ==============================================================================
 # 画像 -> PDF 変換関数
 # ==============================================================================
+
 
 def convert_image_to_pdf(image_path: Path, output_pdf_path: Path) -> None:
     """
@@ -645,7 +982,7 @@ def convert_image_to_pdf(image_path: Path, output_pdf_path: Path) -> None:
     except Exception as e:
         logger.error(
             f"{image_path.name} のPDF変換に失敗しました。 {e}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         raise
     finally:
@@ -655,10 +992,7 @@ def convert_image_to_pdf(image_path: Path, output_pdf_path: Path) -> None:
             pdf_doc.close()
 
 
-def convert_pil_image_to_pdf(
-        pil_image: Image.Image,
-        output_pdf_path: Path
-) -> None:
+def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path) -> None:
     """
     Pillow (PIL) の Image オブジェクトを1ページのPDFに変換します。
     （クリップボードからの画像貼り付け用）
@@ -677,10 +1011,10 @@ def convert_pil_image_to_pdf(
     try:
         # 1. PillowイメージをPNG形式でメモリ上のバイトデータに変換
         img_bytes_io = io.BytesIO()
-        if pil_image.mode == 'RGBA':
-            pil_image = pil_image.convert('RGB')  # 透過情報を除去
+        if pil_image.mode == "RGBA":
+            pil_image = pil_image.convert("RGB")  # 透過情報を除去
 
-        pil_image.save(img_bytes_io, format='PNG')
+        pil_image.save(img_bytes_io, format="PNG")
         img_bytes = img_bytes_io.getvalue()
 
         # 2. メモリ上のPNGデータをfitzオブジェクトとして開く
@@ -708,68 +1042,114 @@ def convert_pil_image_to_pdf(
 
 
 # ==============================================================================
-# Markdown -> PDF 変換関数
+# Markdown(他) -> PDF 変換関数
 # ==============================================================================
-def convert_markdown_to_pdf(
-    markdown_path: Path,
+# マッピング辞書を定義
+PANDOC_INPUT_FORMATS = {
+    ".md": "gfm",
+    ".txt": "plain",
+    ".rtf": "rtf",
+    ".docx": "docx",
+    ".odt": "odt",
+}
+
+
+def convert_document_to_pdf(
+    input_path: Path,
     output_pdf_path: Path,
     paper_size_str: str = "A4",
+    pdf_margins: dict = None,
 ) -> None:
     """
-    Pandoc (MD->HTML) と Playwright (HTML->PDF) を使用して .md を PDF に変換します。
+    Pandoc (MD, TXT, DOCX等) と Playwright (HTML->PDF) を使用して ドキュメント を PDF に変換します。
     Pandoc と Playwright (chromium) がインストールされている必要があります。
     変換前に <details> を <details open> に置換します。
 
     Args:
-        markdown_path (Path): 入力Markdownファイルのパス。
+        input_path (Path): 入力ファイルのパス。
         output_pdf_path (Path): 出力先PDFファイルのパス。
-        paper_size_str (str): "A4" または "A5" (config.iniの値)。
-        latex_font_name (str): (この関数では未使用)
+        paper_size_str (str): "A4" または "A5"。
+        pdf_margins (dict, optional): Playwrightのpage.pdfに渡すマージン設定。
+                                      Noneの場合はデフォルト(上下左右0)を使用。
     """
 
     # 一時ファイル用のパスを定義
-    temp_modified_md_path = output_pdf_path.with_suffix(".temp.md")
+    temp_modified_content_path = output_pdf_path.with_suffix(".temp.modified")
     temp_html_path = output_pdf_path.with_suffix(".temp.html")
 
-    # --- ステップ 1: <details> を <details open> に置換 ---
+    file_suffix = input_path.suffix.lower()
+
+    # デフォルトマージンの設定
+    if pdf_margins is None:
+        pdf_margins = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
+
+    # --- ステップ 1: 前処理 (フォーマットごとに行う) ---
     try:
-        # 元のMarkdownファイルを読み込む
-        with open(markdown_path, 'r', encoding='utf-8') as f:
-            md_content = f.read()
+        with open(input_path, "r", encoding="utf-8") as f:
+            content = f.read()
 
-        # <details> タグを <details open> に置換 (大文字小文字を区別しない)
-        # 既に 'open' があっても 'open open' にならないよう、単純な置換を避ける
-        # '<details' (末尾スペースなし) または '<details ' (末尾スペースあり) を検索
-        modified_md_content = re.sub(
-            r"<details(?![^>]*\bopen\b)",  # 'open'属性をまだ持たない<details>タグ
-            "<details open",              # '<details open' に置換
-            md_content,
-            flags=re.IGNORECASE          # 大文字小文字を無視
-        )
+        # Markdownの場合のみ <details> を置換
+        if file_suffix == ".md":
+            modified_content = re.sub(
+                r"<details(?![^>]*\bopen\b)",
+                "<details open",
+                content,
+                flags=re.IGNORECASE,
+            )
+        # テキストファイルの場合、改行を維持するために <pre> タグで囲む
+        elif file_suffix == ".txt":
+            import html
 
-        # 置換後の内容を一時的な .md ファイルに書き出す
-        with open(temp_modified_md_path, 'w', encoding='utf-8') as f:
-            f.write(modified_md_content)
+            escaped_content = html.escape(content)
+            # preタグで囲み、CSSでフォントと言語を指定 (font-familyはシステムのsans-serifに依存させます)
+            modified_content = (
+                "<pre style='white-space: pre-wrap; "
+                "font-family: sans-serif;'>"
+                f"{escaped_content}</pre>"
+            )
+        else:
+            modified_content = content  # DOCXなどはそのままPandocに渡す
+
+        # 前処理が不要な形式（docxなど）と、処理済みの内容を一時ファイルに書き出す
+        if file_suffix in [".docx", ".rtf", ".odt"]:
+            # バイナリファイルをコピー
+            shutil.copy2(input_path, temp_modified_content_path)
+        else:
+            # テキストベースのファイルを書き出し
+            with open(temp_modified_content_path, "w", encoding="utf-8") as f:
+                f.write(modified_content)
 
     except Exception as e:
-        raise Exception(f"Markdownの前処理(<details>置換)に失敗しました: {e}")
+        # DOCXなどは 'utf-8' で読めないため、バイナリとして扱う
+        if file_suffix in PANDOC_INPUT_FORMATS and file_suffix not in [".md", ".txt"]:
+            try:
+                shutil.copy2(input_path, temp_modified_content_path)
+            except Exception as copy_e:
+                raise Exception(
+                    f"ドキュメントの前処理（コピー）に失敗しました: {copy_e}"
+                )
+        else:
+            raise Exception(f"ドキュメントの前処理（読み込み）に失敗しました: {e}")
 
-    # --- ステップ 2: Pandoc で Markdown を HTML (一時ファイル) に変換 ---
-    input_format = "gfm"
+    # --- ステップ 2: Pandoc で HTML (一時ファイル) に変換 ---
+    # マッピング辞書から入力フォーマットを取得
+    input_format = PANDOC_INPUT_FORMATS.get(file_suffix, "gfm")  # 不明な場合はgfm扱い
 
     pandoc_cmd = [
         "pandoc",
-        "--from", input_format,
-        str(temp_modified_md_path),  # 置換後の一時MDファイルを使用
-        "-s",                        # スタンドアロン (HTMLヘッダ等を含む)
-        "--embed-resources",         # 画像などをHTMLに埋め込む
-        "--mathml",                  # 数式をMathML (HTML互換) に変換
-        "--to", "html5",
-        "-o", str(temp_html_path)
+        "--from",
+        input_format,
+        str(temp_modified_content_path),  # 処理後の一時ファイルを使用
+        "-s",
+        "--embed-resources",
+        "--mathml",
+        "--to",
+        "html5",
+        "-o",
+        str(temp_html_path),
     ]
     logger.info(
-        f"Pandoc (MD->HTML) 実行: {' '.join(pandoc_cmd)}",
-        extra={'sensitive': True}
+        f"Pandoc (MD->HTML) 実行: {' '.join(pandoc_cmd)}", extra={"sensitive": True}
     )
 
     try:
@@ -777,15 +1157,15 @@ def convert_markdown_to_pdf(
             pandoc_cmd,
             capture_output=True,
             text=True,
-            encoding='utf-8',
-            errors='ignore',
-            check=True
+            encoding="utf-8",
+            errors="ignore",
+            check=True,
         )
     except FileNotFoundError:
         # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
         raise Exception(
-            "Pandoc が見つかりません。\n" +
-            "Markdown連携には Pandoc のインストールとPATH設定が必要です。"
+            "Pandoc が見つかりません。\n"
+            + "Markdown連携には Pandoc のインストールとPATH設定が必要です。"
         )
     except subprocess.CalledProcessError as e:
         error_details = f"STDOUT:\n{e.stdout}\n\nSTDERR:\n{e.stderr}"
@@ -795,7 +1175,7 @@ def convert_markdown_to_pdf(
             f"{error_details}"
         )
 
-    # --- ステップ 2: Playwright で HTML を PDF に変換 ---
+    # --- ステップ 3: Playwright で HTML を PDF に変換 ---
     playwright_paper_format = paper_size_str.upper()
 
     pw_instance = None
@@ -804,34 +1184,30 @@ def convert_markdown_to_pdf(
     try:
         logger.info(
             f"Playwright (HTML->PDF) 実行: {temp_html_path.name}",
-            extra={'sensitive': True}
+            extra={"sensitive": True},
         )
         pw_instance = sync_playwright().start()
         browser = pw_instance.chromium.launch()
         page = browser.new_page()
 
-        page.goto(temp_html_path.as_uri(), wait_until='networkidle')
+        page.goto(temp_html_path.as_uri(), wait_until="networkidle")
 
         page.pdf(
             path=str(output_pdf_path),
             format=playwright_paper_format,
             print_background=True,
-            margin={
-                'top': '1cm', 'bottom': '1cm',
-                'left': '1cm', 'right': '1cm'
-            }
+            margin=pdf_margins,
         )
         logger.info(
-            f"Playwright PDF変換完了: {output_pdf_path.name}",
-            extra={'sensitive': True}
+            f"Playwright PDF変換完了: {output_pdf_path.name}", extra={"sensitive": True}
         )
 
     except PlaywrightError as e:
         # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
         raise Exception(
-            "Playwright (Chromium) でのHTML->PDF変換に失敗しました。\n" +
-            "Install.bat を実行して Playwright が正しくインストールされているか確認してください。\n" +
-            f"エラー: {e}"
+            "Playwright (Chromium) でのHTML->PDF変換に失敗しました。\n"
+            + "Install.bat を実行して Playwright が正しくインストールされているか確認してください。\n"
+            + f"エラー: {e}"
         )
     except Exception as e:
         # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
@@ -845,19 +1221,19 @@ def convert_markdown_to_pdf(
         if pw_instance:
             pw_instance.stop()
 
-        # 一時HTMLファイル と 一時MDファイル の両方を削除
+        # 一時HTMLファイル と 一時処理ファイルを両方削除
         if temp_html_path.is_file():
             try:
                 temp_html_path.unlink()
             except Exception as e_del:
                 logger.warning(f"一時HTMLファイルの削除に失敗: {e_del}")
 
-        if temp_modified_md_path.is_file():
+        if temp_modified_content_path.is_file():
             try:
-                temp_modified_md_path.unlink()
+                temp_modified_content_path.unlink()
             except Exception as e_del:
                 logger.warning(
-                    f"一時MDファイル({temp_modified_md_path.name})の削除に失敗: "
+                    f"一時処理ファイル({temp_modified_content_path.name})の削除に失敗: "
                     f"{e_del}",
-                    extra={'sensitive': True}
+                    extra={"sensitive": True},
                 )
