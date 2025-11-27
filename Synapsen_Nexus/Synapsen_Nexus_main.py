@@ -247,6 +247,24 @@ class Synapsen_Nexus(ctk.CTk):
                 "include_all_tags_for_autocomplete", True
             )
 
+            self.exclude_tags_by_default = config_data.get(
+                "exclude_tags_by_default", []
+            )
+
+            if self.exclude_tags_by_default:
+                # タグ名を表示して分かりやすくする (例: "除外: Archive")
+                label_text = f"除外: {','.join(self.exclude_tags_by_default)}"
+                if len(label_text) > 20:  # 長すぎる場合は省略
+                    label_text = "除外タグ適用"
+
+                self.exclude_tags_checkbox.configure(text=label_text)
+                self.exclude_tags_checkbox.select()  # 初期状態でONにする
+            else:
+                # 設定がない場合はチェックボックスを無効化または非表示
+                self.exclude_tags_checkbox.configure(
+                    state="disabled", text="除外設定なし"
+                )
+
             paper_size = config_data.get("paper_size", "A4").upper()
             if paper_size == "A5":
                 self.paper_width = 419.528
@@ -274,6 +292,7 @@ class Synapsen_Nexus(ctk.CTk):
 
             # デフォルトDBが設定されていれば自動で読み込む
             default_db_path = config_data.get("database_path")
+
             if default_db_path and default_db_path.is_file():
                 self.load_db_from_path(default_db_path)
             else:
@@ -281,7 +300,9 @@ class Synapsen_Nexus(ctk.CTk):
                     logger.warning(
                         f"デフォルトデータベースが見つかりません: {default_db_path}"
                     )
-                self.perform_search()  # 空の状態で検索を実行
+                # DBがない場合でも検索UIの初期化は行う
+                self._apply_default_search_query()
+                self.perform_search()
 
         except FileNotFoundError as e:
             messagebox.showerror("設定エラー", str(e))
@@ -417,6 +438,11 @@ class Synapsen_Nexus(ctk.CTk):
         self.fts_checkbox = ctk.CTkCheckBox(view_tools_frame, text="本文・メモ検索")
         self.fts_checkbox.pack(side="left", padx=(0, 10))
         self.fts_checkbox.configure(command=self._trigger_search_now)
+
+        # 除外タグ有効化チェックボックス
+        self.exclude_tags_checkbox = ctk.CTkCheckBox(view_tools_frame, text="除外タグ")
+        self.exclude_tags_checkbox.pack(side="left", padx=(0, 10))
+        self.exclude_tags_checkbox.configure(command=self._trigger_search_now)
 
         # 選択数表示ラベル
         self.selection_info_label = ctk.CTkLabel(
@@ -1111,9 +1137,28 @@ class Synapsen_Nexus(ctk.CTk):
             return
 
         # 1. UIからの検索条件取得（これはメインスレッドで行う必要がある）
-        query_text = self.search_entry.get().strip()
+        user_query = self.search_entry.get().strip()
         include_full_text = self.fts_checkbox.get()
         current_ascending = self.sort_ascending  # 現在のソート設定を取得
+
+        # 除外タグのクエリ結合
+        final_query = user_query
+
+        # チェックボックスがON かつ 設定されたタグがある場合
+        if self.exclude_tags_checkbox.get() == 1 and self.exclude_tags_by_default:
+            # マイナス検索クエリを作成 (例: "-tag:Archive -tag:Done")
+            exclusion_parts = [f"-tag:{tag}" for tag in self.exclude_tags_by_default]
+            exclusion_query = " ".join(exclusion_parts)
+
+            # ユーザーの入力がある場合は AND で結合、なければそのまま使用
+            if final_query:
+                final_query = f"({final_query}) AND ({exclusion_query})"
+            else:
+                final_query = exclusion_query
+
+            logger.debug(
+                f"除外タグ適用後の内部クエリ: {final_query}", extra={"sensitive": True}
+            )
 
         # IndexKey フィルターの状態取得
         selected_filter_keys = []
@@ -1139,7 +1184,7 @@ class Synapsen_Nexus(ctk.CTk):
             target=self._execute_search_worker,
             args=(
                 search_id,
-                query_text,
+                final_query,
                 include_full_text,
                 selected_filter_keys,
                 self.loaded_db_path,

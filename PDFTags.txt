@@ -43,7 +43,9 @@ STypes_MOC
 Status_Inbox
 Status_WIP
 Status_Review
+
 Status_Done
+Status_Archive
 
 ## Task: 期日付きタスク / ToDo: タスク
 Status_Task
