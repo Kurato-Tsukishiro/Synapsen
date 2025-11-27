@@ -190,6 +190,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         )
         self.sist_date_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
+        self.is_webclip_var = ctk.BooleanVar(value=False)
+        self.webclip_checkbox = ctk.CTkCheckBox(
+            meta_frame,
+            text="WebClipとして扱う (SType_WebClip を付与)",
+            variable=self.is_webclip_var,
+            onvalue=True,
+            offvalue=False,
+        )
+        self.webclip_checkbox.pack(pady=(5, 0), padx=15, anchor="w")
+
         # 引用Key
         ctk.CTkLabel(
             meta_frame, text="引用元Key (カンマ区切り または 改行区切り):", anchor="w"
@@ -898,7 +908,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 f"更新日:{sist_date} (参照:{sist_view_date})"
             )
 
-        # 4. 処理対象リストを作成
+        # 4. 自動タグ付け用キーワードの生成 ---
+        extra_keywords = []
+
+        # 4-1. 書誌情報が入力されている場合 -> Synapsen:Source
+        if raw_sist_author or raw_sist_title or raw_sist_site or raw_sist_date:
+            extra_keywords.append("Synapsen:Source")
+
+        # 4-2. WebClipチェックボックスがONの場合 -> Synapsen:WebClip
+        if self.is_webclip_var.get():
+            extra_keywords.append("Synapsen:WebClip")
+
+        # 5. 処理対象リストを作成
         items_to_process = []
 
         # ファイル名に使用できない文字を置換する正規表現
@@ -925,7 +946,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
             items_to_process.append((item["data"], base_name, type(item["data"])))
 
-        # 5. 「統合」チェックボックスの状態で処理を分岐
+        # 6. 「統合」チェックボックスの状態で処理を分岐
         is_merge_mode = self.merge_files_checkbox.get()
         temp_dir = None
 
@@ -952,6 +973,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     cited_keys_list,
                     refs_qr_size_pt,
                     flatten_ink,
+                    extra_keywords=extra_keywords,
                 )
             else:
                 # --- [分岐 B: 統合処理] ---
@@ -973,6 +995,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     cited_keys_list,
                     refs_qr_size_pt,
                     flatten_ink,
+                    extra_keywords=extra_keywords,
                 )
             self.on_close()
 
@@ -1007,6 +1030,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         cited_keys_list,
         refs_qr_size_pt,
         flatten_ink=True,
+        extra_keywords=None,
     ):
         total_files = len(items_to_process)
         for i, item_tuple in enumerate(items_to_process):
@@ -1093,6 +1117,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 base_name=base_name,
                 cited_keys_list=cited_keys_list,
                 refs_qr_size_pt=refs_qr_size_pt,
+                extra_keywords=extra_keywords,
             )
 
         messagebox.showinfo(
@@ -1121,6 +1146,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         cited_keys_list,
         refs_qr_size_pt,
         flatten_ink=True,
+        extra_keywords=None,
     ):
         """
         ファイル統合処理パイプライン
@@ -1273,6 +1299,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             base_name=base_name,
             cited_keys_list=cited_keys_list,
             refs_qr_size_pt=refs_qr_size_pt,
+            extra_keywords=extra_keywords,
         )
 
         messagebox.showinfo(

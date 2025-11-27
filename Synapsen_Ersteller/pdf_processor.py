@@ -112,6 +112,11 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                     # 役割を示すタグ
                     if "ZTypes_Source" not in auto_detected_tags:
                         auto_detected_tags.append("ZTypes_Source")
+
+                # Source (書誌情報あり等) -> ZTypes_Source
+                if "Synapsen:Source" in keywords:
+                    if "ZTypes_Source" not in auto_detected_tags:
+                        auto_detected_tags.append("ZTypes_Source")
                 # ----------------------------------------------------
 
                 subject = metadata.get("subject", "") or ""
