@@ -20,7 +20,7 @@ import fitz  # PyMuPDF
 # --- プロジェクト内モジュールのパス設定 ---
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
-normalisierer_dir = root_dir / "Synapsen_Normalisierer"
+normalisierer_dir = root_dir / "Synapsen_Nexus"
 
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
@@ -43,9 +43,9 @@ except ImportError:
     print("Warning: pdf_utils import failed.")
 
 # --- ロガー設定 ---
-logger = logging.getLogger("Normalisierer")
+logger = logging.getLogger("Nexus")
 if not logger.handlers:
-    setup_logging("Synapsen_Normalisierer")
+    setup_logging("Synapsen_Nexus")
 
 
 # ==============================================================================
