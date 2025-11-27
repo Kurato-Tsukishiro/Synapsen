@@ -839,13 +839,23 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             return
         dest_path = Path(dest_folder)
 
+        same_folder_detected = False
         for item in self.staged_items:
+            # 入力元と出力先が同じパスかどうかを確認
             if isinstance(item["data"], Path) and item["data"].parent == dest_path:
-                messagebox.showerror(
-                    "エラー",
-                    "出力先は入力元と異なるフォルダを選択してください。",
-                    parent=self,
-                )
+                same_folder_detected = True
+                break
+
+        if same_folder_detected:
+            # エラーで弾くのではなく、確認ダイアログを表示して続行可否をユーザーに委ねる
+            if not messagebox.askyesno(
+                "確認",
+                "出力先に入力元と同じフォルダが含まれています。\n"
+                "同名のファイルが存在する場合、元のファイルは正規化後のPDFで上書きされます。\n\n"
+                "処理を続行しますか？",
+                icon="warning",
+                parent=self,
+            ):
                 return
 
         # 3. メタデータをUIから取得
