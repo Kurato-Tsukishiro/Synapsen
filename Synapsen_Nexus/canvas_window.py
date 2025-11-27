@@ -28,7 +28,7 @@ if str(normalisierer_dir) not in sys.path:
 
 # --- プロジェクト内モジュールのインポート ---
 from logging_setup import setup_logging  # noqa: E402
-from Synapsen_Nexus.utils import _update_note_links  # noqa: E402
+from Synapsen_Nexus.utils import _update_note_links, _extract_links  # noqa: E402
 
 try:
     from pdf_utils import (  # type: ignore
@@ -1874,7 +1874,21 @@ class CanvasWindow(BaseSubWindow):
         if dialog.result:
             title, key, color = dialog.result
             content = sticky_obj.get("content", "")
-            self._process_md_pdf_creation(title, content, key, color)
+
+            # --- 引用Keyの自動収集 ---
+            # 1. キャンバス上で接続されているノートのKey
+            sticky_id = str(id(sticky_obj))
+            connected_keys = self._get_connected_keys_for_item("sticky", sticky_id)
+
+            # 2. 本文に含まれる [[Key]] リンク
+            text_links = _extract_links(content)
+
+            # 重複を除いてリスト化
+            cited_keys = sorted(list(connected_keys | text_links))
+            # -----------------------
+
+            # 引数に cited_keys を追加して呼び出し
+            self._process_md_pdf_creation(title, content, key, color, cited_keys)
 
     def _convert_selected_stickies_pipeline(self):
         combined_content = ""
@@ -1889,9 +1903,10 @@ class CanvasWindow(BaseSubWindow):
             return
 
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
+
         dialog = ConversionDialog(
             self,
-            "まとめノート",
+            "付箋の結合",
             key_options,
             initial_color="#FFFFA5",
             show_color_option=True,
@@ -1900,13 +1915,52 @@ class CanvasWindow(BaseSubWindow):
 
         if dialog.result:
             title, key, color = dialog.result
+
+            all_cited_keys = set()  # 全ての付箋から引用Keyを収集するセット
+
             for s in targets:
                 t_ = s.get("title", "NOTITLE")
                 c_ = s.get("content", "")
-                combined_content += f"## {t_}\n{c_}\n\n"
-            self._process_md_pdf_creation(title, combined_content, key, color)
 
-    def _process_md_pdf_creation(self, title, content, index_key, bg_color):
+                # コンテンツの結合
+                combined_content += f"## {t_}\n{c_}\n\n"
+
+                # 1. 本文内のリンクを抽出して追加
+                all_cited_keys.update(_extract_links(c_))
+
+                # 2. 各付箋に接続されているノートのKeyも収集して追加
+                sticky_id = str(id(s))
+                connected_keys = self._get_connected_keys_for_item("sticky", sticky_id)
+                all_cited_keys.update(connected_keys)
+
+            # 重複を除いてソート・リスト化
+            cited_keys = sorted(list(all_cited_keys))
+
+            # PDF生成処理へ渡す (cited_keysを追加)
+            self._process_md_pdf_creation(
+                title, combined_content, key, color, cited_keys
+            )
+
+    def _get_connected_keys_for_item(self, item_type, item_key):
+        connected_keys = set()
+        for c in self.connections_on_canvas:
+            # この接続が対象アイテムを含んでいるかチェック
+            other_type, other_key = None, None
+
+            if c["from_type"] == item_type and c["from_key"] == item_key:
+                other_type, other_key = c["to_type"], c["to_key"]
+            elif c["to_type"] == item_type and c["to_key"] == item_key:
+                other_type, other_key = c["from_type"], c["from_key"]
+
+            # 接続相手が 'note' であれば、そのKeyを収集
+            if other_type == "note" and other_key:
+                connected_keys.add(other_key)
+
+        return connected_keys
+
+    def _process_md_pdf_creation(
+        self, title, content, index_key, bg_color, cited_keys=None
+    ):
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
         base_name = f"{now_str}_{safe_title}"
@@ -1973,6 +2027,15 @@ class CanvasWindow(BaseSubWindow):
                 if hex_c:
                     text_color_rgb = self._hex_to_rgb(hex_c)
 
+            # configからQRサイズ取得
+            refs_qr_size_str = self._get_config_value(
+                "Extraction", "refs_qr_size", "75"
+            )
+            try:
+                refs_qr_size_pt = int(refs_qr_size_str)
+            except ValueError:
+                refs_qr_size_pt = 75
+
             add_metadata_to_clip(
                 pdf_path_str=str(pdf_path),
                 font_path=str(font_path),
@@ -1983,6 +2046,8 @@ class CanvasWindow(BaseSubWindow):
                 text_color=text_color_rgb,
                 comment_to_embed=f"Sticky Note Export: {title}",
                 base_name=base_name,
+                cited_keys_list=cited_keys,
+                refs_qr_size_pt=refs_qr_size_pt,
             )
             messagebox.showinfo(
                 "完了", f"ファイルを生成しました:\n{pdf_path.name}", parent=self
