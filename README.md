@@ -686,9 +686,9 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 ---
 
 ### 生成されるグラフ (synapsen_graph.html) について
-`Synapsen Nexus` が「グラフ表示」機能 で生成する `synapsen_graph.html` 及び エクスポート機能 で生成する `relation_graph.html` ファイルは、`Synapsen` プログラムの「出力」であり、AGPL-3.0 ライセンス の対象外です。<br><br>
-このHTMLファイルは、`pyvis` ライブラリ（MITライセンス） と、ユーザー自身のノートデータ（タイトルやリンク構造）で構成されています。<br>
-したがって、ユーザーはこれを ``AGPL-3.0`` を気にすることなく自由に利用・公開・配布できます。
+`Synapsen Nexus` が生成するグラフファイル（`synapsen_graph.html` 及び`relation_graph.html`等）は、`Synapsen` プログラムの「出力」とみなされ、**Synapsen 本体の AGPL-3.0 ライセンスは適用されません。**<br><br>
+このHTMLファイルは、ユーザー自身のデータと、MITライセンスの `pyvis` (および `vis.js`) ライブラリで構成されています。<br>
+**ファイル内に自動的に含まれるライブラリのライセンス表記を削除しない限り**、ユーザーはこれを自由に利用・公開・配布することができます。
 
 ### 生成されるファイル（MOC・PDF・Canvas出力）について
 `Synapsen` が生成するMOC (`.md`)、統合PDF・CanvasエクスポートPDF (`.pdf`)、およびグラフ (`.html`) は、ユーザー自身のデータであり、`Synapsen` プログラムの「出力」です。<br><br>
