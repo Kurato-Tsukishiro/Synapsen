@@ -1,3 +1,4 @@
+import uuid
 import configparser
 import datetime
 import json
@@ -811,7 +812,9 @@ class CanvasWindow(BaseSubWindow):
         for sticky in self.stickies_on_canvas:
             rect_id, text_id = sticky["ids"]
             self.canvas.itemconfigure(text_id, font=new_sticky_font)
-            is_sel = ("sticky", str(id(sticky))) in self.selected_items
+
+            is_sel = ("sticky", sticky["uid"]) in self.selected_items
+
             self.canvas.itemconfigure(
                 rect_id,
                 width=selected_width if is_sel else 0,
@@ -825,7 +828,8 @@ class CanvasWindow(BaseSubWindow):
         # シェイプ更新
         for s in self.shapes_on_canvas:
             if s["type"] in ("rect", "line"):
-                is_sel = ("shape", str(id(s))) in self.selected_items
+                is_sel = ("shape", s["uid"]) in self.selected_items
+
                 w = selected_width if is_sel else base_width
                 base_color = s.get(
                     "color",
@@ -850,9 +854,9 @@ class CanvasWindow(BaseSubWindow):
         if isinstance(data, str):
             return data
         if item_type == "note":
-            return data
+            return data  # ノートは key がそのままID
         if item_type in ("sticky", "shape"):
-            return str(id(data))
+            return data.get("uid")
         return None
 
     def _select_item(self, item_type, item_data, add=False):
@@ -885,7 +889,7 @@ class CanvasWindow(BaseSubWindow):
         sel_col = "#585a9c"
         handle_size = 10 * self.current_scale
 
-        # ノート
+        # ノート (Note)
         for key, info in self.notes_on_canvas.items():
             rect_id = info["ids"][0]
             if ("note", key) in self.selected_items:
@@ -898,10 +902,11 @@ class CanvasWindow(BaseSubWindow):
             else:
                 self.canvas.itemconfigure(rect_id, outline="white", width=base_width)
 
-        # 付箋
+        # 付箋 (Sticky)
         for sticky in self.stickies_on_canvas:
             rect_id = sticky["ids"][0]
-            s_key = str(id(sticky))
+            s_key = sticky["uid"]
+
             if ("sticky", s_key) in self.selected_items:
                 self.canvas.itemconfigure(
                     rect_id, outline=sel_col, width=selected_width
@@ -912,20 +917,20 @@ class CanvasWindow(BaseSubWindow):
             else:
                 self.canvas.itemconfigure(rect_id, outline="", width=0)
 
-        # シェイプ (rect)
+        # 図形 (Shape)
         for s in self.shapes_on_canvas:
+            shape_key = s["uid"]
+            is_sel = ("shape", shape_key) in self.selected_items
+
             if s["type"] == "rect":
-                shape_key = str(id(s))
-                is_sel = ("shape", shape_key) in self.selected_items
                 w = selected_width if is_sel else base_width
                 base_color = s.get("color", "red")
                 c = sel_col if is_sel else base_color
                 self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 if is_sel:
                     self._draw_handle(s["id"], handle_size, f"handle_shape_{shape_key}")
+
             elif s["type"] == "line":
-                shape_key = str(id(s))
-                is_sel = ("shape", shape_key) in self.selected_items
                 w = selected_width if is_sel else base_width
                 base_color = s.get(
                     "color", "white" if self.bg_color == "#2b2b2b" else "black"
@@ -1029,8 +1034,11 @@ class CanvasWindow(BaseSubWindow):
         return f"{title}\n{content}"
 
     def create_sticky_item(
-        self, x, y, title="", content="", bg_color="#FFFFA5", w=180, h=120
+        self, x, y, title="", content="", bg_color="#FFFFA5", w=180, h=120, uid=None
     ):
+        if not uid:
+            uid = uuid.uuid4().hex
+
         sw, sh = w * self.current_scale, h * self.current_scale
         sx = x * self.current_scale + self.canvas_offset_x
         sy = y * self.current_scale + self.canvas_offset_y
@@ -1069,6 +1077,7 @@ class CanvasWindow(BaseSubWindow):
         )
 
         item = {
+            "uid": uid,
             "x": x,
             "y": y,
             "w": w,
@@ -1079,7 +1088,8 @@ class CanvasWindow(BaseSubWindow):
             "ids": (rid, tid),
             "shadow_id": sid,
         }
-        real_tag = f"sticky_{id(item)}"
+
+        real_tag = f"sticky_{uid}"
         self.canvas.addtag_withtag(real_tag, rid)
         self.canvas.addtag_withtag(real_tag, tid)
         self.canvas.addtag_withtag(real_tag, sid)
@@ -1153,7 +1163,7 @@ class CanvasWindow(BaseSubWindow):
                     return self.canvas.bbox(self.notes_on_canvas[key_]["ids"][0])
             elif type_ == "sticky":
                 for s in self.stickies_on_canvas:
-                    if str(id(s)) == key_:
+                    if s["uid"] == key_:
                         return self.canvas.bbox(s["ids"][0])
             return None
 
@@ -1180,8 +1190,11 @@ class CanvasWindow(BaseSubWindow):
                     self.canvas.coords(c["id"], *coords)
 
     def create_shape_item(
-        self, shape_type, x=0, y=0, w=0, h=0, text="", x2=0, y2=0, color="red"
+        self, shape_type, x=0, y=0, w=0, h=0, text="", x2=0, y2=0, color="red", uid=None
     ):
+        if not uid:
+            uid = uuid.uuid4().hex
+
         lw = max(1, int(self.base_line_width * self.current_scale))
         sx = x * self.current_scale + self.canvas_offset_x
         sy = y * self.current_scale + self.canvas_offset_y
@@ -1202,6 +1215,7 @@ class CanvasWindow(BaseSubWindow):
             )
             self.shapes_on_canvas.append(
                 {
+                    "uid": uid,
                     "id": iid,
                     "type": "rect",
                     "x": x,
@@ -1211,7 +1225,7 @@ class CanvasWindow(BaseSubWindow):
                     "color": color,
                 }
             )
-            self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
+            self.canvas.addtag_withtag(f"shape_{uid}", iid)
 
         elif shape_type == "line":
             iid = self.canvas.create_line(
@@ -1219,6 +1233,7 @@ class CanvasWindow(BaseSubWindow):
             )
             self.shapes_on_canvas.append(
                 {
+                    "uid": uid,
                     "id": iid,
                     "type": "line",
                     "x1": x,
@@ -1228,7 +1243,7 @@ class CanvasWindow(BaseSubWindow):
                     "color": color,
                 }
             )
-            self.canvas.addtag_withtag(f"shape_{id(self.shapes_on_canvas[-1])}", iid)
+            self.canvas.addtag_withtag(f"shape_{uid}", iid)
 
     def _check_db_link_exists(self, k1, k2):
         if not self.parent_app.loaded_db_path:
@@ -1306,7 +1321,7 @@ class CanvasWindow(BaseSubWindow):
         return False
 
     def _find_target_item(self, cx, cy):
-        # クリック判定（線を選択しやすくするため範囲を少し広げる）
+        # クリック判定
         items = self.canvas.find_overlapping(cx - 2, cy - 2, cx + 2, cy + 2)
 
         # 重なり順の逆（手前）から判定
@@ -1321,15 +1336,12 @@ class CanvasWindow(BaseSubWindow):
             elif "sticky" in tags:
                 for s in self.stickies_on_canvas:
                     if s["ids"][0] == item or s["ids"][1] == item:
-                        return ("sticky", str(id(s)))
+                        return ("sticky", s["uid"])
             elif "shape" in tags:
                 for s in self.shapes_on_canvas:
                     if s["id"] == item:
-                        return ("shape", str(id(s)))
-
-            # ★追加: 接続線の判定
+                        return ("shape", s["uid"])
             elif "connection" in tags:
-                # connectionの場合はキャンバスアイテムIDを直接返す
                 return ("connection", item)
 
         return None
@@ -1404,7 +1416,7 @@ class CanvasWindow(BaseSubWindow):
 
         if self.current_mode == "resize_sticky":
             target = next(
-                (s for s in self.stickies_on_canvas if str(id(s)) == target_key), None
+                (s for s in self.stickies_on_canvas if s["uid"] == target_key), None
             )
             if target:
                 rect_id, text_id = target["ids"]
@@ -1414,7 +1426,7 @@ class CanvasWindow(BaseSubWindow):
                 rect_id, text_id = target["ids"]
         elif self.current_mode == "resize_shape":
             target = next(
-                (s for s in self.shapes_on_canvas if str(id(s)) == target_key), None
+                (s for s in self.shapes_on_canvas if s["uid"] == target_key), None
             )
             if target and target["type"] == "rect":
                 rect_id = target["id"]
@@ -1492,7 +1504,7 @@ class CanvasWindow(BaseSubWindow):
 
                 elif t == "sticky":
                     s = next(
-                        (x for x in self.stickies_on_canvas if str(id(x)) == k), None
+                        (x for x in self.stickies_on_canvas if x["uid"] == k), None
                     )
                     if s:
                         self.canvas.move(s["ids"][0], dx, dy)
@@ -1506,9 +1518,7 @@ class CanvasWindow(BaseSubWindow):
                             self.canvas.move(hid, dx, dy)
 
                 elif t == "shape":
-                    s = next(
-                        (x for x in self.shapes_on_canvas if str(id(x)) == k), None
-                    )
+                    s = next((x for x in self.shapes_on_canvas if x["uid"] == k), None)
                     if s:
                         self.canvas.move(s["id"], dx, dy)
                         if s["type"] == "rect":
@@ -1705,9 +1715,7 @@ class CanvasWindow(BaseSubWindow):
         obj = None
 
         if type_ == "sticky":
-            obj = next(
-                (x for x in self.stickies_on_canvas if str(id(x)) == obj_id), None
-            )
+            obj = next((x for x in self.stickies_on_canvas if x["uid"] == obj_id), None)
             if obj:
                 menu.add_command(
                     label="PDFを作成 (保存のみ)",
@@ -1716,7 +1724,7 @@ class CanvasWindow(BaseSubWindow):
                 selected_stickies = [
                     i[1] for i in self.selected_items if i[0] == "sticky"
                 ]
-                if len(selected_stickies) > 1 and str(id(obj)) in selected_stickies:
+                if len(selected_stickies) > 1 and obj["uid"] in selected_stickies:
                     menu.add_command(
                         label="まとめてPDFを作成",
                         command=self._convert_selected_stickies_pipeline,
@@ -1739,7 +1747,7 @@ class CanvasWindow(BaseSubWindow):
                 )
 
         elif type_ == "shape":
-            obj = next((x for x in self.shapes_on_canvas if str(id(x)) == obj_id), None)
+            obj = next((x for x in self.shapes_on_canvas if x["uid"] == obj_id), None)
         elif type_ == "note":
             obj = obj_id  # note key
 
@@ -1877,7 +1885,7 @@ class CanvasWindow(BaseSubWindow):
 
             # --- 引用Keyの自動収集 ---
             # 1. キャンバス上で接続されているノートのKey
-            sticky_id = str(id(sticky_obj))
+            sticky_id = sticky_obj["uid"]
             connected_keys = self._get_connected_keys_for_item("sticky", sticky_id)
 
             # 2. 本文に含まれる [[Key]] リンク
@@ -1895,7 +1903,7 @@ class CanvasWindow(BaseSubWindow):
         targets = []
         for t, k in self.selected_items:
             if t == "sticky":
-                s = next((x for x in self.stickies_on_canvas if str(id(x)) == k), None)
+                s = next((x for x in self.stickies_on_canvas if x["uid"] == k), None)
                 if s:
                     targets.append(s)
 
@@ -1929,7 +1937,7 @@ class CanvasWindow(BaseSubWindow):
                 all_cited_keys.update(_extract_links(c_))
 
                 # 2. 各付箋に接続されているノートのKeyも収集して追加
-                sticky_id = str(id(s))
+                sticky_id = s["uid"]
                 connected_keys = self._get_connected_keys_for_item("sticky", sticky_id)
                 all_cited_keys.update(connected_keys)
 
@@ -2061,9 +2069,9 @@ class CanvasWindow(BaseSubWindow):
         if type_ == "note":
             return key  # Noteの場合はKeyそのものがオブジェクト(ID)
         elif type_ == "sticky":
-            return next((s for s in self.stickies_on_canvas if str(id(s)) == key), None)
+            return next((s for s in self.stickies_on_canvas if s["uid"] == key), None)
         elif type_ == "shape":
-            return next((s for s in self.shapes_on_canvas if str(id(s)) == key), None)
+            return next((s for s in self.shapes_on_canvas if s["uid"] == key), None)
         return None
 
     def delete_selected_items(self, event=None):
@@ -2102,7 +2110,7 @@ class CanvasWindow(BaseSubWindow):
                 self.stickies_on_canvas.remove(obj)
 
             # 選択リストからも削除
-            sid = str(id(obj))
+            sid = obj["uid"]
             if ("sticky", sid) in self.selected_items:
                 self.selected_items.remove(("sticky", sid))
 
@@ -2118,7 +2126,7 @@ class CanvasWindow(BaseSubWindow):
             self.shapes_on_canvas.remove(obj)
 
             # 選択リストからも削除
-            sid = str(id(obj))
+            sid = obj["uid"]
             if ("shape", sid) in self.selected_items:
                 self.selected_items.remove(("shape", sid))
 
@@ -2177,6 +2185,7 @@ class CanvasWindow(BaseSubWindow):
             },
             "stickies": [
                 {
+                    "uid": s["uid"],
                     "x": s["x"],
                     "y": s["y"],
                     "w": s["w"],
@@ -2241,7 +2250,7 @@ class CanvasWindow(BaseSubWindow):
                 )
 
             for s in data.get("stickies", []):
-                # 旧データ互換
+                # 旧データ互換処理
                 t = s.get("title", "")
                 c = s.get("content", "")
                 if not t and not c and "text" in s:
@@ -2260,9 +2269,11 @@ class CanvasWindow(BaseSubWindow):
                     bg_color=s.get("bg_color", "#FFFFA5"),
                     w=s.get("w", 180),
                     h=s.get("h", 120),
+                    uid=s.get("uid"),  # 新規作成ならNoneになり、create内で生成される
                 )
 
             for s in data.get("shapes", []):
+                uid_val = s.get("uid")
                 if s["type"] == "line":
                     self.create_shape_item(
                         "line",
@@ -2271,6 +2282,7 @@ class CanvasWindow(BaseSubWindow):
                         x2=s["x2"],
                         y2=s["y2"],
                         color=s.get("color", "black"),
+                        uid=uid_val,
                     )
                 elif s["type"] == "rect":
                     self.create_shape_item(
@@ -2280,6 +2292,7 @@ class CanvasWindow(BaseSubWindow):
                         w=s.get("w", 0),
                         h=s.get("h", 0),
                         color=s.get("color", "red"),
+                        uid=uid_val,
                     )
 
             for c in data.get("connections", []):
@@ -2421,7 +2434,7 @@ class CanvasWindow(BaseSubWindow):
                         return tx(info["x"]) + 80, ty(info["y"]) + 40
                 elif type_ == "sticky":
                     s = next(
-                        (x for x in self.stickies_on_canvas if str(id(x)) == key_), None
+                        (x for x in self.stickies_on_canvas if x["uid"] == key_), None
                     )
                     if s:
                         return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
