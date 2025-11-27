@@ -2242,13 +2242,18 @@ class CanvasWindow(BaseSubWindow):
             self.load_canvas_data(Path(file_path))
 
     def load_canvas_data(self, path):
+        """キャンバスデータをファイルから読み込み、アイテムを再配置する"""
         if not path.exists():
             return
+
+        # 読み込み前に完全にクリア・リセット
         self.clear_canvas_items()
+
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
+            # ノートの読み込み
             for k, v in data.get("notes", {}).items():
                 self.create_note_item(
                     k,
@@ -2260,17 +2265,10 @@ class CanvasWindow(BaseSubWindow):
                     h=v.get("h", 80),
                 )
 
+            # 付箋の読み込み
             for s in data.get("stickies", []):
-                # 旧データ互換
                 t = s.get("title", "")
                 c = s.get("content", "")
-                if not t and not c and "text" in s:
-                    old = s["text"]
-                    match = re.match(r"^(\S+)\s*(.*)$", old, re.DOTALL)
-                    if match:
-                        t, c = match.group(1), match.group(2)
-                    else:
-                        t, c = "NOTITLE", old
 
                 self.create_sticky_item(
                     s["x"],
@@ -2280,11 +2278,12 @@ class CanvasWindow(BaseSubWindow):
                     bg_color=s.get("bg_color", "#FFFFA5"),
                     w=s.get("w", 180),
                     h=s.get("h", 120),
+                    # JSON内のIDを引き継ぐ (接続線を維持するために必須)
                     uid=s.get("uid"),
                 )
 
+            # 図形の読み込み
             for s in data.get("shapes", []):
-                uid_val = s.get("uid")
                 if s["type"] == "line":
                     self.create_shape_item(
                         "line",
@@ -2293,7 +2292,7 @@ class CanvasWindow(BaseSubWindow):
                         x2=s["x2"],
                         y2=s["y2"],
                         color=s.get("color", "black"),
-                        uid=uid_val,
+                        uid=s.get("uid"),  # IDを引き継ぐ
                     )
                 elif s["type"] == "rect":
                     self.create_shape_item(
@@ -2303,9 +2302,10 @@ class CanvasWindow(BaseSubWindow):
                         w=s.get("w", 0),
                         h=s.get("h", 0),
                         color=s.get("color", "red"),
-                        uid=uid_val,
+                        uid=s.get("uid"),  # IDを引き継ぐ
                     )
 
+            # 接続線の読み込み
             for c in data.get("connections", []):
                 ft = c.get("from_type", "note")
                 tt = c.get("to_type", "note")
@@ -2313,7 +2313,7 @@ class CanvasWindow(BaseSubWindow):
 
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-            # --- 読み込み完了後にビューを中心にリセット ---
+            # 読み込み完了後にビューを中心にリセット
             self.update_idletasks()
             self.center_view()
 
