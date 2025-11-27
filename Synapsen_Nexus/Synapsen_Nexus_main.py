@@ -143,6 +143,9 @@ class Synapsen_Nexus(ctk.CTk):
             {"key_icons": self.key_icons, "key_colors": self.key_colors}
         )
 
+        # ショートカットキーの設定
+        self._setup_shortcuts()
+
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
         # 最大化失敗時のフォールバックサイズ指定
@@ -347,6 +350,104 @@ class Synapsen_Nexus(ctk.CTk):
                 "設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}"
             )
             self.destroy()
+
+    # -------------------------------------------------------------------------
+    # ショートカット設定メソッド
+    # -------------------------------------------------------------------------
+    def _setup_shortcuts(self):
+        """キーボードショートカットをバインドする"""
+
+        # --- 1. 機能ショートカット (入力中は無効化) ---
+
+        # Rキー: ランダムノート (Random)
+        self.bind("r", lambda e: self._handle_shortcut(self.show_random_note))
+        self.bind("R", lambda e: self._handle_shortcut(self.show_random_note))
+
+        # Cキー: キャンバス (Canvas)
+        self.bind("c", lambda e: self._handle_shortcut(self.open_canvas))
+        self.bind("C", lambda e: self._handle_shortcut(self.open_canvas))
+
+        # Pキー: 詳細プレビュー (Preview)
+        self.bind(
+            "p", lambda e: self._handle_shortcut(self.open_current_note_in_preview)
+        )
+        self.bind(
+            "P", lambda e: self._handle_shortcut(self.open_current_note_in_preview)
+        )
+
+        # Gキー: 全体グラフ (Global Graph)
+        self.bind("g", lambda e: self._handle_shortcut(self.generate_and_show_graph))
+        self.bind("G", lambda e: self._handle_shortcut(self.generate_and_show_graph))
+
+        # Lキー: 関連グラフ (Local Graph)
+        self.bind(
+            "l", lambda e: self._handle_shortcut(self.show_local_graph_from_main_panel)
+        )
+        self.bind(
+            "L", lambda e: self._handle_shortcut(self.show_local_graph_from_main_panel)
+        )
+
+        # Ctrl+E: 編集 (Edit)
+        self.bind("<Control-e>", lambda e: self._handle_shortcut(self.open_edit_dialog))
+        self.bind("<Control-E>", lambda e: self._handle_shortcut(self.open_edit_dialog))
+
+        # F5: 再読み込み (Reload)
+        self.bind("<F5>", lambda e: self._handle_shortcut(self._reload_db))
+
+        # Ctrl+B: サイドバー(フィルター)の切り替え (Bar)
+        self.bind(
+            "<Control-b>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+        )
+        self.bind(
+            "<Control-B>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+        )
+
+        # --- 2. 制御ショートカット (常時有効) ---
+
+        # Escキー: フォーカス解除
+        self.bind("<Escape>", self._handle_escape)
+
+        # Ctrl+F: 検索バーへフォーカス (Find)
+        self.bind("<Control-f>", self._focus_search)
+        self.bind("<Control-F>", self._focus_search)
+
+    def _handle_escape(self, event):
+        """
+        Escキーが押されたら、メインウィンドウ自体にフォーカスを当てることで
+        EntryやTextboxからフォーカスを外す。
+        """
+        self.focus_set()
+
+    def _handle_shortcut(self, command):
+        """
+        ショートカット実行時のハンドラ。
+        入力フィールド(Entry, Text)にフォーカスがある場合は無視して文字入力を優先する。
+        """
+        focused_widget = self.focus_get()
+
+        # フォーカス中のウィジェットが存在し、かつ入力系クラスの場合
+        if focused_widget:
+            widget_class = focused_widget.winfo_class()
+            # 'Entry': 1行入力 (CTkEntryの中身もこれ)
+            # 'Text': 複数行入力 (CTkTextboxの中身もこれ)
+            if widget_class in ["Entry", "Text"]:
+                return
+
+        # 入力中でなければコマンドを実行
+        command()
+
+    def _focus_search(self, event):
+        """検索バーにフォーカスを移動し、全選択状態にする"""
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, "end")
+        return "break"  # デフォルトの動作を抑制
+
+    def _reload_db(self):
+        """現在開いているDBを再読み込みする"""
+        if self.loaded_db_path:
+            self.load_db_from_path(self.loaded_db_path)
+
+    # -------------------------------------------------------------------------
 
     def refresh_unique_tags(self):
         """
