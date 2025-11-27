@@ -44,8 +44,8 @@ if str(root_dir) not in sys.path:
 
 try:
     # アプリ名を指定して初期化
-    setup_logging("Synapsen_Normalisierer")
-    logger = logging.getLogger("Normalisierer")  # このファイル用のロガー取得
+    setup_logging("Synapsen_Ersteller")
+    logger = logging.getLogger("Ersteller")  # このファイル用のロガー取得
 except ImportError:
     # logging_setup.py がない場合のフォールバック（print出力）
     print("Warning: logging_setup.py not found. Logging disabled.")
