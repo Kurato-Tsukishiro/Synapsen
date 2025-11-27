@@ -417,13 +417,24 @@ class CanvasWindow(BaseSubWindow):
         # --- UI構築 ---
         self._create_ui()
 
-        # 初期化処理
-        self.load_canvas_data(self.default_save_file)
+        # --- 初期化処理 ---
         self.lift()
         self.attributes("-topmost", True)
         self.after(500, lambda: self.attributes("-topmost", False))
-        self.after(100, self.center_view)
+
+        # ウィンドウサイズ確定待ちのため、少し遅延させてからロードを実行
+        self.after(200, self._initial_load)
+
         self.focus_force()
+
+    def _initial_load(self):
+        """起動時の初期データロード"""
+        if self.default_save_file.exists():
+            self.load_canvas_data(self.default_save_file)
+        else:
+            # データがない場合でもグリッドを描画してセンタリング
+            self._draw_grid(width=5000, height=5000)
+            self.center_view()
 
     def _create_ui(self):
         self.toolbar = ctk.CTkFrame(self)
@@ -2250,7 +2261,7 @@ class CanvasWindow(BaseSubWindow):
                 )
 
             for s in data.get("stickies", []):
-                # 旧データ互換処理
+                # 旧データ互換
                 t = s.get("title", "")
                 c = s.get("content", "")
                 if not t and not c and "text" in s:
@@ -2269,7 +2280,7 @@ class CanvasWindow(BaseSubWindow):
                     bg_color=s.get("bg_color", "#FFFFA5"),
                     w=s.get("w", 180),
                     h=s.get("h", 120),
-                    uid=s.get("uid"),  # 新規作成ならNoneになり、create内で生成される
+                    uid=s.get("uid"),
                 )
 
             for s in data.get("shapes", []):
@@ -2301,6 +2312,11 @@ class CanvasWindow(BaseSubWindow):
                 self.create_connection_item((ft, c["from_key"]), (tt, c["to_key"]))
 
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+            # --- 読み込み完了後にビューを中心にリセット ---
+            self.update_idletasks()
+            self.center_view()
+
         except Exception as e:
             logger.error(f"Canvas load error: {e}")
             messagebox.showerror("エラー", f"読込失敗: {e}", parent=self)
@@ -2312,17 +2328,29 @@ class CanvasWindow(BaseSubWindow):
 
     def clear_canvas_items(self):
         self.canvas.delete("all")
-        self._draw_grid(width=5000, height=5000)
+
+        # 内部変数のリセット
         self.notes_on_canvas = {}
         self.stickies_on_canvas = []
         self.shapes_on_canvas = []
         self.connections_on_canvas = []
         self.selected_items = set()
+
+        # ズーム・オフセットのリセット
         self.current_scale = 1.0
         self.canvas_offset_x = 0.0
         self.canvas_offset_y = 0.0
         if hasattr(self, "zoom_label_var"):
             self.zoom_label_var.set("100%")
+
+        # --- スクロール位置を強制的に原点に戻す (追加) ---
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+
+        # グリッド再描画
+        self._draw_grid(width=5000, height=5000)
+
+        # ビューのリセット
         self.center_view()
 
     def export_canvas_dialog(self):
