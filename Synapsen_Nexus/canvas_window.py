@@ -20,7 +20,7 @@ import fitz  # PyMuPDF
 # --- プロジェクト内モジュールのパス設定 ---
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
-normalisierer_dir = root_dir / "Synapsen_Nexus"
+normalisierer_dir = root_dir / "Synapsen_Normalisierer"
 
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
