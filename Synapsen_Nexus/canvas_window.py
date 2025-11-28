@@ -383,6 +383,11 @@ class CanvasWindow(BaseSubWindow):
         self.parent_app = parent_app
         self.default_save_file = parent_app.base_path / "canvas_data.json"
 
+        # --- 履歴管理用変数 ---
+        self.undo_stack = []
+        self.redo_stack = []
+        self.MAX_HISTORY = 20  # メモリ重視で20回に設定
+
         # --- データ構造 ---
         self.notes_on_canvas: Dict[str, Dict] = {}
         self.stickies_on_canvas: list = []
@@ -543,6 +548,7 @@ class CanvasWindow(BaseSubWindow):
         self._draw_grid(width=5000, height=5000)
         self._bind_events()
         self._setup_shortcuts()
+        self._setup_undo_shortcuts()
 
     def _add_tool_btn(self, text, w, cmd, fg=None, hover=None, text_col=None):
         btn = ctk.CTkButton(
@@ -629,6 +635,16 @@ class CanvasWindow(BaseSubWindow):
         # Esc: キャンセル / 選択モードへ復帰
         self.bind("<Escape>", self._handle_escape)
 
+    def _setup_undo_shortcuts(self):
+        """Undo/Redoのショートカットを設定"""
+        self.bind("<Control-z>", self.undo)
+        self.bind("<Control-Z>", self.undo)
+        self.bind("<Control-y>", self.redo)
+        self.bind("<Control-Y>", self.redo)
+        # Shift+Z も Redo として扱う (一般的な挙動)
+        self.bind("<Control-Shift-z>", self.redo)
+        self.bind("<Control-Shift-Z>", self.redo)
+
     def _handle_escape(self, event):
         """
         Escキーの挙動:
@@ -683,6 +699,110 @@ class CanvasWindow(BaseSubWindow):
         except Exception:
             pass
         return fallback
+
+    # -------------------------------------------------------------------------
+    # Undo / Redo 機能の実装
+    # -------------------------------------------------------------------------
+
+    def _snapshot(self):
+        """
+        操作直前の状態を履歴に保存する。
+        """
+        # 現在の状態を軽量な辞書データとして取得
+        current_state = self._generate_save_data_dict()
+
+        self.undo_stack.append(current_state)
+        self.redo_stack.clear()  # 新しい操作をしたらRedoは消える
+
+        # 履歴制限を超えたら古いものを削除 (メモリ保護)
+        if len(self.undo_stack) > self.MAX_HISTORY:
+            self.undo_stack.pop(0)
+
+    def undo(self, event=None):
+        """元に戻す"""
+        if not self.undo_stack:
+            return
+
+        # 現在の状態をRedoスタックに退避
+        current_state = self._generate_save_data_dict()
+        self.redo_stack.append(current_state)
+
+        # 過去の状態を復元
+        prev_state = self.undo_stack.pop()
+        self._restore_from_dict(prev_state)
+        self.save_canvas()  # ファイルにも反映
+
+    def redo(self, event=None):
+        """やり直し"""
+        if not self.redo_stack:
+            return
+
+        # 現在の状態をUndoスタックに戻す
+        current_state = self._generate_save_data_dict()
+        self.undo_stack.append(current_state)
+
+        # 未来の状態を復元
+        next_state = self.redo_stack.pop()
+        self._restore_from_dict(next_state)
+        self.save_canvas()
+
+    def _restore_from_dict(self, data):
+        """辞書データから画面を再描画する"""
+        self.clear_canvas_items(reset_view=False)  # 画面クリア
+
+        # 各アイテムの復元 (load_canvas_data のロジックを流用)
+        for k, v in data.get("notes", {}).items():
+            self.create_note_item(
+                k,
+                v["title"],
+                v.get("cp_key", ""),
+                v["x"],
+                v["y"],
+                w=v.get("w", 160),
+                h=v.get("h", 80),
+            )
+
+        for s in data.get("stickies", []):
+            self.create_sticky_item(
+                s["x"],
+                s["y"],
+                s.get("title", ""),
+                s.get("content", ""),
+                bg_color=s.get("bg_color", "#FFFFA5"),
+                w=s.get("w", 180),
+                h=s.get("h", 120),
+                uid=s.get("uid"),
+            )
+
+        for s in data.get("shapes", []):
+            if s["type"] == "line":
+                self.create_shape_item(
+                    "line",
+                    x=s["x1"],
+                    y=s["y1"],
+                    x2=s["x2"],
+                    y2=s["y2"],
+                    color=s.get("color", "black"),
+                    uid=s.get("uid"),
+                )
+            elif s["type"] == "rect":
+                self.create_shape_item(
+                    "rect",
+                    x=s["x"],
+                    y=s["y"],
+                    w=s.get("w", 0),
+                    h=s.get("h", 0),
+                    color=s.get("color", "red"),
+                    uid=s.get("uid"),
+                )
+
+        for c in data.get("connections", []):
+            ft = c.get("from_type", "note")
+            tt = c.get("to_type", "note")
+            self.create_connection_item((ft, c["from_key"]), (tt, c["to_key"]))
+
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.update_idletasks()
 
     # --- 描画関連 ---
     def _draw_grid(self, width, height, step=50):
@@ -1029,6 +1149,7 @@ class CanvasWindow(BaseSubWindow):
 
     # --- アイテム作成 ---
     def add_selected_notes(self):
+        self._snapshot()
         selected_keys = self.parent_app.selected_keys
         if not selected_keys:
             messagebox.showinfo(
@@ -1330,6 +1451,8 @@ class CanvasWindow(BaseSubWindow):
 
     # --- Event Handlers (Refactored) ---
     def on_canvas_click(self, event):
+        self.drag_data["snapshot_taken"] = False
+
         cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         self.drag_data.update(
             {"x": cx, "y": cy, "start_x": cx, "start_y": cy, "moved": False}
@@ -1436,6 +1559,7 @@ class CanvasWindow(BaseSubWindow):
         if dialog.result:
             title, content, color = dialog.result
             if title or content:
+                self._snapshot()
                 lx = (cx - self.canvas_offset_x) / self.current_scale
                 ly = (cy - self.canvas_offset_y) / self.current_scale
                 self.create_sticky_item(lx, ly, title, content, bg_color=color)
@@ -1453,6 +1577,17 @@ class CanvasWindow(BaseSubWindow):
             )
 
     def on_canvas_drag(self, event):
+        # まだスナップショットをとっていない、かつ、操作モードの場合
+        if not self.drag_data.get("snapshot_taken", False):
+            # リサイズ中、または アイテム選択中の移動なら保存
+            if self.current_mode in (
+                "resize_sticky",
+                "resize_note",
+                "resize_shape",
+            ) or (self.current_mode == "select" and self.selected_items):
+                self._snapshot()  # ★ここで履歴保存
+                self.drag_data["snapshot_taken"] = True
+
         cx, cy = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         dx, dy = cx - self.drag_data["x"], cy - self.drag_data["y"]
         self.drag_data.update({"moved": True, "x": cx, "y": cy})
@@ -1683,6 +1818,7 @@ class CanvasWindow(BaseSubWindow):
             target = self._find_target_item(cx, cy)
             if target and target != self.drag_data["start_item"]:
                 self.create_connection_item(self.drag_data["start_item"], target)
+                self._snapshot()
                 self.save_canvas()
 
     def _handle_create_shape_release(self, cx, cy):
@@ -1709,6 +1845,7 @@ class CanvasWindow(BaseSubWindow):
                     self.create_shape_item(
                         "rect", x=real_x, y=real_y, w=w, h=h, color=color
                     )
+                    self._snapshot()
                 elif self.current_mode == "line":
                     self.create_shape_item(
                         "line", x=lx1, y=ly1, x2=lx2, y2=ly2, color=color
@@ -1745,6 +1882,7 @@ class CanvasWindow(BaseSubWindow):
             )
             self.wait_window(dialog)
             if dialog.result:
+                self._snapshot()
                 t, c, col = dialog.result
                 target.update({"title": t, "content": c, "bg_color": col})
                 display_text = self._create_sticky_display_text(t, c)
@@ -1857,6 +1995,7 @@ class CanvasWindow(BaseSubWindow):
         if not self.parent_app.loaded_db_path:
             return
         conn = None
+        self._snapshot()
         try:
             conn = sqlite3.connect(self.parent_app.loaded_db_path)
             cursor = conn.cursor()
@@ -1881,6 +2020,7 @@ class CanvasWindow(BaseSubWindow):
         if not self.parent_app.loaded_db_path:
             return
         conn = None
+        self._snapshot()
         try:
             conn = sqlite3.connect(self.parent_app.loaded_db_path)
             cursor = conn.cursor()
@@ -2154,6 +2294,7 @@ class CanvasWindow(BaseSubWindow):
 
     def delete_selected_items(self, event=None):
         """選択中のアイテムを一括削除する"""
+        self._snapshot()
         if not self.selected_items:
             return
 
@@ -2248,7 +2389,10 @@ class CanvasWindow(BaseSubWindow):
                 "完了", f"保存しました: {Path(file_path).name}", parent=self
             )
 
-    def _save_to_json(self, path):
+    def _generate_save_data_dict(self):
+        """
+        現在のキャンバス状態を辞書データとして生成して返す。
+        """
         data = {
             "notes": {
                 k: {
@@ -2287,9 +2431,14 @@ class CanvasWindow(BaseSubWindow):
         }
         for s in self.shapes_on_canvas:
             item = s.copy()
-            del item["id"]
+            if "id" in item:
+                del item["id"]  # IDは保存不要
             data["shapes"].append(item)
+        return data
 
+    def _save_to_json(self, path):
+        # 共通化したデータ生成メソッドを使用
+        data = self._generate_save_data_dict()
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
@@ -2313,76 +2462,17 @@ class CanvasWindow(BaseSubWindow):
         if not path.exists():
             return
 
-        # 読み込み前に完全にクリア・リセット
-        self.clear_canvas_items()
+        # 読み込み前に一度完全にリセット (ズーム等も戻す)
+        self.clear_canvas_items(reset_view=True)
 
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
-            # ノートの読み込み
-            for k, v in data.get("notes", {}).items():
-                self.create_note_item(
-                    k,
-                    v["title"],
-                    v.get("cp_key", ""),
-                    v["x"],
-                    v["y"],
-                    w=v.get("w", 160),
-                    h=v.get("h", 80),
-                )
-
-            # 付箋の読み込み
-            for s in data.get("stickies", []):
-                t = s.get("title", "")
-                c = s.get("content", "")
-
-                self.create_sticky_item(
-                    s["x"],
-                    s["y"],
-                    t,
-                    c,
-                    bg_color=s.get("bg_color", "#FFFFA5"),
-                    w=s.get("w", 180),
-                    h=s.get("h", 120),
-                    # JSON内のIDを引き継ぐ (接続線を維持するために必須)
-                    uid=s.get("uid"),
-                )
-
-            # 図形の読み込み
-            for s in data.get("shapes", []):
-                if s["type"] == "line":
-                    self.create_shape_item(
-                        "line",
-                        x=s["x1"],
-                        y=s["y1"],
-                        x2=s["x2"],
-                        y2=s["y2"],
-                        color=s.get("color", "black"),
-                        uid=s.get("uid"),  # IDを引き継ぐ
-                    )
-                elif s["type"] == "rect":
-                    self.create_shape_item(
-                        "rect",
-                        x=s["x"],
-                        y=s["y"],
-                        w=s.get("w", 0),
-                        h=s.get("h", 0),
-                        color=s.get("color", "red"),
-                        uid=s.get("uid"),  # IDを引き継ぐ
-                    )
-
-            # 接続線の読み込み
-            for c in data.get("connections", []):
-                ft = c.get("from_type", "note")
-                tt = c.get("to_type", "note")
-                self.create_connection_item((ft, c["from_key"]), (tt, c["to_key"]))
-
-            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-
-            # 読み込み完了後にビューを中心にリセット
-            self.update_idletasks()
-            self.center_view()
+            # 共通化した復元メソッドを使用
+            self._restore_from_dict(data)
+            self.undo_stack.clear()  # ロード時は履歴クリア
+            self.redo_stack.clear()
+            self.center_view()  # 最後に全体を表示
 
         except Exception as e:
             logger.error(f"Canvas load error: {e}")
@@ -2393,32 +2483,49 @@ class CanvasWindow(BaseSubWindow):
             self.clear_canvas_items()
             self.save_canvas()
 
-    def clear_canvas_items(self):
-        self.canvas.delete("all")
+    def clear_canvas_items(self, reset_view=True):
+        """
+        キャンバス上のアイテムとデータを消去する。
+        reset_view=True: 全消去して視点もリセット (新規作成、読込時)
+        reset_view=False: グリッドと視点は残してコンテンツのみ消去 (Undo/Redo時)
+        """
+        if reset_view:
+            # 完全に初期化する場合
+            self.canvas.delete("all")
 
-        # 内部変数のリセット
+            # 視点のリセット
+            self.current_scale = 1.0
+            self.canvas_offset_x = 0.0
+            self.canvas_offset_y = 0.0
+            if hasattr(self, "zoom_label_var"):
+                self.zoom_label_var.set("100%")
+
+            self.canvas.xview_moveto(0)
+            self.canvas.yview_moveto(0)
+
+            # グリッド再描画
+            self._draw_grid(width=5000, height=5000)
+
+        else:
+            # 視点を維持する場合 (Undo/Redo)
+            # グリッド("grid", "guide")以外のタグを持つアイテムを削除する
+            tags_to_delete = [
+                "note",
+                "sticky",
+                "sticky_shadow",
+                "shape",
+                "connection",
+                "resize_handle",
+            ]
+            for tag in tags_to_delete:
+                self.canvas.delete(tag)
+
+        # データ構造のリセット (共通)
         self.notes_on_canvas = {}
         self.stickies_on_canvas = []
         self.shapes_on_canvas = []
         self.connections_on_canvas = []
         self.selected_items = set()
-
-        # ズーム・オフセットのリセット
-        self.current_scale = 1.0
-        self.canvas_offset_x = 0.0
-        self.canvas_offset_y = 0.0
-        if hasattr(self, "zoom_label_var"):
-            self.zoom_label_var.set("100%")
-
-        # --- スクロール位置を強制的に原点に戻す (追加) ---
-        self.canvas.xview_moveto(0)
-        self.canvas.yview_moveto(0)
-
-        # グリッド再描画
-        self._draw_grid(width=5000, height=5000)
-
-        # ビューのリセット
-        self.center_view()
 
     def export_canvas_dialog(self):
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
