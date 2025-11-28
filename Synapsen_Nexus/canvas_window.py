@@ -542,6 +542,7 @@ class CanvasWindow(BaseSubWindow):
 
         self._draw_grid(width=5000, height=5000)
         self._bind_events()
+        self._setup_shortcuts()
 
     def _add_tool_btn(self, text, w, cmd, fg=None, hover=None, text_col=None):
         btn = ctk.CTkButton(
@@ -591,6 +592,55 @@ class CanvasWindow(BaseSubWindow):
         self.canvas.bind("<Control-MouseWheel>", self._on_zoom_wheel)
 
         self.bind("<Delete>", self.delete_selected_items)
+
+    def _setup_shortcuts(self):
+        """キャンバス操作用のキーボードショートカットを設定"""
+
+        # --- ツール切り替え ---
+        # V: 選択 (Select / Move)
+        self.bind("v", lambda e: self.set_mode("select", "選択/移動"))
+        self.bind("V", lambda e: self.set_mode("select", "選択/移動"))
+
+        # C: 接続 (Connect)
+        self.bind("c", lambda e: self.set_mode("connect", "ノート接続 (リンク)"))
+        self.bind("C", lambda e: self.set_mode("connect", "ノート接続 (リンク)"))
+
+        # T: 付箋 (Tag / Text / Sticky)
+        self.bind("t", lambda e: self.set_mode("sticky", "付箋作成"))
+        self.bind("T", lambda e: self.set_mode("sticky", "付箋作成"))
+
+        # R: 枠線 (Rectangle)
+        self.bind("r", lambda e: self.set_mode("rect", "枠線"))
+        self.bind("R", lambda e: self.set_mode("rect", "枠線"))
+
+        # L: 線 (Line)
+        self.bind("l", lambda e: self.set_mode("line", "線 (Path)"))
+        self.bind("L", lambda e: self.set_mode("line", "線 (Path)"))
+
+        # --- アクション ---
+        # N: ノート追加 (Nexusで選択中のノートを追加)
+        self.bind("n", lambda e: self.add_selected_notes())
+        self.bind("N", lambda e: self.add_selected_notes())
+
+        # Ctrl+S: 保存
+        self.bind("<Control-s>", lambda e: self.save_canvas())
+        self.bind("<Control-S>", lambda e: self.save_canvas())
+
+        # Esc: キャンセル / 選択モードへ復帰
+        self.bind("<Escape>", self._handle_escape)
+
+    def _handle_escape(self, event):
+        """
+        Escキーの挙動:
+        1. もし「選択モード以外」なら -> 選択モードに戻す
+        2. もし「選択モード」で「アイテム選択中」なら -> 選択解除
+        """
+        if self.current_mode != "select":
+            self.set_mode("select", "選択/移動")
+        else:
+            # 選択モードですでに選択アイテムがある場合は解除
+            if self.selected_items:
+                self._clear_selection()
 
     def set_mode(self, mode, label_text):
         self.current_mode = mode
