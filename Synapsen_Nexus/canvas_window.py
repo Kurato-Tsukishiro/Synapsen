@@ -137,6 +137,12 @@ class StickyNoteDialog(BaseSubWindow):
 
         self._create_widgets(title_val, content_val)
 
+        # ショートカットキーの追加
+        # Ctrl+Enter で確定 (保存)
+        self.bind("<Control-Return>", lambda e: self.on_ok())
+        # Esc でキャンセル (閉じる)
+        self.bind("<Escape>", lambda e: self.destroy())
+
     def _create_widgets(self, title_val, content_val):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(5, weight=1)
