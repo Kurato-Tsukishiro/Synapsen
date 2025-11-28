@@ -143,6 +143,9 @@ class Synapsen_Nexus(ctk.CTk):
             {"key_icons": self.key_icons, "key_colors": self.key_colors}
         )
 
+        # ショートカットキーの設定
+        self._setup_shortcuts()
+
         # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
         # 最大化失敗時のフォールバックサイズ指定
@@ -347,6 +350,122 @@ class Synapsen_Nexus(ctk.CTk):
                 "設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}"
             )
             self.destroy()
+
+    # -------------------------------------------------------------------------
+    # ショートカット設定メソッド
+    # -------------------------------------------------------------------------
+    def _setup_shortcuts(self):
+        """キーボードショートカットをバインドする"""
+
+        # --- 1. 機能ショートカット (入力中は無効化) ---
+
+        # Rキー: ランダムノート (Random)
+        self.bind("r", lambda e: self._handle_shortcut(self.show_random_note))
+        self.bind("R", lambda e: self._handle_shortcut(self.show_random_note))
+
+        # Cキー: キャンバス (Canvas)
+        self.bind("c", lambda e: self._handle_shortcut(self.open_canvas))
+        self.bind("C", lambda e: self._handle_shortcut(self.open_canvas))
+
+        # Ctrl+Enter : 選択中のノートをCanvasへ送る (Send)
+        self.bind(
+            "<Control-Return>",
+            lambda e: self._handle_shortcut(self.send_selection_to_canvas),
+        )
+
+        # Pキー: 詳細プレビュー (Preview)
+        self.bind(
+            "p", lambda e: self._handle_shortcut(self.open_current_note_in_preview)
+        )
+        self.bind(
+            "P", lambda e: self._handle_shortcut(self.open_current_note_in_preview)
+        )
+
+        # Gキー: 全体グラフ (Global Graph)
+        self.bind("g", lambda e: self._handle_shortcut(self.generate_and_show_graph))
+        self.bind("G", lambda e: self._handle_shortcut(self.generate_and_show_graph))
+
+        # Lキー: 関連グラフ (Local Graph)
+        self.bind(
+            "l", lambda e: self._handle_shortcut(self.show_local_graph_from_main_panel)
+        )
+        self.bind(
+            "L", lambda e: self._handle_shortcut(self.show_local_graph_from_main_panel)
+        )
+
+        # Ctrl+E: 編集 (Edit)
+        self.bind("<Control-e>", lambda e: self._handle_shortcut(self.open_edit_dialog))
+        self.bind("<Control-E>", lambda e: self._handle_shortcut(self.open_edit_dialog))
+
+        # F5: 再読み込み (Reload)
+        self.bind("<F5>", lambda e: self._handle_shortcut(self._reload_db))
+
+        # Ctrl+B: サイドバー(フィルター)の切り替え (Bar)
+        self.bind(
+            "<Control-b>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+        )
+        self.bind(
+            "<Control-B>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+        )
+
+        # Ctrl+A: すべて選択
+        self.bind("<Control-a>", lambda e: self._handle_shortcut(self.select_all_notes))
+        self.bind("<Control-A>", lambda e: self._handle_shortcut(self.select_all_notes))
+
+        # Ctrl+D: 選択解除 (Deselect)
+        self.bind("<Control-d>", lambda e: self._handle_shortcut(self.clear_selection))
+        self.bind("<Control-D>", lambda e: self._handle_shortcut(self.clear_selection))
+
+        # Alt+S: ソート順切り替え
+        self.bind("<Alt-s>", lambda e: self._handle_shortcut(self.toggle_sort_order))
+        self.bind("<Alt-S>", lambda e: self._handle_shortcut(self.toggle_sort_order))
+
+        # --- 2. 制御ショートカット (常時有効) ---
+
+        # Escキー: フォーカス解除
+        self.bind("<Escape>", self._handle_escape)
+
+        # Ctrl+F: 検索バーへフォーカス (Find)
+        self.bind("<Control-f>", self._focus_search)
+        self.bind("<Control-F>", self._focus_search)
+
+    def _handle_escape(self, event):
+        """
+        Escキーが押されたら、メインウィンドウ自体にフォーカスを当てることで
+        EntryやTextboxからフォーカスを外す。
+        """
+        self.focus_set()
+
+    def _handle_shortcut(self, command):
+        """
+        ショートカット実行時のハンドラ。
+        入力フィールド(Entry, Text)にフォーカスがある場合は無視して文字入力を優先する。
+        """
+        focused_widget = self.focus_get()
+
+        # フォーカス中のウィジェットが存在し、かつ入力系クラスの場合
+        if focused_widget:
+            widget_class = focused_widget.winfo_class()
+            # 'Entry': 1行入力 (CTkEntryの中身もこれ)
+            # 'Text': 複数行入力 (CTkTextboxの中身もこれ)
+            if widget_class in ["Entry", "Text"]:
+                return
+
+        # 入力中でなければコマンドを実行
+        command()
+
+    def _focus_search(self, event):
+        """検索バーにフォーカスを移動し、全選択状態にする"""
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, "end")
+        return "break"  # デフォルトの動作を抑制
+
+    def _reload_db(self):
+        """現在開いているDBを再読み込みする"""
+        if self.loaded_db_path:
+            self.load_db_from_path(self.loaded_db_path)
+
+    # -------------------------------------------------------------------------
 
     def refresh_unique_tags(self):
         """
@@ -1479,12 +1598,51 @@ class Synapsen_Nexus(ctk.CTk):
                 "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self
             )
 
-    def open_canvas(self):
+    def open_canvas(self, background=False, notes_to_add=None):
         """キャンバスウィンドウを開く"""
         if hasattr(self, "canvas_window") and self.canvas_window.winfo_exists():
-            self.canvas_window.focus()
+            # 既に開いている場合
+            if not background:
+                if self.canvas_window.state() == "iconic":
+                    self.canvas_window.deiconify()
+
+                self.canvas_window.lift()
+                self.canvas_window.focus_force()
+
+            # 追加リクエストがあれば実行
+            if notes_to_add:
+                self.canvas_window.add_selected_notes(target_keys=notes_to_add)
             return
-        self.canvas_window = CanvasWindow(self)
+
+        # 新規作成
+        self.canvas_window = CanvasWindow(
+            self, background=background, initial_notes=notes_to_add
+        )
+
+    def send_selection_to_canvas(self):
+        """
+        現在選択中のノートをCanvasに追加する。
+        Canvasが開いていない場合は自動で開く。
+        フォーカスはNexusに残す（連続作業用）。
+        """
+        if not self.selected_keys:
+            # 選択がない場合、ラベルを一瞬赤くして通知
+            self.selection_info_label.configure(text="選択なし!", text_color="red")
+            self.after(1000, self.update_selection_ui_state)  # 1秒後に元に戻す
+            return
+
+        # 1. Canvasをバックグラウンドモードで開く (またはノートを渡す)
+        self.open_canvas(background=True, notes_to_add=self.selected_keys)
+
+        # 2. 成功メッセージ
+        count = len(self.selected_keys)
+        self.selection_info_label.configure(
+            text=f"Canvasに追加: {count}件", text_color="#28a745"
+        )
+        self.after(1500, self.update_selection_ui_state)
+
+        # 3. フォーカスをNexusに維持
+        self.focus_force()
 
     # --- UI更新・表示メソッド ---
     def update_results_list(self, df_to_show):
@@ -1572,6 +1730,25 @@ class Synapsen_Nexus(ctk.CTk):
             self.selected_keys.discard(key)
 
         self.update_selection_ui_state()
+
+    def select_all_notes(self):
+        """現在の検索結果（表示されているノート）をすべて選択状態にする"""
+        # 表示中のデータがない場合は何もしない
+        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
+            return
+
+        # 表示中のノートのKeyを取得
+        keys_in_view = self.filtered_df_cache["key"].dropna().tolist()
+
+        # 選択セットに追加
+        self.selected_keys.update(keys_in_view)
+
+        # UI更新 (選択数ラベルの更新)
+        self.update_selection_ui_state()
+
+        # リストのチェックボックス表示を更新するために再描画
+        # (件数が多いと一瞬ラグがあるかもしれませんが、整合性を保つため必要です)
+        self.update_results_list(self.filtered_df_cache)
 
     def clear_selection(self):
         """選択をすべて解除する"""
@@ -2464,13 +2641,39 @@ class SearchHelpWindow(ctk.CTkToplevel):
                 except Exception as e:
                     logger.error(f"Initial icon set error: {e}")
 
-        self.title("検索ヘルプ")
-        self.geometry("550x620")
+        self.title("ヘルプ (検索・ショートカット)")
+        self.geometry("600x700")
         self.transient(parent_app)
         self.grab_set()
 
         help_text = """
-Synapsen Nexus 検索クエリ リファレンス
+----------------------------------------------------------------------------------------------------
+■ アプリケーション ショートカット一覧
+----------------------------------------------------------------------------------------------------
+
+[画面表示・遷移]
+R : 閃き (ランダムノート表示)
+C : キャンバスを開く
+P : 詳細プレビューを開く
+G : 全体グラフ (Global) を表示
+L : 関連グラフ (Local) を表示
+F5 : データベース再読み込み
+Ctrl + B : フィルターパネルの開閉
+
+[リスト操作・選択]
+Ctrl + A : すべて選択
+Ctrl + D : 選択解除
+Alt + S  : ソート順切り替え (昇順/降順)
+Ctrl + E : 選択中のノートを編集
+Ctrl + Enter : 選択中のノートをCanvasへ送る
+
+[検索・入力]
+Ctrl + F : 検索バーへフォーカス (全選択)
+Esc : 入力欄からフォーカスを外す
+
+----------------------------------------------------------------------------------------------------
+■ Synapsen Nexus 検索クエリ リファレンス
+----------------------------------------------------------------------------------------------------
 
 ■ 基本
 - 検索語をスペースで区切ると `AND` 検索になります。
@@ -2482,7 +2685,7 @@ Synapsen Nexus 検索クエリ リファレンス
 - `-` (ハイフン) を検索語の前に付けると `NOT` 検索になります。
   (例: `衛生 -memo:古い`)
 
----
+----------------------------------------------------------------------------------------------------
 ■ プレフィックスとエイリアス
 
 `title: (キーワード)`
@@ -2515,7 +2718,7 @@ Synapsen Nexus 検索クエリ リファレンス
 - 統合PDFのファイル名を検索します (部分一致)。
   (例: `filename:202410` → 2024年10月の統合PDFに含まれるノートを抽出)
 
----
+----------------------------------------------------------------------------------------------------
 ■ 特殊なプレフィックス
 
 `date: (日付指定)`
@@ -2548,7 +2751,7 @@ Synapsen Nexus 検索クエリ リファレンス
 - リンクのメンテナンスや、整理漏れの発見に役立ちます。
   (例: `is:orphan tag:アイデア` → 孤立しているアイデアノートを抽出)
 
----
+----------------------------------------------------------------------------------------------------
 ■ グローバル検索 (プレフィックスなし)
 (例: `Python`)
 
