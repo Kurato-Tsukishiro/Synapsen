@@ -408,6 +408,18 @@ class Synapsen_Nexus(ctk.CTk):
             "<Control-B>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
         )
 
+        # Ctrl+A: すべて選択
+        self.bind("<Control-a>", lambda e: self._handle_shortcut(self.select_all_notes))
+        self.bind("<Control-A>", lambda e: self._handle_shortcut(self.select_all_notes))
+
+        # Ctrl+D: 選択解除 (Deselect)
+        self.bind("<Control-d>", lambda e: self._handle_shortcut(self.clear_selection))
+        self.bind("<Control-D>", lambda e: self._handle_shortcut(self.clear_selection))
+
+        # Alt+S: ソート順切り替え
+        self.bind("<Alt-s>", lambda e: self._handle_shortcut(self.toggle_sort_order))
+        self.bind("<Alt-S>", lambda e: self._handle_shortcut(self.toggle_sort_order))
+
         # --- 2. 制御ショートカット (常時有効) ---
 
         # Escキー: フォーカス解除
@@ -1718,6 +1730,25 @@ class Synapsen_Nexus(ctk.CTk):
             self.selected_keys.discard(key)
 
         self.update_selection_ui_state()
+
+    def select_all_notes(self):
+        """現在の検索結果（表示されているノート）をすべて選択状態にする"""
+        # 表示中のデータがない場合は何もしない
+        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
+            return
+
+        # 表示中のノートのKeyを取得
+        keys_in_view = self.filtered_df_cache["key"].dropna().tolist()
+
+        # 選択セットに追加
+        self.selected_keys.update(keys_in_view)
+
+        # UI更新 (選択数ラベルの更新)
+        self.update_selection_ui_state()
+
+        # リストのチェックボックス表示を更新するために再描画
+        # (件数が多いと一瞬ラグがあるかもしれませんが、整合性を保つため必要です)
+        self.update_results_list(self.filtered_df_cache)
 
     def clear_selection(self):
         """選択をすべて解除する"""
