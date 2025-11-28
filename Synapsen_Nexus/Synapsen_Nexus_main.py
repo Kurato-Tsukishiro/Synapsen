@@ -367,6 +367,12 @@ class Synapsen_Nexus(ctk.CTk):
         self.bind("c", lambda e: self._handle_shortcut(self.open_canvas))
         self.bind("C", lambda e: self._handle_shortcut(self.open_canvas))
 
+        # Ctrl+Enter : 選択中のノートをCanvasへ送る (Send)
+        self.bind(
+            "<Control-Return>",
+            lambda e: self._handle_shortcut(self.send_selection_to_canvas),
+        )
+
         # Pキー: 詳細プレビュー (Preview)
         self.bind(
             "p", lambda e: self._handle_shortcut(self.open_current_note_in_preview)
@@ -1580,12 +1586,51 @@ class Synapsen_Nexus(ctk.CTk):
                 "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self
             )
 
-    def open_canvas(self):
+    def open_canvas(self, background=False, notes_to_add=None):
         """キャンバスウィンドウを開く"""
         if hasattr(self, "canvas_window") and self.canvas_window.winfo_exists():
-            self.canvas_window.focus()
+            # 既に開いている場合
+            if not background:
+                if self.canvas_window.state() == "iconic":
+                    self.canvas_window.deiconify()
+
+                self.canvas_window.lift()
+                self.canvas_window.focus_force()
+
+            # 追加リクエストがあれば実行
+            if notes_to_add:
+                self.canvas_window.add_selected_notes(target_keys=notes_to_add)
             return
-        self.canvas_window = CanvasWindow(self)
+
+        # 新規作成
+        self.canvas_window = CanvasWindow(
+            self, background=background, initial_notes=notes_to_add
+        )
+
+    def send_selection_to_canvas(self):
+        """
+        現在選択中のノートをCanvasに追加する。
+        Canvasが開いていない場合は自動で開く。
+        フォーカスはNexusに残す（連続作業用）。
+        """
+        if not self.selected_keys:
+            # 選択がない場合、ラベルを一瞬赤くして通知
+            self.selection_info_label.configure(text="選択なし!", text_color="red")
+            self.after(1000, self.update_selection_ui_state)  # 1秒後に元に戻す
+            return
+
+        # 1. Canvasをバックグラウンドモードで開く (またはノートを渡す)
+        self.open_canvas(background=True, notes_to_add=self.selected_keys)
+
+        # 2. 成功メッセージ
+        count = len(self.selected_keys)
+        self.selection_info_label.configure(
+            text=f"Canvasに追加: {count}件", text_color="#28a745"
+        )
+        self.after(1500, self.update_selection_ui_state)
+
+        # 3. フォーカスをNexusに維持
+        self.focus_force()
 
     # --- UI更新・表示メソッド ---
     def update_results_list(self, df_to_show):

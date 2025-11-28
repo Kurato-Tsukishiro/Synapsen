@@ -378,8 +378,12 @@ class CanvasHelpWindow(BaseSubWindow):
 # CanvasWindow (メインクラス)
 # ==============================================================================
 class CanvasWindow(BaseSubWindow):
-    def __init__(self, parent_app):
-        super().__init__(parent_app, title="Synapsen Canvas", geometry="1200x800")
+    def __init__(self, parent_app, background=False, initial_notes=None):
+        super().__init__(parent_app, title="Synapsen Canvas")
+
+        self.background_mode = background
+        self.initial_notes_queue = initial_notes  # 起動後に追加するノートのリスト
+
         self.parent_app = parent_app
         self.default_save_file = parent_app.base_path / "canvas_data.json"
 
@@ -423,14 +427,42 @@ class CanvasWindow(BaseSubWindow):
         self._create_ui()
 
         # --- 初期化処理 ---
-        self.lift()
-        self.attributes("-topmost", True)
-        self.after(500, lambda: self.attributes("-topmost", False))
+        if not self.background_mode:
+            self.lift()
+            # 最初だけ最前面にして気づかせ _perform_initial_setup()で解除
+            self.attributes("-topmost", True)
+        else:
+            self.lower()
+
+        self.after(100, self._perform_initial_setup)
 
         # ウィンドウサイズ確定待ちのため、少し遅延させてからロードを実行
         self.after(200, self._initial_load)
 
-        self.focus_force()
+    def _perform_initial_setup(self):
+        """
+        ウィンドウ生成直後に一度だけ実行される初期設定。
+        最大化やバックグラウンド状態の設定を行う。
+        """
+        try:
+            # 1. まず最大化状態にする (全モード共通)
+            self.state("zoomed")
+
+            # 2. 最前面固定を解除
+            self.attributes("-topmost", False)
+
+            # 3. モードに応じたフォーカス制御
+            if not self.background_mode:
+                # 通常起動: フォーカスを当てる
+                self.focus_force()
+            else:
+                # バックグラウンド起動: すぐに最小化
+                self.state("iconic")
+                if self.parent_app:
+                    self.parent_app.focus_force()
+
+        except Exception:
+            pass
 
     def _initial_load(self):
         """起動時の初期データロード"""
@@ -440,6 +472,25 @@ class CanvasWindow(BaseSubWindow):
             # データがない場合でもグリッドを描画してセンタリング
             self._draw_grid(width=5000, height=5000)
             self.center_view()
+
+        # ロードと配置(center_view)が終わった後に、待機していたノートを追加
+        if self.initial_notes_queue:
+            self.add_selected_notes(target_keys=self.initial_notes_queue)
+            self.initial_notes_queue = None  # キューを空にする
+
+    def on_close(self):
+        """ウィンドウを閉じる際の処理"""
+
+        # 閉じる前に親ウィンドウ(Nexus)を最前面にしてフォーカスを返す
+        if self.parent_app and self.parent_app.winfo_exists():
+            # 最小化されていたら元に戻す
+            if self.parent_app.state() == "iconic":
+                self.parent_app.deiconify()
+
+            self.parent_app.lift()
+            self.parent_app.focus_force()
+
+        self.destroy()
 
     def _create_ui(self):
         self.toolbar = ctk.CTkFrame(self)
@@ -631,6 +682,10 @@ class CanvasWindow(BaseSubWindow):
         # Ctrl+S: 保存
         self.bind("<Control-s>", lambda e: self.save_canvas())
         self.bind("<Control-S>", lambda e: self.save_canvas())
+
+        # Ctrl+W: 閉じる (Nexusに戻る)
+        self.bind("<Control-w>", lambda e: self.on_close())
+        self.bind("<Control-W>", lambda e: self.on_close())
 
         # Esc: キャンセル / 選択モードへ復帰
         self.bind("<Escape>", self._handle_escape)
@@ -1148,14 +1203,22 @@ class CanvasWindow(BaseSubWindow):
         self.parent_app.focus_force()
 
     # --- アイテム作成 ---
-    def add_selected_notes(self):
-        self._snapshot()
-        selected_keys = self.parent_app.selected_keys
+    def add_selected_notes(self, target_keys=None):
+        # 引数がなければ Nexus の選択状態を参照 (ショートカット 'N' の場合など)
+        selected_keys = (
+            target_keys if target_keys is not None else self.parent_app.selected_keys
+        )
+
         if not selected_keys:
-            messagebox.showinfo(
-                "情報", "Nexus本体でノートを選択してください。", parent=self
-            )
+            # メッセージ表示などは状況によるが、Canvas内操作('N')なら表示しても良い
+            if target_keys is None:
+                messagebox.showinfo(
+                    "情報", "Nexus本体でノートを選択してください。", parent=self
+                )
             return
+
+        self._snapshot()
+
         df = self.parent_app.df
         start_x = (self.canvas.canvasx(100) - self.canvas_offset_x) / self.current_scale
         start_y = (self.canvas.canvasy(100) - self.canvas_offset_y) / self.current_scale
