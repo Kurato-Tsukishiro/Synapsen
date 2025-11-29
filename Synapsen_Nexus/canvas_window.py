@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -356,6 +357,11 @@ Ctrl + + : ズームイン
 Ctrl + - : ズームアウト
 Ctrl + 0 : ズームリセット (全体表示)
 
+[移動操作]
+矢印キー / WASD : アイテムを移動 (同時押しで斜め移動)
+Shift + 移動 : 速度切り替え (減速/加速)
+Shift (2回押し) : 速度モードの固定切り替え
+
 [付箋ウィンドウ内]
 Ctrl + Enter : 確定 (保存して閉じる)
 Esc : キャンセル (保存せずに閉じる)
@@ -368,6 +374,12 @@ Esc : キャンセル (保存せずに閉じる)
 ・リサイズ: 選択時、右下の「■ハンドル」をドラッグ
 ・Shift + クリック: 複数選択の追加/解除
 ・背景ドラッグ: 範囲選択
+
+[キーボード移動]
+・矢印キー または WASDキー で選択アイテムを移動できます。
+・デフォルトは「高速移動 (10px)」です。
+・Shiftキーを押している間は「精密移動 (1px)」になります。
+・Shiftキーを素早く2回押すと、デフォルトの速度設定が反転（ロック）します。
 
 [視点操作]
 ・マウスホイール: 縦スクロール
@@ -455,6 +467,12 @@ class CanvasWindow(BaseSubWindow):
 
         self.font_path = self._get_font_path_from_config()
         self.current_shape_color = "レッド"
+
+        # --- 移動操作用の状態変数 ---
+        self.pressed_keys = set()
+        self._move_loop_running = False
+        self.last_shift_release_time = 0.0
+        self.is_speed_locked = True  # 加速固定モードのフラグ
 
         # --- UI構築 ---
         self._create_ui()
@@ -632,6 +650,7 @@ class CanvasWindow(BaseSubWindow):
         self._draw_grid(width=5000, height=5000)
         self._bind_events()
         self._setup_shortcuts()
+        self._setup_move_shortcuts()
         self._setup_undo_shortcuts()
 
     def _add_tool_btn(self, text, w, cmd, fg=None, hover=None, text_col=None):
@@ -743,6 +762,33 @@ class CanvasWindow(BaseSubWindow):
         # Deleate: 選択削除
         self.bind("<Delete>", self.delete_selected_items)
         self.bind("<BackSpace>", self.delete_selected_items)  # エイリアス
+
+    def _setup_move_shortcuts(self):
+        """
+        移動関連のショートカットを設定
+        """
+
+        move_keys = [
+            "Up",
+            "Down",
+            "Left",
+            "Right",
+            "w",
+            "a",
+            "s",
+            "d",
+            "W",
+            "A",
+            "S",
+            "D",
+            "Shift_L",
+            "Shift_R",
+        ]
+
+        for k in move_keys:
+            # 押した瞬間と離した瞬間をフックする
+            self.bind(f"<KeyPress-{k}>", self._on_key_press)
+            self.bind(f"<KeyRelease-{k}>", self._on_key_release)
 
     def _setup_undo_shortcuts(self):
         """Undo/Redoのショートカットを設定"""
@@ -930,6 +976,160 @@ class CanvasWindow(BaseSubWindow):
 
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         self.update_idletasks()
+
+    # -------------------------------------------------------------------------
+    # 方向キーによる移動の実装
+    # -------------------------------------------------------------------------
+
+    def _on_key_press(self, event):
+        """キーが押されたらセットに追加し、移動ループを開始"""
+        keysym = event.keysym
+        self.pressed_keys.add(keysym)
+
+        if not self._move_loop_running:
+            # 移動開始の瞬間に一度だけスナップショット（Undo履歴）を作成
+            self._snapshot()
+            self._move_loop_running = True
+            self._movement_loop()
+
+    def _on_key_release(self, event):
+        """キーが離されたらセットから削除 + Shiftダブルタップ判定"""
+        keysym = event.keysym
+
+        if keysym in self.pressed_keys:
+            self.pressed_keys.remove(keysym)
+
+        # --- Shiftキーのダブルタップ判定 (追加) ---
+        if keysym in ("Shift_L", "Shift_R"):
+            current_time = time.time()
+            # 0.3秒以内に再度離されたらダブルタップとみなす
+            if current_time - self.last_shift_release_time < 0.3:
+                self.is_speed_locked = not self.is_speed_locked
+
+                # 視覚的なフィードバック (オプション: ステータスバー等に表示)
+                status = "ON" if self.is_speed_locked else "OFF"
+                self.status_label_var.set(f"高速移動ロック: {status}")
+
+                # ダブルタップ成立後は時間をリセット (トリプルタップでの誤爆防止)
+                self.last_shift_release_time = 0.0
+            else:
+                self.last_shift_release_time = current_time
+        # ----------------------------------------
+
+        # 全ての移動キーが離されたら、変更をファイルに保存
+        if not self.pressed_keys:
+            self.save_canvas()
+
+    def _movement_loop(self):
+        """
+        一定間隔でキーの状態を確認し、移動を実行するループ
+        """
+        if not self.pressed_keys:
+            self._move_loop_running = False
+            return
+
+        dx = 0
+        dy = 0
+
+        # Shiftキーが押されているか
+        is_shift_pressed = (
+            "Shift_L" in self.pressed_keys
+            or "Shift_R" in self.pressed_keys
+            or any(k.isupper() for k in self.pressed_keys if len(k) == 1)
+        )
+
+        # ロック状態とShift状態が「異なる」場合に加速する (XOR)
+        #  - ロックON (True)  & Shiftなし (False) => 加速 (True)  [デフォルト高速]
+        #  - ロックON (True)  & Shiftあり (True)  => 減速 (False) [Shiftで減速]
+        #  - ロックOFF(False) & Shiftなし (False) => 減速 (False) [デフォルト低速]
+        #  - ロックOFF(False) & Shiftあり (True)  => 加速 (True)  [Shiftで加速]
+        is_accelerated = self.is_speed_locked != is_shift_pressed
+
+        step = 10 if is_accelerated else 1
+
+        # 上下左右の判定
+        if (
+            "Up" in self.pressed_keys
+            or "w" in self.pressed_keys
+            or "W" in self.pressed_keys
+        ):
+            dy -= step
+        if (
+            "Down" in self.pressed_keys
+            or "s" in self.pressed_keys
+            or "S" in self.pressed_keys
+        ):
+            dy += step
+        if (
+            "Left" in self.pressed_keys
+            or "a" in self.pressed_keys
+            or "A" in self.pressed_keys
+        ):
+            dx -= step
+        if (
+            "Right" in self.pressed_keys
+            or "d" in self.pressed_keys
+            or "D" in self.pressed_keys
+        ):
+            dx += step
+
+        if dx != 0 or dy != 0:
+            self._nudge_selection_no_snapshot(dx, dy)
+
+        # 約30ms後に再実行
+        self.after(30, self._movement_loop)
+
+    def _nudge_selection_no_snapshot(self, dx, dy):
+        """nudge_selectionから _snapshot() を除いた軽量版"""
+        if not self.selected_items:
+            return
+
+        ldx = dx / self.current_scale
+        ldy = dy / self.current_scale
+
+        for type_, key in self.selected_items:
+            # ノート
+            if type_ == "note":
+                info = self.notes_on_canvas[key]
+                self.canvas.move(info["ids"][0], dx, dy)
+                self.canvas.move(info["ids"][1], dx, dy)
+                info["x"] += ldx
+                info["y"] += ldy
+                hid = self.canvas.find_withtag(f"handle_note_{key}")
+                if hid:
+                    self.canvas.move(hid, dx, dy)
+                self.update_connections(type_, key)
+
+            # 付箋
+            elif type_ == "sticky":
+                s = next((x for x in self.stickies_on_canvas if x["uid"] == key), None)
+                if s:
+                    self.canvas.move(s["ids"][0], dx, dy)
+                    self.canvas.move(s["ids"][1], dx, dy)
+                    self.canvas.move(s["shadow_id"], dx, dy)
+                    s["x"] += ldx
+                    s["y"] += ldy
+                    hid = self.canvas.find_withtag(f"handle_sticky_{key}")
+                    if hid:
+                        self.canvas.move(hid, dx, dy)
+                    self.update_connections(type_, key)
+
+            # 図形
+            elif type_ == "shape":
+                s = next((x for x in self.shapes_on_canvas if x["uid"] == key), None)
+                if s:
+                    self.canvas.move(s["id"], dx, dy)
+                    if s["type"] == "rect":
+                        s["x"] += ldx
+                        s["y"] += ldy
+                        hid = self.canvas.find_withtag(f"handle_shape_{key}")
+                        if hid:
+                            self.canvas.move(hid, dx, dy)
+                    elif s["type"] == "line":
+                        s["x1"] += ldx
+                        s["y1"] += ldy
+                        s["x2"] += ldx
+                        s["y2"] += ldy
 
     # --- 描画関連 ---
     def _draw_grid(self, width, height, step=50):
