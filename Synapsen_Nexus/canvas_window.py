@@ -700,6 +700,21 @@ class CanvasWindow(BaseSubWindow):
         self.bind("l", lambda e: self.set_mode("line", "線 (Path)"))
         self.bind("L", lambda e: self.set_mode("line", "線 (Path)"))
 
+        # --- ズーム操作 ---
+        # Ctrl + + : ズームイン
+        # (JISキーボードの「;」キーやテンキー、US配列の「=」キーなど複数のパターンに対応)
+        self.bind("<Control-plus>", lambda e: self.zoom(1.1))
+        self.bind("<Control-semicolon>", lambda e: self.zoom(1.1))
+        self.bind("<Control-equal>", lambda e: self.zoom(1.1))
+        self.bind("<Control-KP_Add>", lambda e: self.zoom(1.1))
+
+        # Ctrl + - : ズームアウト
+        self.bind("<Control-minus>", lambda e: self.zoom(0.9))
+        self.bind("<Control-KP_Subtract>", lambda e: self.zoom(0.9))
+
+        # Ctrl + 0 : ズームリセット (フィット表示)
+        self.bind("<Control-0>", lambda e: self.reset_view())
+
         # --- アクション ---
         # N: ノート追加 (Nexusで選択中のノートを追加)
         self.bind("n", lambda e: self.add_selected_notes())
