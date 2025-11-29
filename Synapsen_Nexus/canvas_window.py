@@ -343,11 +343,18 @@ L : 線 (Line) モード
 
 [アクション]
 N : 選択中のノートを追加
+Ctrl + A : すべて選択
+Backspace / Delete : 選択したアイテムを削除
 Ctrl + S : 保存
 Ctrl + Z : 元に戻す (Undo)
 Ctrl + Y : やり直し (Redo)
 Ctrl + W : 閉じる (Nexusへ戻る)
 Esc : 選択解除 / ツールリセット
+
+[表示操作]
+Ctrl + + : ズームイン
+Ctrl + - : ズームアウト
+Ctrl + 0 : ズームリセット (全体表示)
 
 [付箋ウィンドウ内]
 Ctrl + Enter : 確定 (保存して閉じる)
