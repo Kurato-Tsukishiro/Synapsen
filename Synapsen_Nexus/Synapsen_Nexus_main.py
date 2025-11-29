@@ -25,6 +25,7 @@ from utils import (
     get_pdf_page_image,
 )
 from search_parser import parse_or_expression
+from list_navigator import ListNavigatorMixin
 
 from preview_window import NotePreviewWindow
 from editor_window import NoteEditorWindow
@@ -66,7 +67,7 @@ except ImportError:
 # ==============================================================================
 
 
-class Synapsen_Nexus(ctk.CTk):
+class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     """
     デジタル・ツェッテルカステン風ノート管理アプリ「Synapsen Nexus」のメインアプリケーションクラス。
 
@@ -109,6 +110,8 @@ class Synapsen_Nexus(ctk.CTk):
         )
 
         self.selected_keys = set()  # 選択されたノートのKeyを保持するセット
+
+        self.setup_navigation_variables()  # Mixinの初期化メソッドを呼びだす
 
         self._current_search_id = 0  # 検索リクエストのID
         self._search_lock = threading.Lock()
@@ -428,6 +431,9 @@ class Synapsen_Nexus(ctk.CTk):
         # Ctrl+F: 検索バーへフォーカス (Find)
         self.bind("<Control-f>", self._focus_search)
         self.bind("<Control-F>", self._focus_search)
+
+        # --- 3. リスト操作用ショートカット ---
+        self.setup_navigation_shortcuts()
 
     def _handle_escape(self, event):
         """
@@ -917,8 +923,8 @@ class Synapsen_Nexus(ctk.CTk):
     def handle_keyrelease(self, event):
         """検索バーでのキー入力（リリース）イベントを処理する。"""
 
-        # ナビゲーションキーのリスト
-        navigation_keys = (
+        # 1. 無視すべきキー（ナビゲーション、修飾キー、ファンクションキー等）
+        ignored_keys = (
             "Return",
             "Escape",
             "Left",
@@ -927,9 +933,53 @@ class Synapsen_Nexus(ctk.CTk):
             "Right",
             "Home",
             "End",
+            "Prior",
+            "Next",
+            "Control_L",
+            "Control_R",
+            "Shift_L",
+            "Shift_R",
+            "Alt_L",
+            "Alt_R",
+            "Caps_Lock",
+            "Tab",
+            "ISO_Left_Tab",
+            "F1",
+            "F2",
+            "F3",
+            "F4",
+            "F5",
+            "F6",
+            "F7",
+            "F8",
+            "F9",
+            "F10",
+            "F11",
+            "F12",
+            # 半角/全角
+            "Zenkaku_Hankaku",
+            "Kanji",
+            # 無変換、変換
+            "Muhenkan",
+            "Henkan",
+            # ひらがな、カタカナ
+            "Hiragana",
+            "Katakana",
+            "Hiragana_Katakana",
+            # 英数
+            "Eisu_toggle",
+            "Alphanumeric",
         )
 
-        if event.keysym in navigation_keys:
+        if event.keysym in ignored_keys:
+            return
+
+        # 2. ショートカット操作（Ctrl+F, Ctrl+Aなど）を無視する
+        # event.state のビットマスクで Ctrl(4) または Alt(8 or 131072) が押されているか判定
+        is_ctrl = (event.state & 0x0004) != 0
+        is_alt = (event.state & 0x0008) != 0 or (event.state & 0x20000) != 0
+
+        if is_ctrl or is_alt:
             return
 
         # 上記以外のキー (文字入力、Delete, BackSpaceなど) の場合のみ
@@ -1592,6 +1642,22 @@ class Synapsen_Nexus(ctk.CTk):
             # 4. 詳細表示メソッドを呼び出す
             self.show_details(random_note_row)
 
+            # --- リスト上のカーソル移動 ---
+            # 選ばれたノートのキーを取得
+            target_key = random_note_row.get("key")
+
+            # 現在表示中のリストウィジェットから、該当するキーを持つインデックスを探す
+            target_index = -1
+            if self.list_item_widgets:
+                for i, item in enumerate(self.list_item_widgets):
+                    if item["key"] == target_key:
+                        target_index = i
+                        break
+
+            # 見つかった場合、カーソルを移動させる（ハイライト＆スクロール）
+            if target_index != -1:
+                self._set_list_cursor(target_index)
+
         except Exception as e:
             logger.error(f"ランダムノートの表示中にエラー: {e}")
             messagebox.showerror(
@@ -1655,13 +1721,18 @@ class Synapsen_Nexus(ctk.CTk):
         for widget in self.results_list.winfo_children():
             widget.destroy()
 
+        self.list_item_widgets = []  # 参照リストをリセット
+        self.list_cursor_index = -1  # カーソルリセット
+        self.list_anchor_index = -1  # アンカーのリセット
+
         self.results_list.configure(label_text=f"検索結果 ({len(df_to_show)}件)")
 
         for index, row in df_to_show.iterrows():
+            # 行フレームの作成
             item_frame = ctk.CTkFrame(self.results_list, fg_color="transparent")
             item_frame.pack(fill="x", padx=5, pady=2)
 
-            # チェックボックス ---
+            # --- チェックボックス ---
             note_key = row.get("key")
             is_selected = note_key in self.selected_keys
 
@@ -1695,15 +1766,26 @@ class Synapsen_Nexus(ctk.CTk):
             text_label = ctk.CTkLabel(item_frame, text=display_text, anchor="w")
             text_label.pack(side="left", fill="x", expand=True)
 
+            # --- ウィジェットリストへの保存 ---
+            # 現在のインデックスを保存（クリック時のカーソル更新用）
+            current_widget_index = len(self.list_item_widgets)
+
+            # リストに追加 (フレーム本体, データ行, チェックボックス変数)
+            self.list_item_widgets.append(
+                {"frame": item_frame, "data": row, "chk_var": chk_var, "key": note_key}
+            )
+
             # --- イベントバインド ---
-            def create_show_details_handler(note_row=row):
+            def create_show_details_handler(note_row=row, idx=current_widget_index):
                 def handler(event):
+                    self._set_list_cursor(idx)  # クリックされたらカーソルも移動
                     self.show_details(note_row)
 
                 return handler
 
-            def create_open_pdf_handler(note_row=row):
+            def create_open_pdf_handler(note_row=row, idx=current_widget_index):
                 def handler(event):
+                    self._set_list_cursor(idx)
                     self.open_pdf(note_row)
 
                 return handler
@@ -2651,6 +2733,23 @@ class SearchHelpWindow(ctk.CTkToplevel):
 ■ アプリケーション ショートカット一覧
 ----------------------------------------------------------------------------------------------------
 
+[リスト操作 (キーボード)]
+↑ / ↓ : リスト内を移動
+Home / End : 先頭 / 末尾へ移動
+PageUp / PageDn : ページ送り
+Space : 選択切り替え (チェックボックス ON/OFF)
+Enter : 詳細を表示 (右ペイン更新)
+Shift + Enter : ノートのPDFを開く
+Shift + 移動 : 範囲選択 (標準)
+Ctrl + Shift + 移動 : 範囲選択 (追加モード)
+
+[リスト操作 (コマンド)]
+Ctrl + A : すべて選択
+Ctrl + D : 選択解除
+Alt + S  : ソート順切り替え (昇順/降順)
+Ctrl + E : 選択中のノートを編集
+Ctrl + Enter : 選択中のノートをCanvasへ送る
+
 [画面表示・遷移]
 R : 閃き (ランダムノート表示)
 C : キャンバスを開く
@@ -2659,13 +2758,6 @@ G : 全体グラフ (Global) を表示
 L : 関連グラフ (Local) を表示
 F5 : データベース再読み込み
 Ctrl + B : フィルターパネルの開閉
-
-[リスト操作・選択]
-Ctrl + A : すべて選択
-Ctrl + D : 選択解除
-Alt + S  : ソート順切り替え (昇順/降順)
-Ctrl + E : 選択中のノートを編集
-Ctrl + Enter : 選択中のノートをCanvasへ送る
 
 [検索・入力]
 Ctrl + F : 検索バーへフォーカス (全選択)
