@@ -674,8 +674,6 @@ class CanvasWindow(BaseSubWindow):
         self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
         self.canvas.bind("<Control-MouseWheel>", self._on_zoom_wheel)
 
-        self.bind("<Delete>", self.delete_selected_items)
-
     def _setup_shortcuts(self):
         """キャンバス操作用のキーボードショートカットを設定"""
 
@@ -730,6 +728,10 @@ class CanvasWindow(BaseSubWindow):
 
         # Esc: キャンセル / 選択モードへ復帰
         self.bind("<Escape>", self._handle_escape)
+
+        # Deleate: 選択削除
+        self.bind("<Delete>", self.delete_selected_items)
+        self.bind("<BackSpace>", self.delete_selected_items)  # エイリアス
 
     def _setup_undo_shortcuts(self):
         """Undo/Redoのショートカットを設定"""
