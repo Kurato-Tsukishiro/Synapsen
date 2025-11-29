@@ -32,6 +32,11 @@ from pypdf import PdfReader, PdfWriter          # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
 from logging_setup import setup_logging  # noqa: E402
 
+# ==============================================================================
+# 定数定義
+# ==============================================================================
+# 現在のDBのスキーマバージョン
+CURRET_SCHEMA_VERSION = 1.1
 
 # ==============================================================================
 # ロギング設定の初期化
@@ -331,6 +336,12 @@ class Synapsen_Ersteller(ctk.CTk):
         self.latex_title_prefix = config.get(
             "LaTeX", "title_prefix", fallback="月刊 統合ノート"
         )
+        try:
+            self.max_pages_per_volume = config.getint("LaTeX", "max_pages", fallback=0)
+        except ValueError:
+            self.max_pages_per_volume = 0
+
+        logger.debug(f"Max pages per volume: {self.max_pages_per_volume}")
         self.commonplace_key_options = [
             opt.strip()
             for opt in config.get("CommonplaceKeys", "options", fallback="").split(",")
@@ -827,7 +838,9 @@ class Synapsen_Ersteller(ctk.CTk):
                 # --- イベントバインド ---
 
                 # 1. 左クリック (編集ウィンドウを開く)
-                edit_command = lambda e, note=note_data: self.open_data_editor(note)  # noqa: E501,E731
+                def edit_command(e, note=note_data):
+                    self.open_data_editor(note)
+
                 row_frame.bind("<Button-1>", edit_command)  # フレーム全体
                 text_label.bind("<Button-1>", edit_command)
                 if icon_label:
@@ -916,6 +929,7 @@ class Synapsen_Ersteller(ctk.CTk):
             self.label.configure(text="PDF生成対象のデータがありません。")
             return
 
+        # 1. 本文テキスト(full_text)の抽出 (全ノート対象)
         self.label.configure(text="PDFから本文(full_text)を抽出中...")
         self.update_idletasks()
 
@@ -934,358 +948,399 @@ class Synapsen_Ersteller(ctk.CTk):
                     except Exception as e:
                         logger.warning(f"{pdf_path.name} のfull_text抽出に失敗: {e}")
                 else:
-                    logger.warning(
-                        f"警告: {note.get('title')} のファイルパスが見つかりません"
-                        + "（full_text取得不可）。"
-                    )
+                    # ファイルが見つからない場合は処理対象から除外せず、ページ数0として扱う
+                    # (pdf_processor側で warning フラグが立っているはず)
+                    pass
 
         if missing_text_count > 0:
             logger.info(
-                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした"
-                + "（画像のみのPDFの可能性）。"
+                f"情報: {missing_text_count} 件のPDFからは本文を抽出できませんでした。"
             )
 
-        self.label.configure(
-            text="PDF生成中... しばらくお待ちください。"
-        )  # 元のラベルに戻す
+        self.label.configure(text="PDF生成設定を確認中...")
         self.update_idletasks()
 
+        # 2. 日付と保存先の入力
         dialog = Dialogs.DateInputDialog(self)
         date_input = dialog.get_input()
         if not date_input:
             return
         year, month = date_input
-        pdf_title = f"{self.latex_title_prefix} ({year}年 {month}月)"
 
-        save_filepath = tkinter.filedialog.asksaveasfilename(
+        # ベースとなるタイトルの決定
+        base_pdf_title = f"{self.latex_title_prefix} ({year}年 {month}月)"
+
+        # 保存先ダイアログ (ベースファイル名)
+        save_filepath_str = tkinter.filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDFファイル", "*.pdf")],
-            title="統合PDFの保存先を選択",
+            title="統合PDFの保存先を選択 (分割時は連番が付与されます)",
             initialfile=f"統合ノート_{year}_{month:02d}.pdf",
         )
-        if not save_filepath:
+        if not save_filepath_str:
             return
 
-        self.label.configure(text="PDF生成中... しばらくお待ちください。")
-        self.update_idletasks()
+        base_save_path = Path(save_filepath_str)
 
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # LaTeX生成に必要な設定情報を辞書にまとめる
-            latex_config = {
-                "latex_font": self.latex_font,
-                "latex_author": self.latex_author,
-                "key_icons": self.key_icons,
-                "key_colors": self.key_colors,
-            }
-            # 新しいモジュールの関数を呼び出す
-            latex_source = Generator.create_latex_source(
-                self.all_notes_info, latex_config, pdf_title, self.paper_size
+        # 3. ノートの分割 (巻分け)
+        volumes = self._split_notes_into_volumes(
+            self.all_notes_info, self.max_pages_per_volume
+        )
+        total_volumes = len(volumes)
+
+        if total_volumes > 1:
+            msg = (
+                f"指定されたページ制限 ({self.max_pages_per_volume} p) に基づき、"
+                f"全体を {total_volumes} 冊に分割して生成します。"
             )
+            logger.info(msg)
+            messagebox.showinfo("分割生成", msg)
 
-            tex_filepath = Path(temp_dir) / "mokuji.tex"
-            with open(tex_filepath, "w", encoding="utf-8") as f:
-                f.write(latex_source)
+        # ======================================================================
+        # 各巻ごとのループ処理
+        # ======================================================================
+        for vol_idx, notes_in_volume in enumerate(volumes):
+            current_vol_num = vol_idx + 1
 
-            self.label.configure(text="PDF生成中... (1/3) ページ構成を計算中")
-            self.update_idletasks()
-
-            for i in range(3):
-                process = subprocess.run(
-                    [
-                        "lualatex",
-                        "--shell-escape",
-                        "-interaction=nonstopmode",
-                        "mokuji.tex",
-                    ],
-                    cwd=temp_dir,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="ignore",
-                )
-                if "Output written on" not in process.stdout:
-                    logger.error(f"--- LaTeX Compilation Error (Pass {i+1}) ---")
-                    logger.error(process.stdout)
-                    logger.error(process.stderr)
-                    messagebox.showerror(
-                        "LaTeX エラー",
-                        f"PDFのコンパイルに失敗しました。(Pass {i+1})\n詳細はターミナルを確認してください。",
-                    )
-                    return
-
-            draft_pdf_path = Path(temp_dir) / "mokuji.pdf"
-            if not draft_pdf_path.is_file():
-                messagebox.showerror(
-                    "エラー", "LaTeXによる設計図PDFの生成に失敗しました。"
-                )
-                return
-
-            self.label.configure(text="PDF生成中... (2/3) ノートを結合中")
-            self.update_idletasks()
-
-            draft_reader = PdfReader(draft_pdf_path)
-            final_writer = PdfWriter()
-
-            note_content_start_page = -1
-
-            first_note = self.all_notes_info[0]
-            d = first_note["date"]
-            date_formatted = (
-                f"{d[0:4]}/{d[4:6]}/{d[6:8]}" if d.isdigit() and len(d) == 8 else d
-            )
-            title_in_outline = first_note["title"].replace("_", " ")
-
-            expected_outline_title = f"{date_formatted} – {title_in_outline}"
-
-            def find_title_in_outline(outline_items, target_title):
-                for item in outline_items:
-                    if isinstance(item, list):
-                        result = find_title_in_outline(item, target_title)
-                        if result:
-                            return result
-                    elif (
-                        hasattr(item, "title")
-                        and item.title.strip() == target_title.strip()
-                    ):
-                        return item
-                return None
-
-            destination = find_title_in_outline(
-                draft_reader.outline, expected_outline_title
-            )
-
-            # 本文の開始ページを取得
-            if destination:
-                note_content_start_page = draft_reader.get_destination_page_number(
-                    destination
+            # --- タイトルとファイル名の決定 ---
+            if total_volumes > 1:
+                # 複数巻の場合: "タイトル Vol.1", ファイル名 "_Vol1.pdf"
+                current_pdf_title = f"{base_pdf_title} Vol.{current_vol_num}"
+                stem = base_save_path.stem
+                # ユーザーが指定したファイル名に _VolX を付与
+                current_save_path = base_save_path.with_name(
+                    f"{stem}_Vol{current_vol_num}{base_save_path.suffix}"
                 )
             else:
-                messagebox.showerror(
-                    "エラー",
-                    f"設計図PDFの目次（しおり）から最初のノートの開始ページを見つけられませんでした。\n\n"
-                    f"検索したタイトル:\n'{expected_outline_title}'\n\n"
-                    "CSVやファイル名に特殊文字が含まれていないか確認してください。",
+                # 1冊のみの場合: そのまま
+                current_pdf_title = base_pdf_title
+                current_save_path = base_save_path
+
+            self.label.configure(
+                text=f"[{current_vol_num}/{total_volumes}冊目] PDF生成中..."
+            )
+            self.update_idletasks()
+
+            # --- 一時ディレクトリの作成 (巻ごとに作成・削除) ---
+            temp_dir = tempfile.mkdtemp()
+            try:
+                # --- A. LaTeXソース生成 ---
+                latex_config = {
+                    "latex_font": self.latex_font,
+                    "latex_author": self.latex_author,
+                    "key_icons": self.key_icons,
+                    "key_colors": self.key_colors,
+                }
+
+                # notes_in_volume (この巻のノートだけ) を渡す
+                latex_source = Generator.create_latex_source(
+                    notes_in_volume, latex_config, current_pdf_title, self.paper_size
                 )
-                logger.error("--- PDF Outline Search Debug ---")
-                logger.error(f"Searching for: '{expected_outline_title}'")
-                logger.error("Available outline items:")
 
-                def print_outline(items, indent=0):
-                    for item in items:
-                        if isinstance(item, list):
-                            print_outline(item, indent + 1)
-                        elif hasattr(item, "title"):
-                            logger.info("  " * indent + f"- '{item.title}'")
+                tex_filepath = Path(temp_dir) / "mokuji.tex"
+                with open(tex_filepath, "w", encoding="utf-8") as f:
+                    f.write(latex_source)
 
-                print_outline(draft_reader.outline)
-                return
+                # --- B. LaTeXコンパイル ---
+                self.label.configure(
+                    text=f"[{current_vol_num}/{total_volumes}] ページ構成を計算中..."
+                )
+                self.update_idletasks()
 
-            index_start_page = -1
-            # 「Index Key 索引」を検索して 索引の開始ページとして取得する
-            for i in range(len(draft_reader.pages) - 1, -1, -1):
-                page_text = draft_reader.pages[i].extract_text()
-                if page_text and "Index Key 索引" in page_text:
-                    index_start_page = i
-                    break
+                compile_success = False
+                for i in range(3):
+                    process = subprocess.run(
+                        [
+                            "lualatex",
+                            "--shell-escape",
+                            "-interaction=nonstopmode",
+                            "mokuji.tex",
+                        ],
+                        cwd=temp_dir,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="ignore",
+                    )
+                    if "Output written on" in process.stdout:
+                        compile_success = True
 
-            if index_start_page == -1:
-                # フォールバックとして「タグ索引」も探す
+                    # 最後のパスで失敗していたらエラー扱い
+                    if i == 2 and not compile_success:
+                        logger.error(
+                            f"--- LaTeX Compilation Error (Vol {current_vol_num}) ---"
+                        )
+                        logger.error(process.stdout)
+                        messagebox.showerror(
+                            "LaTeX エラー",
+                            f"{current_vol_num}冊目の生成に失敗しました。\n処理を中断します。",
+                        )
+                        return
+
+                draft_pdf_path = Path(temp_dir) / "mokuji.pdf"
+                if not draft_pdf_path.is_file():
+                    messagebox.showerror("エラー", "設計図PDFの生成に失敗しました。")
+                    return
+
+                # --- C. PDF結合処理 ---
+                self.label.configure(
+                    text=f"[{current_vol_num}/{total_volumes}] ノートを結合中..."
+                )
+                self.update_idletasks()
+
+                draft_reader = PdfReader(draft_pdf_path)
+                final_writer = PdfWriter()
+
+                # --- 本文開始ページの特定ロジック ---
+                note_content_start_page = -1
+                if notes_in_volume:
+                    first_note = notes_in_volume[0]
+                    d = first_note["date"]
+                    date_formatted = (
+                        f"{d[0:4]}/{d[4:6]}/{d[6:8]}"
+                        if d.isdigit() and len(d) == 8
+                        else d
+                    )
+
+                    # 比較用の正規化関数 (空白除去 & 記号統一)
+                    def normalize_string(s):
+                        if not s:
+                            return ""
+                        # 1. アンダースコアを削除 (LaTeX変換でスペースになる等の揺れを吸収)
+                        s = s.replace("_", "")
+                        # 2. ダッシュ系を統一 (LaTeXの '--' が PDFで '–' になる問題対策)
+                        s = s.replace("–", "").replace("-", "").replace("−", "")
+                        # 3. 全ての空白文字(スペース、タブ、改行)を除去
+                        return "".join(s.split())
+
+                    # 検索対象のタイトルを正規化して生成
+                    # (日付 + タイトル本体)
+                    target_key_string = normalize_string(
+                        f"{date_formatted}{first_note['title']}"
+                    )
+
+                    def find_title_in_outline(outline_items):
+                        for item in outline_items:
+                            if isinstance(item, list):
+                                # 子要素がある場合は再帰検索
+                                res = find_title_in_outline(item)
+                                if res:
+                                    return res
+                            elif hasattr(item, "title"):
+                                # PDFのアウトライン項目も同様に正規化して比較
+                                if normalize_string(item.title) == target_key_string:
+                                    return item
+                        return None
+
+                    # 引数なしで呼び出す形に変更
+                    destination = find_title_in_outline(draft_reader.outline)
+
+                    # 本文の開始ページを取得
+                    if destination:
+                        note_content_start_page = (
+                            draft_reader.get_destination_page_number(destination)
+                        )
+                    else:
+                        messagebox.showerror(
+                            "エラー",
+                            f"Vol.{current_vol_num}: 目次から開始ページが見つかりませんでした。\n\n"
+                            f"検索したタイトル:\n`{date_formatted}{first_note['title']}`\n\n",
+                        )
+                        logger.warning(
+                            f"Vol.{current_vol_num}: 目次から開始ページが見つかりませんでした。\n"
+                            f"検索キー(正規化後): {target_key_string}",
+                            extra={"sensitive": True},
+                        )
+
+                if note_content_start_page == -1:
+                    # ノートが無い場合、あるいは特定失敗時
+                    logger.warning(
+                        f"Vol.{current_vol_num}: 本文開始ページを特定できませんでした。"
+                    )
+                    # 安全のため目次ページ全部を入れる等の処置も考えられるが、ここでは中断
+                    # (通常ありえないケース)
+
+                # 索引開始ページの特定
+                index_start_page = -1
+
+                # PDFの末尾から逆順に検索
                 for i in range(len(draft_reader.pages) - 1, -1, -1):
-                    page_text = draft_reader.pages[i].extract_text()
-                    if page_text and "タグ索引" in page_text:
+                    page_text = draft_reader.pages[i].extract_text() or ""
+
+                    # 比較用にテキストを正規化 (空白・改行をすべて削除)
+                    # "Index Key 索引" -> "IndexKey索引" に変換されます
+                    normalized_text = "".join(page_text.split())
+
+                    # 1. Index Key 索引 を優先検索
+                    if "IndexKey索引" in normalized_text:
                         index_start_page = i
                         break
 
-            if index_start_page == -1:
-                messagebox.showerror(
-                    "エラー", "設計図PDFから索引ページを特定できませんでした。"
-                )
-                return
+                # 2. 見つからない場合、タグ索引 を検索 (フォールバック)
+                if index_start_page == -1:
+                    for i in range(len(draft_reader.pages) - 1, -1, -1):
+                        page_text = draft_reader.pages[i].extract_text() or ""
+                        normalized_text = "".join(page_text.split())
 
-            note_total_pages = sum(
-                note["pages"]
-                for note in self.all_notes_info
-                if Path(note.get("filepath", "")).is_file()
-            )
-            if index_start_page - note_content_start_page != note_total_pages:
-                messagebox.showwarning(
-                    "ページ計算の警告",
-                    f"計算されたページ数に矛盾があります。これは通常問題ありませんが、念のためご確認ください。\n\n"
-                    f"本文の開始ページ: {note_content_start_page + 1}\n"
-                    f"索引の開始ページ: {index_start_page + 1}\n"
-                    f"確保されたページ数: {index_start_page - note_content_start_page}\n"
-                    f"ノートの合計ページ数: {note_total_pages}\n\n"
-                    "処理を続行します。",
-                )
+                        if "タグ索引" in normalized_text:
+                            index_start_page = i
+                            break
 
-            for i in range(note_content_start_page):
-                final_writer.add_page(draft_reader.pages[i])
+                # それでも見つからない場合は末尾を設定（エラー回避）
+                if index_start_page == -1:
+                    index_start_page = len(draft_reader.pages)
+                    # 念のためログ出力
+                    logger.warning(
+                        f"Vol.{current_vol_num}: 索引ページが見つかりませんでした (作成されていない可能性があります)。"
+                    )
 
-            updated_notes_info = []
-            note_page_cursor = note_content_start_page
-            for note in self.all_notes_info:
-                note["merged_start_page"] = note_page_cursor + 1
-                note["merged_pdf_filename"] = Path(save_filepath).name
-                updated_notes_info.append(note)
+                # 1. 目次部分を追加
+                for i in range(note_content_start_page):
+                    final_writer.add_page(draft_reader.pages[i])
 
-                if not Path(note.get("filepath", "")).is_file():
-                    continue
+                # 2. ノート本文を追加（オーバーレイ）
+                updated_notes_info = []
+                note_page_cursor = note_content_start_page
 
-                original_reader = PdfReader(note["filepath"])
-                for i in range(len(original_reader.pages)):
-                    if note_page_cursor >= index_start_page:
-                        logger.error(
-                            "ページ数計算エラー:note_page_cursor"
-                            f"({note_page_cursor})が上限({index_start_page})を超えました。"
-                        )
+                for note in notes_in_volume:
+                    # マージ後の情報を記録 (DB登録用)
+                    note["merged_start_page"] = note_page_cursor + 1
+                    note["merged_pdf_filename"] = current_save_path.name
+                    updated_notes_info.append(note)
+
+                    if not Path(note.get("filepath", "")).is_file():
                         continue
 
-                    template_page = draft_reader.pages[note_page_cursor]
-                    content_page = original_reader.pages[i]
-                    template_page.merge_page(content_page)
+                    try:
+                        original_reader = PdfReader(note["filepath"])
+                        for i in range(len(original_reader.pages)):
+                            if note_page_cursor >= index_start_page:
+                                break  # 索引エリアに突入したら停止
 
-                    final_writer.add_page(template_page)
-                    note_page_cursor += 1
+                            template_page = draft_reader.pages[note_page_cursor]
+                            content_page = original_reader.pages[i]
+                            template_page.merge_page(content_page)
 
-            for i in range(index_start_page, len(draft_reader.pages)):
-                final_writer.add_page(draft_reader.pages[i])
+                            final_writer.add_page(template_page)
+                            note_page_cursor += 1
+                    except Exception as e:
+                        logger.error(f"ノート結合エラー ({note.get('title')}): {e}")
 
-            self.label.configure(text="PDF生成中... (3/3) 最終ファイル書き込み")
-            self.update_idletasks()
+                # 3. 索引部分を追加
+                for i in range(index_start_page, len(draft_reader.pages)):
+                    final_writer.add_page(draft_reader.pages[i])
 
-            if draft_reader.outline:
-                self._copy_bookmarks_recursive(
-                    draft_reader.outline, final_writer, draft_reader
-                )
+                # --- D. ブックマーク(しおり)のコピー ---
+                if draft_reader.outline:
+                    self._copy_bookmarks_recursive(
+                        draft_reader.outline, final_writer, draft_reader
+                    )
 
-            # ==================================================================
-            # 復旧用メタデータの埋め込み処理
-            # ==================================================================
-            try:
-                # 1. 埋め込むデータを辞書リストとして準備
-                # (CSVよりも構造が柔軟で復旧しやすい JSON を推奨)
-                metadata_to_embed = []
-                for note in updated_notes_info:
-                    # 必要な情報のみ抽出 (filepathなどは削除済みなので不要だが、念のため除外)
-                    clean_note = {
-                        "key": note.get("key"),
-                        "title": note.get("title"),
-                        "date": note.get("date"),
-                        "time": note.get("time"),
-                        "tags": note.get("tags"),  # リストのまま保存可能
-                        "memo": note.get("memo"),
-                        "commonplace_key": note.get("commonplace_key"),
-                        "pages": note.get("pages"),
-                        "merged_start_page": note.get("merged_start_page"),
-                        "merged_pdf_filename": note.get("merged_pdf_filename"),
-                        "summary": note.get("summary"),
-                        # full_text は pdfから直接取得する為 埋め込まない
+                # --- E. 復旧用メタデータ埋め込み ---
+                try:
+                    metadata_to_embed = []
+                    for note in updated_notes_info:
+                        clean_note = {
+                            "key": note.get("key"),
+                            "title": note.get("title"),
+                            "date": note.get("date"),
+                            "time": note.get("time"),
+                            "tags": note.get("tags"),
+                            "memo": note.get("memo"),
+                            "commonplace_key": note.get("commonplace_key"),
+                            "pages": note.get("pages"),
+                            "merged_start_page": note.get("merged_start_page"),
+                            "merged_pdf_filename": note.get("merged_pdf_filename"),
+                            "summary": note.get("summary"),
+                            # full_text は pdfから直接取得する為 埋め込まない
+                        }
+                        metadata_to_embed.append(clean_note)
+
+                    data_to_save = {
+                        "schema_version": CURRET_SCHEMA_VERSION,
+                        "volume_info": f"{current_vol_num}/{total_volumes}",
+                        "notes_data": metadata_to_embed,
                     }
-                    metadata_to_embed.append(clean_note)
 
-                # 2. スキーマバージョンを含む親辞書を作成
-                data_to_save = {
-                    "schema_version": 1.1,  # 現在のスキーマ
-                    "notes_data": metadata_to_embed,
-                }
+                    json_data = json.dumps(data_to_save, ensure_ascii=False, indent=2)
+                    final_writer.add_attachment(
+                        "synapsen_metadata_backup.json", json_data.encode("utf-8")
+                    )
+                    logger.info(
+                        f"復旧用メタデータ埋め込み完了: (Vol {current_vol_num})"
+                    )
 
-                # 3. JSON文字列に変換 (日本語対応)
-                json_data = json.dumps(data_to_save, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    logger.warning(
+                        f"復旧用メタデータ埋め込み失敗 (Vol {current_vol_num}): {e}"
+                    )
 
-                # 4. バイトデータに変換
-                json_bytes = json_data.encode("utf-8")
+                # --- F. ファイル保存 ---
+                self.label.configure(
+                    text=f"[{current_vol_num}/{total_volumes}] 保存中..."
+                )
+                self.update_idletasks()
 
-                # 5. PDFに添付ファイルとして追加
-                # ファイル名: "synapsen_metadata_backup.json"
-                final_writer.add_attachment("synapsen_metadata_backup.json", json_bytes)
+                with open(current_save_path, "wb") as f:
+                    final_writer.write(f)
 
-                logger.info("復旧用メタデータをPDFに埋め込みました。")
-
-            except Exception as e:
-                logger.warning(f"メタデータの埋め込みに失敗しました: {e}")
-                # 埋め込みに失敗してもPDF生成自体は止めない
-            # ==================================================================
-
-            # ファイル保存
-            with open(save_filepath, "wb") as f:
-                final_writer.write(f)
-
-            # --- 保存処理とメッセージング ---
-            db_saved = False
-            csv_saved = False
-            db_name = (
-                os.path.basename(self.default_db_path) if self.default_db_path else ""
-            )
-            csv_name = Path(save_filepath).with_suffix(".csv").name
-            pdf_name = os.path.basename(save_filepath)
-
-            try:
-                # --- A. マスターDBへの自動追記 ---
+                # --- G. DB / CSV 保存 ---
                 if self.auto_append_db and self.default_db_path:
                     self.append_to_master_db(updated_notes_info)
-                    db_saved = True
 
-                # --- B. 個別CSVのエクスポート ---
                 if self.create_individual_csv:
-                    self.save_merged_index_csv(updated_notes_info, save_filepath)
-                    csv_saved = True
-
-                # --- C. 成功メッセージの生成 ---
-                if db_saved and csv_saved:
-                    msg = (
-                        f"統合PDFの生成が完了しました。\n"
-                        f"PDF: {pdf_name}\n\n"
-                        f"目次情報はマスターDB ({db_name}) に追記され、\n"
-                        f"リストCSV ({csv_name}) としても保存されました。"
-                    )
-                    self.label.configure(
-                        text="成功！ 統合PDFを生成し、DBと個別CSVに保存しました。"
-                    )
-
-                elif db_saved:
-                    msg = (
-                        f"統合PDFの生成が完了しました。\n"
-                        f"PDF: {pdf_name}\n\n"
-                        f"目次情報は {db_name} に自動追記されました。"
-                    )
-                    self.label.configure(
-                        text="成功！ 統合PDFを生成し、マスターDBに追記しました。"
-                    )
-
-                elif csv_saved:
-                    msg = (
-                        f"統合PDFの生成が完了しました。\n"
-                        f"PDF: {pdf_name}\n\n"
-                        f"リストCSV ({csv_name}) として保存されました。\n"
-                        f"（マスターDBへの自動追記は無効です）"
-                    )
-                    self.label.configure(
-                        text="成功！ 統合PDFと専用目次CSVを生成しました。"
-                    )
-
-                else:
-                    # どちらもOFFの場合
-                    msg = (
-                        f"統合PDFの生成が完了しました。\n"
-                        f"PDF: {pdf_name}\n\n"
-                        f"（マスターDBへの追記、リストCSVの保存は両方無効です）"
-                    )
-                    self.label.configure(
-                        text="成功！ 統合PDFを生成しました（保存なし）。"
-                    )
-
-                messagebox.showinfo("成功", msg)
+                    self.save_merged_index_csv(updated_notes_info, current_save_path)
 
             except Exception as e:
+                logger.error(f"Fatal error in Vol {current_vol_num}: {e}")
                 messagebox.showerror(
-                    "保存エラー",
-                    f"統合PDFの生成には成功しましたが、保存処理中にエラーが発生しました:\n{e}",
+                    "エラー",
+                    f"{current_vol_num}冊目の処理中にエラーが発生しました:\n{e}",
                 )
-                self.label.configure(text="エラー: 保存処理中に失敗しました。")
+                return  # 中断
+            finally:
+                shutil.rmtree(temp_dir)
 
-        finally:
-            shutil.rmtree(temp_dir)
+        # 全ループ終了
+        self.label.configure(text="全てのPDF生成と保存が完了しました。")
+        messagebox.showinfo(
+            "完了", f"合計 {total_volumes} 冊のPDFを作成・保存しました。"
+        )
+
+    def _split_notes_into_volumes(self, all_notes, max_pages):
+        """
+        ノートリストを最大ページ数に基づいて分割するヘルパーメソッド。
+        max_pages が 0 以下の場合は分割せずそのまま返す。
+        """
+        if max_pages <= 0:
+            return [all_notes]
+
+        volumes = []
+        current_volume = []
+        current_pages = 0
+
+        # 目次や索引のために、安全マージンとして少しページ数を差し引いて計算しても良いですが、
+        # ここでは単純にノートの合計ページ数で判定します。
+
+        for note in all_notes:
+            # 実際のファイルが存在しない場合などはページ数0として扱う
+            p = note.get("pages", 0)
+
+            # 「現在のページ数 + このノートのページ数」が上限を超える場合、かつ
+            # 「現在の巻に既にノートが入っている」場合（1つのノートだけで上限超えなら単独で入れる）
+            if current_volume and (current_pages + p > max_pages):
+                volumes.append(current_volume)
+                current_volume = []
+                current_pages = 0
+
+            current_volume.append(note)
+            current_pages += p
+
+        # 最後の巻を追加
+        if current_volume:
+            volumes.append(current_volume)
+
+        return volumes
 
     def sync_with_folder(self):
         if not self.all_notes_info:
