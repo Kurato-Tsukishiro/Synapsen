@@ -343,11 +343,18 @@ L : 線 (Line) モード
 
 [アクション]
 N : 選択中のノートを追加
+Ctrl + A : すべて選択
+Backspace / Delete : 選択したアイテムを削除
 Ctrl + S : 保存
 Ctrl + Z : 元に戻す (Undo)
 Ctrl + Y : やり直し (Redo)
 Ctrl + W : 閉じる (Nexusへ戻る)
 Esc : 選択解除 / ツールリセット
+
+[表示操作]
+Ctrl + + : ズームイン
+Ctrl + - : ズームアウト
+Ctrl + 0 : ズームリセット (全体表示)
 
 [付箋ウィンドウ内]
 Ctrl + Enter : 確定 (保存して閉じる)
@@ -674,8 +681,6 @@ class CanvasWindow(BaseSubWindow):
         self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
         self.canvas.bind("<Control-MouseWheel>", self._on_zoom_wheel)
 
-        self.bind("<Delete>", self.delete_selected_items)
-
     def _setup_shortcuts(self):
         """キャンバス操作用のキーボードショートカットを設定"""
 
@@ -700,6 +705,21 @@ class CanvasWindow(BaseSubWindow):
         self.bind("l", lambda e: self.set_mode("line", "線 (Path)"))
         self.bind("L", lambda e: self.set_mode("line", "線 (Path)"))
 
+        # --- ズーム操作 ---
+        # Ctrl + + : ズームイン
+        # (JISキーボードの「;」キーやテンキー、US配列の「=」キーなど複数のパターンに対応)
+        self.bind("<Control-plus>", lambda e: self.zoom(1.1))
+        self.bind("<Control-semicolon>", lambda e: self.zoom(1.1))
+        self.bind("<Control-equal>", lambda e: self.zoom(1.1))
+        self.bind("<Control-KP_Add>", lambda e: self.zoom(1.1))
+
+        # Ctrl + - : ズームアウト
+        self.bind("<Control-minus>", lambda e: self.zoom(0.9))
+        self.bind("<Control-KP_Subtract>", lambda e: self.zoom(0.9))
+
+        # Ctrl + 0 : ズームリセット (フィット表示)
+        self.bind("<Control-0>", lambda e: self.reset_view())
+
         # --- アクション ---
         # N: ノート追加 (Nexusで選択中のノートを追加)
         self.bind("n", lambda e: self.add_selected_notes())
@@ -713,8 +733,16 @@ class CanvasWindow(BaseSubWindow):
         self.bind("<Control-w>", lambda e: self.on_close())
         self.bind("<Control-W>", lambda e: self.on_close())
 
+        # Ctrl + A : すべて選択
+        self.bind("<Control-a>", lambda e: self.select_all_items())
+        self.bind("<Control-A>", lambda e: self.select_all_items())
+
         # Esc: キャンセル / 選択モードへ復帰
         self.bind("<Escape>", self._handle_escape)
+
+        # Deleate: 選択削除
+        self.bind("<Delete>", self.delete_selected_items)
+        self.bind("<BackSpace>", self.delete_selected_items)  # エイリアス
 
     def _setup_undo_shortcuts(self):
         """Undo/Redoのショートカットを設定"""
@@ -725,6 +753,24 @@ class CanvasWindow(BaseSubWindow):
         # Shift+Z も Redo として扱う (一般的な挙動)
         self.bind("<Control-Shift-z>", self.redo)
         self.bind("<Control-Shift-Z>", self.redo)
+
+    def select_all_items(self):
+        """キャンバス上のすべてのアイテムを選択状態にする"""
+        self._clear_selection()
+
+        # ノートを選択
+        for key in self.notes_on_canvas:
+            self.selected_items.add(("note", key))
+
+        # 付箋を選択
+        for s in self.stickies_on_canvas:
+            self.selected_items.add(("sticky", s["uid"]))
+
+        # 図形を選択
+        for s in self.shapes_on_canvas:
+            self.selected_items.add(("shape", s["uid"]))
+
+        self._update_selection_visuals()
 
     def _handle_escape(self, event):
         """
