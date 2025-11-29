@@ -2816,6 +2816,7 @@ class CanvasWindow(BaseSubWindow):
     def clear_canvas(self):
         if messagebox.askyesno("確認", "キャンバスをクリアしますか？", parent=self):
             self.clear_canvas_items()
+            self.center_view()
             self.save_canvas()
 
     def clear_canvas_items(self, reset_view=True):
