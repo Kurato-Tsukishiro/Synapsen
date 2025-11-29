@@ -726,6 +726,10 @@ class CanvasWindow(BaseSubWindow):
         self.bind("<Control-w>", lambda e: self.on_close())
         self.bind("<Control-W>", lambda e: self.on_close())
 
+        # Ctrl + A : すべて選択
+        self.bind("<Control-a>", lambda e: self.select_all_items())
+        self.bind("<Control-A>", lambda e: self.select_all_items())
+
         # Esc: キャンセル / 選択モードへ復帰
         self.bind("<Escape>", self._handle_escape)
 
@@ -742,6 +746,24 @@ class CanvasWindow(BaseSubWindow):
         # Shift+Z も Redo として扱う (一般的な挙動)
         self.bind("<Control-Shift-z>", self.redo)
         self.bind("<Control-Shift-Z>", self.redo)
+
+    def select_all_items(self):
+        """キャンバス上のすべてのアイテムを選択状態にする"""
+        self._clear_selection()
+
+        # ノートを選択
+        for key in self.notes_on_canvas:
+            self.selected_items.add(("note", key))
+
+        # 付箋を選択
+        for s in self.stickies_on_canvas:
+            self.selected_items.add(("sticky", s["uid"]))
+
+        # 図形を選択
+        for s in self.shapes_on_canvas:
+            self.selected_items.add(("shape", s["uid"]))
+
+        self._update_selection_visuals()
 
     def _handle_escape(self, event):
         """
