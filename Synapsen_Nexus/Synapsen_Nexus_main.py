@@ -9,6 +9,7 @@ import re
 import sys
 import datetime
 import sqlite3
+import queue
 
 # 分割したモジュールをインポート
 import logging
@@ -81,8 +82,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Nexus")
 
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=2)
+        self.grid_columnconfigure(0, weight=3)  # 左パネル
+        self.grid_columnconfigure(1, weight=2)  # 右パネル
         self.grid_rowconfigure(1, weight=1)
 
         # --- アプリケーションの状態変数 ---
@@ -103,7 +104,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.commonplace_keys_options = []  # IndexKeyの全オプション
 
         self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
-        self.filter_panel_expanded = False  # フィルターパネルが開いているか
+        self.filter_panel_expanded = False  # 左フィルターパネルが開いているか
+        self.details_panel_expanded = True  # 右詳細パネルが開いているか (初期表示)
 
         self.sort_ascending = (
             True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
@@ -115,6 +117,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         self._current_search_id = 0  # 検索リクエストのID
         self._search_lock = threading.Lock()
+
+        # スレッド間通信用のキュー
+        self._search_result_queue = queue.Queue()
 
         self.filtered_df_cache = pd.DataFrame()
         self.current_selected_row = None
@@ -156,6 +161,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # ウィンドウを閉じるときのイベントをフック
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # 検索結果監視ループを開始
+        self._poll_search_result()
 
     def on_map(self, event):
         """
@@ -403,12 +411,22 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # F5: 再読み込み (Reload)
         self.bind("<F5>", lambda e: self._handle_shortcut(self._reload_db))
 
-        # Ctrl+B: サイドバー(フィルター)の切り替え (Bar)
+        # Ctrl+Shift+B: 左サイドバー(フィルター)の切り替え
         self.bind(
-            "<Control-b>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+            "<Control-Shift-b>",
+            lambda e: self._handle_shortcut(self.toggle_filter_panel),
         )
         self.bind(
-            "<Control-B>", lambda e: self._handle_shortcut(self.toggle_filter_panel)
+            "<Control-Shift-B>",
+            lambda e: self._handle_shortcut(self.toggle_filter_panel),
+        )
+
+        # Ctrl+B: 右サイドバー(詳細パネル)の切り替え
+        self.bind(
+            "<Control-b>", lambda e: self._handle_shortcut(self.toggle_details_panel)
+        )
+        self.bind(
+            "<Control-B>", lambda e: self._handle_shortcut(self.toggle_details_panel)
         )
 
         # Ctrl+A: すべて選択
@@ -704,6 +722,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         )
         self.canvas_button.pack(side="left", padx=0)
 
+        # 詳細パネルトグルボタン
+        self.toggle_details_button = ctk.CTkButton(
+            extra_tools_frame,
+            text="▶ 詳細",
+            command=self.toggle_details_panel,
+            width=60,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray10", "gray90"),
+        )
+        self.toggle_details_button.pack(side="left", padx=(5, 0))
+
         # ============================================================
         # その他のUI要素 (初期化)
         # ============================================================
@@ -745,95 +775,114 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # --- 右パネル (詳細・プレビュー) ---
         self.details_frame = ctk.CTkFrame(self)
         self.details_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
+        self.details_panel_visible = True  # 初期表示状態
 
-        # グリッドの行設定 (プレビュー領域、メモ、引用元のために変更)
-        self.details_frame.grid_rowconfigure(5, weight=1)  # PDFプレビュー (row 5)
-        self.details_frame.grid_rowconfigure(7, weight=2)  # メモスクロール領域 (row 7)
-        self.details_frame.grid_rowconfigure(
-            9, weight=1
-        )  # 引用元スクロール領域 (row 9)
-        self.details_frame.grid_columnconfigure(1, weight=1)
+        # グリッド設定 (上部情報(2列)、メモ、引用元、ボタン)
+        self.details_frame.grid_rowconfigure(0, weight=0)  # 上部情報
+        self.details_frame.grid_rowconfigure(1, weight=1)  # メモ
+        self.details_frame.grid_rowconfigure(2, weight=1)  # 引用元
+        self.details_frame.grid_rowconfigure(3, weight=0)  # ボタン
+        self.details_frame.grid_columnconfigure(0, weight=1)
 
-        # 1. タイトル (row=0)
-        ctk.CTkLabel(self.details_frame, text="タイトル:", anchor="w").grid(
-            row=0, column=0, padx=10, pady=5, sticky="w"
+        # === 1. 上部情報エリア (2列構成) ===
+        top_info_frame = ctk.CTkFrame(self.details_frame, fg_color="transparent")
+        top_info_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        top_info_frame.grid_columnconfigure(0, weight=1)  # テキスト情報 (伸縮)
+        top_info_frame.grid_columnconfigure(1, weight=0)  # プレビュー (固定気味)
+
+        # [左カラム] テキスト情報
+        text_info_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
+        text_info_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+
+        # グリッド設定 (ラベル: 値)
+        text_info_frame.grid_columnconfigure(1, weight=1)
+
+        # Title
+        ctk.CTkLabel(text_info_frame, text="タイトル:", anchor="w").grid(
+            row=0, column=0, sticky="nw", pady=2
         )
         self.title_label = ctk.CTkLabel(
-            self.details_frame, text="", wraplength=300, justify="left", anchor="w"
+            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
         )
-        self.title_label.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+        self.title_label.grid(row=0, column=1, sticky="ew", pady=2)
 
-        # 2. キー (row=1)
-        ctk.CTkLabel(self.details_frame, text="キー:", anchor="w").grid(
-            row=1, column=0, padx=10, pady=5, sticky="w"
+        # Key
+        ctk.CTkLabel(text_info_frame, text="キー:", anchor="w").grid(
+            row=1, column=0, sticky="nw", pady=2
         )
-        self.key_label = ctk.CTkLabel(self.details_frame, text="", anchor="w")
-        self.key_label.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        self.key_label = ctk.CTkLabel(text_info_frame, text="", anchor="w")
+        self.key_label.grid(row=1, column=1, sticky="ew", pady=2)
 
-        # 3. インデックス キー (row=2)
-        ctk.CTkLabel(self.details_frame, text="インデックス キー:", anchor="w").grid(
-            row=2, column=0, padx=10, pady=5, sticky="w"
+        # Index Key
+        ctk.CTkLabel(text_info_frame, text="Index Key:", anchor="w").grid(
+            row=2, column=0, sticky="nw", pady=2
         )
-        self.cpkey_label = ctk.CTkLabel(self.details_frame, text="", anchor="w")
-        self.cpkey_label.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+        self.cpkey_label = ctk.CTkLabel(text_info_frame, text="", anchor="w")
+        self.cpkey_label.grid(row=2, column=1, sticky="ew", pady=2)
 
-        # 4. タグ (row=3)
-        ctk.CTkLabel(self.details_frame, text="タグ:", anchor="w").grid(
-            row=3, column=0, padx=10, pady=5, sticky="w"
+        # Filename
+        ctk.CTkLabel(text_info_frame, text="ファイル:", anchor="w").grid(
+            row=3, column=0, sticky="nw", pady=2
+        )
+        self.filename_label = ctk.CTkLabel(
+            text_info_frame, text="", anchor="w", wraplength=250, justify="left"
+        )
+        self.filename_label.grid(row=3, column=1, sticky="ew", pady=2)
+
+        # Tags
+        ctk.CTkLabel(text_info_frame, text="タグ:", anchor="w").grid(
+            row=4, column=0, sticky="nw", pady=2
         )
         self.tags_label = ctk.CTkLabel(
-            self.details_frame, text="", wraplength=300, justify="left", anchor="w"
+            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
         )
-        self.tags_label.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+        self.tags_label.grid(row=4, column=1, sticky="ew", pady=2)
 
-        # 5. 概要 (Summary)
-        ctk.CTkLabel(self.details_frame, text="概要:", anchor="w").grid(
-            row=4, column=0, padx=10, pady=5, sticky="w"
+        # Summary
+        ctk.CTkLabel(text_info_frame, text="概要:", anchor="w").grid(
+            row=5, column=0, sticky="nw", pady=2
         )
         self.summary_label = ctk.CTkLabel(
-            self.details_frame, text="", wraplength=400, justify="left", anchor="w"
+            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
         )
-        self.summary_label.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+        self.summary_label.grid(row=5, column=1, sticky="ew", pady=2)
 
-        # 6. PDFプレビュー (row=5)
+        # [右カラム] プレビュー (親フレーム)
+        self.preview_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
+        self.preview_frame.grid(row=0, column=1, sticky="n", padx=(5, 0))
+
         self.pdf_preview_label = ctk.CTkLabel(
-            self.details_frame,
-            text="ノートを選択するとプレビューが表示されます",
-            fg_color="gray20",  # プレースホルダーの背景色
-            anchor="center",
-            text_color="gray70",  # プレースホルダーの文字色
+            self.preview_frame,
+            text="No Preview",
+            fg_color="gray20",
+            text_color="gray70",
+            width=200,
+            height=280,  # A4比率に近いサイズ固定
         )
-        self.pdf_preview_label.grid(
-            row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
-        )
+        self.pdf_preview_label.pack()
 
-        # 7. メモ (ラベル) (row=6)
+        # === 2. メモ ===
         ctk.CTkLabel(self.details_frame, text="メモ:", anchor="w").grid(
-            row=6, column=0, padx=10, pady=5, sticky="nw"
+            row=1, column=0, padx=10, pady=(5, 0), sticky="w"
+        )
+        self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame, height=150)
+        self.memo_display_frame.grid(
+            row=2, column=0, padx=10, pady=(0, 5), sticky="nsew"
         )
 
-        # 8. メモ (スクロールフレーム) (row=7)
-        self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame)
-        self.memo_display_frame.grid(row=7, column=1, padx=10, pady=4, sticky="nsew")
-
-        # 9. 引用元 (ラベル) (row=8)
-        ctk.CTkLabel(self.details_frame, text="引用元:", anchor="w").grid(
-            row=8, column=0, padx=10, pady=4, sticky="nw"
-        )
-
-        # 10. 引用元 (スクロールフレーム) (row=9)
+        # === 3. 引用元 ===
         self.references_display_frame = ctk.CTkScrollableFrame(
-            self.details_frame, label_text="このノートを引用しているノート"
+            self.details_frame, label_text="このノートを引用", height=100
         )
         self.references_display_frame.grid(
-            row=9, column=1, padx=10, pady=5, sticky="nsew"
+            row=3, column=0, padx=10, pady=5, sticky="nsew"
         )
 
-        # 11. 編集ボタンのフレーム (row=10)
+        # === 4. ボタン ===
         self.edit_button_frame = ctk.CTkFrame(
             self.details_frame, fg_color="transparent"
         )
-        self.edit_button_frame.grid(row=10, column=0, columnspan=2, pady=10)
+        self.edit_button_frame.grid(row=4, column=0, pady=10)
 
         # 詳細プレビューボタン
         self.open_preview_button = ctk.CTkButton(
@@ -1201,6 +1250,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                     )
                     icon_label.pack(side="left", padx=2)
 
+    # --- 右サイドバー（詳細パネル）のトグル ---
+    def toggle_details_panel(self):
+        """右側の詳細パネルの表示/非表示を切り替える"""
+        if self.details_panel_expanded:
+            self.details_frame.grid_remove()
+            self.details_panel_expanded = False
+            self.toggle_details_button.configure(text="◀ 詳細")
+        else:
+            self.details_frame.grid()
+            self.details_panel_expanded = True
+            self.toggle_details_button.configure(text="▶ 詳細")
+
     # --- データ読み込み・検索実行メソッド ---
     def load_database_dialog(self):
         """「目次データベースを開く」ボタンの動作。ファイルダイアログを開く。"""
@@ -1329,6 +1390,23 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             cb.pack(side="left", expand=True, fill="x")
 
             self.filter_checkboxes[key] = var
+
+    def _poll_search_result(self):
+        """
+        バックグラウンドスレッドからの検索結果を監視し、
+        キューにデータがあればメインスレッドで更新処理を行う。
+        """
+        try:
+            while True:
+                # キューからデータを取り出す (非ブロッキング)
+                # キューが空になるまでループして取り出す
+                search_id, result_df = self._search_result_queue.get_nowait()
+                self._on_search_complete(search_id, result_df)
+        except queue.Empty:
+            # キューが空になったら、100ms後にまたチェック
+            pass
+        finally:
+            self.after(100, self._poll_search_result)
 
     def perform_search(self):
         """
@@ -1507,12 +1585,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                     by="key", ascending=ascending_flag
                 )
 
-            # --- 5. メインスレッドに結果を渡す ---
-            self.after(0, lambda: self._on_search_complete(search_id, filtered_df))
+            # --- 5. メインスレッドに結果を渡す (Queue経由) ---
+            self._search_result_queue.put((search_id, filtered_df))
 
         except Exception as e:
             logger.error(f"検索スレッドエラー: {e}", exc_info=True)
-            self.after(0, lambda: self._on_search_complete(search_id, pd.DataFrame()))
+            self._search_result_queue.put((search_id, pd.DataFrame()))
 
     def _on_search_complete(self, search_id, result_df):
         """
@@ -1922,25 +2000,15 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.key_label.configure(text="")
         self.cpkey_label.configure(text="")
         self.tags_label.configure(text="")
+        self.filename_label.configure(text="")
 
         # --- PDFプレビューのクリア ▼ ---
         self.preview_image_object = None
 
-        # 既存のラベルを破棄
-        if hasattr(self, "pdf_preview_label"):
-            self.pdf_preview_label.destroy()
-
-        # ラベルを「クリア状態」で再作成
-        self.pdf_preview_label = ctk.CTkLabel(
-            self.details_frame,
-            text="ノートを選択するとプレビューが表示されます",
-            fg_color="gray20",  # プレースホルダーの背景色
-            anchor="center",
-            text_color="gray70",  # プレースホルダーの文字色
-        )
-        self.pdf_preview_label.grid(
-            row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
-        )
+        if hasattr(self, "pdf_preview_label") and self.pdf_preview_label.winfo_exists():
+            self.pdf_preview_label.configure(
+                image=None, text="No Preview", fg_color="gray20", text_color="gray70"
+            )
         # -----------------------------------
 
         # 選択中ノートとボタンの状態をクリア
@@ -2132,6 +2200,20 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.cpkey_label.configure(text=row.get("commonplace_key", ""))
         self.open_preview_button.configure(state="normal")
 
+        # Filename表示 (merged_pdf_filename を優先、なければ filepath)
+        merged_name = row.get("merged_pdf_filename", "")
+        file_path_str = row.get("filepath", "")
+
+        display_filename = ""
+        if merged_name and merged_name != "nan":
+            display_filename = merged_name
+        elif file_path_str:
+            display_filename = Path(file_path_str).name
+        else:
+            display_filename = "(不明)"
+
+        self.filename_label.configure(text=display_filename)
+
         # タグ表示（文字列をリストに変換して表示）
         tags_str = str(row.get("tags", ""))
         tags_list = [tag for tag in tags_str.split(";") if tag]
@@ -2139,10 +2221,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # --- ▼ PDFプレビューの表示 ▼ ---
 
-        # 既存のプレビューラベルを破棄
-        if hasattr(self, "pdf_preview_label"):
-            self.pdf_preview_label.destroy()
-        max_preview_width = 225
+        # 既存のプレビューラベルを破棄はせず、configureで画像を更新する
+
+        max_preview_width = 200  # レイアウト変更に伴い少し小さく
         pil_image = get_pdf_page_image(
             row_data,
             self.loaded_db_path,
@@ -2158,29 +2239,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 dark_image=pil_image,
                 size=(pil_image.width, pil_image.height),
             )
-            # プレビュー用ラベルを「画像付き」で再作成
-            self.pdf_preview_label = ctk.CTkLabel(
-                self.details_frame,
-                image=self.preview_image_object,
-                text="",  # テキストを削除
-                fg_color="transparent",  # 背景を透明に
+            self.pdf_preview_label.configure(
+                image=self.preview_image_object, text="", fg_color="transparent"
             )
         else:
             # 画像取得失敗
             self.preview_image_object = None
-            # プレビュー用ラベルを「失敗状態」で再作成
-            self.pdf_preview_label = ctk.CTkLabel(
-                self.details_frame,
+            self.pdf_preview_label.configure(
                 image=None,
                 text="プレビューの読み込みに失敗しました",
                 fg_color="gray20",
                 text_color="#D9534F",
             )
-
-        # 新しく作成したラベルをグリッドに配置
-        self.pdf_preview_label.grid(
-            row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew"
-        )
 
         # --- メモと引用元の取得 ---
 
@@ -2757,7 +2827,8 @@ P : 詳細プレビューを開く
 G : 全体グラフ (Global) を表示
 L : 関連グラフ (Local) を表示
 F5 : データベース再読み込み
-Ctrl + B : フィルターパネルの開閉
+Ctrl + B : 右パネル（詳細）の開閉
+Ctrl + Shift + B : 左パネル（フィルター）の開閉
 
 [検索・入力]
 Ctrl + F : 検索バーへフォーカス (全選択)
