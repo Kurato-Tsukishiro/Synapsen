@@ -10,6 +10,8 @@ import sys
 import datetime
 import sqlite3
 import queue
+import subprocess
+import platform
 
 # 分割したモジュールをインポート
 import logging
@@ -24,6 +26,7 @@ from utils import (
     _update_note_links,
     delete_note_from_db,
     get_pdf_page_image,
+    find_file_in_paths,
 )
 from search_parser import parse_or_expression
 from list_navigator import ListNavigatorMixin
@@ -107,11 +110,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.filter_panel_expanded = False  # 左フィルターパネルが開いているか
         self.details_panel_expanded = True  # 右詳細パネルが開いているか (初期表示)
 
-        self.sort_ascending = (
-            True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
-        )
-
-        self.selected_keys = set()  # 選択されたノートのKeyを保持するセット
+        self.sort_ascending = True          # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
 
         self.setup_navigation_variables()  # Mixinの初期化メソッドを呼びだす
 
@@ -443,6 +443,16 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # --- 2. 制御ショートカット (常時有効) ---
 
+        # Ctrl+J: Jump to List (NEW)
+        self.bind(
+            "<Control-j>",
+            lambda e: self._handle_shortcut(self.reveal_current_note_in_list),
+        )
+        self.bind(
+            "<Control-J>",
+            lambda e: self._handle_shortcut(self.reveal_current_note_in_list),
+        )
+
         # Escキー: フォーカス解除
         self.bind("<Escape>", self._handle_escape)
 
@@ -489,6 +499,39 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         if self.loaded_db_path:
             self.load_db_from_path(self.loaded_db_path)
 
+    def reveal_current_note_in_list(self):
+        """
+        詳細パネルに表示中のノートをリスト内で探し、そこへスクロール＆カーソル移動する。
+        リスト内に存在しない場合は、選択数ラベルで通知する。
+        """
+        # ノートが選択されていない場合は何もしない
+        if self.current_selected_row is None:
+            return
+
+        target_key = self.current_selected_row.get("key")
+        if not target_key:
+            return
+
+        # リストウィジェットを走査してインデックスを探す
+        target_index = -1
+        if self.list_item_widgets:
+            for i, item in enumerate(self.list_item_widgets):
+                if item["key"] == target_key:
+                    target_index = i
+                    break
+
+        if target_index != -1:
+            # 見つかった場合: カーソル移動＆スクロール
+            self._set_list_cursor(target_index)
+            self.focus_set()  # リスト操作できるようにフォーカスをウィンドウに戻す
+        else:
+            # 見つからなかった場合: ユーザーに通知
+            logger.info(f"Reveal failed: Note {target_key} not in current list.")
+            # 一時的にラベルで通知
+            self.selection_info_label.configure(text="リスト外", text_color="orange")
+            # 1.5秒後に元の表示に戻す
+            self.after(1500, self.update_selection_ui_state)
+
     # -------------------------------------------------------------------------
 
     def refresh_unique_tags(self):
@@ -499,7 +542,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # 1. 事前定義タグでセットを初期化
         tags_set = set(self.predefined_tags)
 
-        # ★変更: 設定が True の場合のみ、全ノートのタグをスキャンして追加
+        # 設定が True の場合のみ、全ノートのタグをスキャンして追加
         if self.include_all_tags_for_autocomplete:
             if self.df is not None and not self.df.empty and "tags" in self.df.columns:
                 valid_tags_series = self.df["tags"].dropna()
@@ -790,62 +833,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         top_info_frame.grid_columnconfigure(0, weight=1)  # テキスト情報 (伸縮)
         top_info_frame.grid_columnconfigure(1, weight=0)  # プレビュー (固定気味)
 
-        # [左カラム] テキスト情報
-        text_info_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
-        text_info_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-
-        # グリッド設定 (ラベル: 値)
-        text_info_frame.grid_columnconfigure(1, weight=1)
-
-        # Title
-        ctk.CTkLabel(text_info_frame, text="タイトル:", anchor="w").grid(
-            row=0, column=0, sticky="nw", pady=2
-        )
-        self.title_label = ctk.CTkLabel(
-            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
-        )
-        self.title_label.grid(row=0, column=1, sticky="ew", pady=2)
-
-        # Key
-        ctk.CTkLabel(text_info_frame, text="キー:", anchor="w").grid(
-            row=1, column=0, sticky="nw", pady=2
-        )
-        self.key_label = ctk.CTkLabel(text_info_frame, text="", anchor="w")
-        self.key_label.grid(row=1, column=1, sticky="ew", pady=2)
-
-        # Index Key
-        ctk.CTkLabel(text_info_frame, text="Index Key:", anchor="w").grid(
-            row=2, column=0, sticky="nw", pady=2
-        )
-        self.cpkey_label = ctk.CTkLabel(text_info_frame, text="", anchor="w")
-        self.cpkey_label.grid(row=2, column=1, sticky="ew", pady=2)
-
-        # Filename
-        ctk.CTkLabel(text_info_frame, text="ファイル:", anchor="w").grid(
-            row=3, column=0, sticky="nw", pady=2
-        )
-        self.filename_label = ctk.CTkLabel(
-            text_info_frame, text="", anchor="w", wraplength=250, justify="left"
-        )
-        self.filename_label.grid(row=3, column=1, sticky="ew", pady=2)
-
-        # Tags
-        ctk.CTkLabel(text_info_frame, text="タグ:", anchor="w").grid(
-            row=4, column=0, sticky="nw", pady=2
-        )
-        self.tags_label = ctk.CTkLabel(
-            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
-        )
-        self.tags_label.grid(row=4, column=1, sticky="ew", pady=2)
-
-        # Summary
-        ctk.CTkLabel(text_info_frame, text="概要:", anchor="w").grid(
-            row=5, column=0, sticky="nw", pady=2
-        )
-        self.summary_label = ctk.CTkLabel(
-            text_info_frame, text="", wraplength=250, justify="left", anchor="w"
-        )
-        self.summary_label.grid(row=5, column=1, sticky="ew", pady=2)
+        # [左カラム] テキスト情報 (動的生成用コンテナ)
+        self.text_info_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
+        self.text_info_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         # [右カラム] プレビュー (親フレーム)
         self.preview_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
@@ -915,6 +905,32 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # フィルターパネルの初期表示を同期
         self.sync_filter_panel_view()
+        self.update_details_panel(None)  # 初期状態として「未選択」表示を行う
+
+    def quick_search(self, query):
+        """指定されたクエリを検索バーに入力して即座に検索を実行する"""
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, query)
+        self.perform_search()
+
+    def open_file_location(self, file_path_str):
+        """指定されたファイルの保存場所をエクスプローラで開く"""
+        path = Path(file_path_str)
+        if not path.exists():
+            messagebox.showerror("エラー", f"ファイルが見つかりません。\n{path}")
+            return
+
+        try:
+            system_name = platform.system()
+            if system_name == "Windows":
+                subprocess.Popen(f'explorer /select,"{path}"')
+            elif system_name == "Darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path.parent)])
+        except Exception as e:
+            logger.error(f"フォルダオープンエラー: {e}")
+            messagebox.showerror("エラー", f"フォルダを開けませんでした: {e}")
 
     def show_search_help(self):
         """検索プレフィックスのヘルプウィンドウを表示する。"""
@@ -1041,14 +1057,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
         """
         self.selected_suggestion_index = -1
-
-        last_tag_word = ""
-
-        if match_value:
-            # 'tag:abc' の 'abc' の部分 (group 2) を取得
-            last_tag_word = match_value.group(2).strip()
-
-        suggestions = []
+        # 'tag:abc' の 'abc' の部分 (group 2) を取得
+        last_tag_word = match_value.group(2).strip() if match_value else ""
         target_list = self.all_unique_tags or self.predefined_tags
 
         if last_tag_word == "":
@@ -1078,10 +1088,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         for i, suggestion in enumerate(suggestions):
             # 選択中のインデックスに基づいてハイライト色を決定
-            if i == self.selected_suggestion_index:
-                fg_color = "gray30"
-            else:
-                fg_color = "transparent"
+            fg_color = (
+                "gray30" if i == self.selected_suggestion_index else "transparent"
+            )
 
             btn = ctk.CTkButton(
                 self.autocomplete_frame,
@@ -1159,24 +1168,22 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         ):
             return
 
-        num_suggestions = len(self.current_suggestions)
+        num = len(self.current_suggestions)
         if event.keysym == "Down":
-            self.selected_suggestion_index = (
-                self.selected_suggestion_index + 1
-            ) % num_suggestions
+            self.selected_suggestion_index = (self.selected_suggestion_index + 1) % num
         elif event.keysym == "Up":
             self.selected_suggestion_index = (
-                self.selected_suggestion_index - 1 + num_suggestions
-            ) % num_suggestions
+                self.selected_suggestion_index - 1 + num
+            ) % num
 
         # 選択項目がリストに表示されるようにスクロール
         self.autocomplete_frame._parent_canvas.yview_moveto(
-            self.selected_suggestion_index / num_suggestions
+            self.selected_suggestion_index / num
         )
 
         # 選択ハイライトを更新 (保存しておいた引数を使う)
-        query, cursor_pos, match_value = self._last_suggestion_args
-        self.show_autocomplete(self.current_suggestions, query, cursor_pos, match_value)
+        q, c, m = self._last_suggestion_args
+        self.show_autocomplete(self.current_suggestions, q, c, m)
         return "break"  # 他のキーバインドを抑制
 
     def confirm_suggestion(self, event):
@@ -1188,13 +1195,10 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         ):
 
             # 保存しておいた引数を取得
-            query, cursor_pos, match_value = self._last_suggestion_args
+            q, c, m = self._last_suggestion_args
             # select_suggestion を呼び出す
             self.select_suggestion(
-                self.current_suggestions[self.selected_suggestion_index],
-                query,
-                cursor_pos,
-                match_value,
+                self.current_suggestions[self.selected_suggestion_index], q, c, m
             )
             return "break"  # 検索が二重に実行されるのを防ぐ
 
@@ -1242,13 +1246,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 for key in selected_keys:
                     icon = self.key_icons.get(key.lower(), "•")
                     color = self.key_colors.get(key.lower(), "gray")
-                    icon_label = ctk.CTkLabel(
+                    ctk.CTkLabel(
                         self.collapsed_icons_frame,
                         text=icon,
                         text_color=color,
                         font=("", 16),
-                    )
-                    icon_label.pack(side="left", padx=2)
+                    ).pack(side="left", padx=2)
 
     # --- 右サイドバー（詳細パネル）のトグル ---
     def toggle_details_panel(self):
@@ -1374,20 +1377,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             icon = self.key_icons.get(key.lower(), "•")
             color = self.key_colors.get(key.lower(), "gray")
 
-            icon_label = ctk.CTkLabel(
+            ctk.CTkLabel(
                 row_frame, text=icon, text_color=color, font=("", 16), width=20
-            )
-            icon_label.pack(side="left")
+            ).pack(side="left")
 
-            cb = ctk.CTkCheckBox(
+            ctk.CTkCheckBox(
                 row_frame,
                 text=key,
                 variable=var,
                 onvalue="1",
                 offvalue="0",
                 command=self._trigger_search_now,  # チェック時に検索を再実行
-            )
-            cb.pack(side="left", expand=True, fill="x")
+            ).pack(side="left", expand=True, fill="x")
 
             self.filter_checkboxes[key] = var
 
@@ -1410,7 +1411,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
     def perform_search(self):
         """
-        【修正版】
         検索処理のエントリーポイント。
         UIスレッドで直接検索せず、バックグラウンドスレッドを開始します。
         """
@@ -1568,9 +1568,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
                 except Exception as e:
                     logger.error(f"孤立ノート検索エラー: {e}")
-                    # エラー時は全除外等の安全策をとるか、無視して続行するか
-                    orphan_mask = pd.Series([False] * len(base_df), index=base_df.index)
-
             # --- 3. クリーンアップ ---
             if conn:
                 conn.close()
@@ -1917,6 +1914,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # リストのチェックボックス表示を更新するため、現在の検索結果でリストを再描画
         if self.filtered_df_cache is not None:
             self.update_results_list(self.filtered_df_cache)
+        self.clear_details()
 
     def update_selection_ui_state(self):
         """選択数に応じてラベル表示とボタン状態を更新"""
@@ -1995,38 +1993,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.generate_and_show_graph(target_df=selected_df)
 
     def clear_details(self):
-        """詳細表示ペインの内容をすべてクリアする。"""
-        self.title_label.configure(text="")
-        self.key_label.configure(text="")
-        self.cpkey_label.configure(text="")
-        self.tags_label.configure(text="")
-        self.filename_label.configure(text="")
-
-        # --- PDFプレビューのクリア ▼ ---
-        self.preview_image_object = None
-
-        if hasattr(self, "pdf_preview_label") and self.pdf_preview_label.winfo_exists():
-            self.pdf_preview_label.configure(
-                image=None, text="No Preview", fg_color="gray20", text_color="gray70"
-            )
-        # -----------------------------------
-
-        # 選択中ノートとボタンの状態をクリア
-        self.current_selected_row = None
-        self.edit_button.configure(state="disabled")
-        self.delete_button.configure(state="disabled")
-        self.open_preview_button.configure(state="disabled")
-
-        # memo_display_frame内のすべてのウィジェット（ラベル）を削除
-        for widget in self.memo_display_frame.winfo_children():
-            widget.destroy()
-
-        # references_display_frame内もクリア
-        for widget in self.references_display_frame.winfo_children():
-            widget.destroy()
-        self.references_display_frame.configure(
-            label_text="このノートを引用しているノート"
-        )
+        self.update_details_panel(None)
 
     def append_link_to_selected_notes(self, key_to_link, title_to_link):
         """
@@ -2063,10 +2030,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 # 2. 現在のメモを取得
                 cursor.execute("SELECT memo FROM notes WHERE key = ?", (key,))
                 memo_data = cursor.fetchone()
-                if memo_data and memo_data[0]:
-                    current_memo = memo_data[0]
-                else:
-                    current_memo = ""
+                current_memo = memo_data[0] if memo_data and memo_data[0] else ""
 
                 # 3. 既にリンクが含まれていないかチェック
                 if link_text_to_append in current_memo:
@@ -2121,7 +2085,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
     def open_current_note_in_preview(self):
         """
-        ★ 新規追加:
         メインペインの「詳細プレビューで開く」ボタンから呼び出される。
         'full' (拡大) モードでプレビューを開く。
         """
@@ -2177,6 +2140,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def show_details(self, row_data):
         """
         選択されたノートの詳細を右ペインに表示する。
+        (実処理は update_details_panel に委譲)
 
         Args:
             row_data (pd.Series): 表示するノートの行データ。
@@ -2188,133 +2152,376 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             self.clear_details()
             return
 
-        # 選択中の行データを保持し、ボタンを有効化
-        self.current_selected_row = row_data
-        self.edit_button.configure(state="normal")
-        self.delete_button.configure(state="normal")
+        self.update_details_panel(row_data)
 
-        row = row_data
-        self.summary_label.configure(text=row.get("summary", ""))
-        self.title_label.configure(text=row.get("title", ""))
-        self.key_label.configure(text=row.get("key", ""))
-        self.cpkey_label.configure(text=row.get("commonplace_key", ""))
-        self.open_preview_button.configure(state="normal")
+    def update_details_panel(self, row_data):
+        """
+        右パネル（詳細情報）の内容を更新する。
+        row_data が None の場合はクリア（未選択状態）にする。
+        """
 
-        # Filename表示 (merged_pdf_filename を優先、なければ filepath)
-        merged_name = row.get("merged_pdf_filename", "")
-        file_path_str = row.get("filepath", "")
+        # --- 1. データの前処理 (コピー & DB取得) ---
+        current_data = None
+        backlinks_df = pd.DataFrame()
 
-        display_filename = ""
-        if merged_name and merged_name != "nan":
-            display_filename = merged_name
-        elif file_path_str:
-            display_filename = Path(file_path_str).name
+        if row_data is not None:
+            # SettingWithCopyWarning 回避のためにコピー
+            current_data = row_data.copy()
+
+            # DBから最新情報を取得して current_data を更新
+            current_key = current_data.get("key", "")
+            if self.db_conn and current_key:
+                try:
+                    cursor = self.db_conn.cursor()
+                    cursor.execute(
+                        "SELECT memo, summary FROM notes WHERE key = ?", (current_key,)
+                    )
+                    data = cursor.fetchone()
+                    if data:
+                        memo_val = str(data[0]) if data[0] else ""
+                        summary_val = str(data[1]) if data[1] else ""
+                        current_data["memo"] = memo_val
+                        current_data["summary"] = summary_val
+
+                    # 引用元 (Backlinks) を取得
+                    cursor.execute(
+                        "SELECT source_key FROM note_links WHERE target_key = ?",
+                        (current_key,),
+                    )
+                    matching_keys = {row[0] for row in cursor.fetchall()}
+
+                    if matching_keys and self.df is not None:
+                        backlinks_df = self.df[self.df["key"].isin(matching_keys)]
+
+                except Exception as e:
+                    logger.error(f"詳細データ取得エラー: {e}")
+
+            # 選択状態を更新 (最新データで上書き)
+            self.current_selected_row = current_data
+
+            # ボタン有効化
+            self.edit_button.configure(state="normal")
+            self.delete_button.configure(state="normal")
+            self.open_preview_button.configure(state="normal")
+
         else:
-            display_filename = "(不明)"
+            # クリア時は選択状態もクリア
+            self.current_selected_row = None
+            self.edit_button.configure(state="disabled")
+            self.delete_button.configure(state="disabled")
+            self.open_preview_button.configure(state="disabled")
 
-        self.filename_label.configure(text=display_filename)
+        # --- 2. UI構築 (以下は current_data を使用して描画) ---
 
-        # タグ表示（文字列をリストに変換して表示）
-        tags_str = str(row.get("tags", ""))
-        tags_list = [tag for tag in tags_str.split(";") if tag]
-        self.tags_label.configure(text=", ".join(tags_list))
+        # テキスト情報の再構築
+        for widget in self.text_info_frame.winfo_children():
+            widget.destroy()
 
-        # --- ▼ PDFプレビューの表示 ▼ ---
+        self.text_info_frame.grid_columnconfigure(1, weight=1)
+        current_row = 0
 
-        # 既存のプレビューラベルを破棄はせず、configureで画像を更新する
+        # ヘルパー: 行追加
+        def add_row(label, value_widget_func):
+            nonlocal current_row
+            ctk.CTkLabel(
+                self.text_info_frame, text=label, anchor="w", text_color="gray"
+            ).grid(row=current_row, column=0, sticky="nw", pady=2)
+            value_widget_func(current_row)
+            current_row += 1
 
-        max_preview_width = 200  # レイアウト変更に伴い少し小さく
-        pil_image = get_pdf_page_image(
-            row_data,
-            self.loaded_db_path,
-            self.pdf_root_folder,
-            max_width=max_preview_width,
-            pdf_archive_folder=self.pdf_archive_folder,
+        if current_data is None:
+            # 未選択状態の描画
+            add_row(
+                "タイトル:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+            add_row(
+                "キー:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+            add_row(
+                "Index Key:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+            add_row(
+                "ファイル:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+            add_row(
+                "タグ:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+            add_row(
+                "概要:",
+                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                ),
+            )
+
+            # プレビューリセット (再生成)
+            for widget in self.preview_frame.winfo_children():
+                widget.destroy()
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.preview_frame,
+                text="No Preview",
+                fg_color="gray20",
+                text_color="gray70",
+                width=200,
+                height=280,
+            )
+            self.pdf_preview_label.pack()
+            self.preview_image_object = None
+
+            # メモ・引用元クリア
+            for widget in self.memo_display_frame.winfo_children():
+                widget.destroy()
+            for widget in self.references_display_frame.winfo_children():
+                widget.destroy()
+            self.references_display_frame.configure(
+                label_text="このノートを引用しているノート"
+            )
+
+            return
+
+        # --- 選択状態の描画 ---
+
+        # 1. タイトル
+        add_row(
+            "タイトル:",
+            lambda r: ctk.CTkLabel(
+                self.text_info_frame,
+                text=current_data.get("title", ""),
+                wraplength=390,
+                justify="left",
+                anchor="w",
+            ).grid(row=r, column=1, sticky="ew"),
         )
 
+        # 2. キー
+        add_row(
+            "キー:",
+            lambda r: ctk.CTkLabel(
+                self.text_info_frame, text=current_data.get("key", ""), anchor="w"
+            ).grid(row=r, column=1, sticky="ew"),
+        )
+
+        # 3. Index Key
+        cp_key = current_data.get("commonplace_key", "")
+
+        def create_ikey_widget(r):
+            if cp_key:
+                f = ctk.CTkFrame(self.text_info_frame, fg_color="transparent")
+                f.grid(row=r, column=1, sticky="ew")
+                icon = self.key_icons.get(cp_key.lower(), "•")
+                col = self.key_colors.get(cp_key.lower(), "gray")
+                ctk.CTkLabel(
+                    f, text=icon, text_color=col, font=("", 16), width=20
+                ).pack(side="left")
+                ctk.CTkButton(
+                    f,
+                    text=cp_key,
+                    fg_color="transparent",
+                    text_color=("#1F6AA5", "#63B8FF"),
+                    hover_color=("gray85", "gray25"),
+                    anchor="w",
+                    height=20,
+                    command=lambda k=cp_key: self.quick_search(f"ikey:{k}"),
+                ).pack(side="left", fill="x", expand=True)
+            else:
+                ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                )
+
+        add_row("Index Key:", create_ikey_widget)
+
+        # 4. ファイル
+        merged_name = current_data.get("merged_pdf_filename", "")
+        file_path_str = current_data.get("filepath", "")
+        display_filename = (
+            merged_name
+            if (merged_name and merged_name != "nan")
+            else (Path(file_path_str).name if file_path_str else "(不明)")
+        )
+
+        # 統合PDFのパス検索 (開くボタン用)
+        target_open_path = file_path_str
+        if merged_name and merged_name != "nan":
+            search_paths = []
+            if self.pdf_root_folder:
+                search_paths.append(Path(self.pdf_root_folder))
+            if self.pdf_archive_folder:
+                search_paths.append(Path(self.pdf_archive_folder))
+            if self.loaded_db_path:
+                search_paths.append(Path(self.loaded_db_path).parent)
+
+            found = find_file_in_paths(merged_name, search_paths)
+            if found:
+                target_open_path = str(found)
+
+        def create_file_widget(r):
+            f = ctk.CTkFrame(self.text_info_frame, fg_color="transparent")
+            f.grid(row=r, column=1, sticky="ew")
+
+            # [フォルダ] ボタン
+            if target_open_path:
+                ctk.CTkButton(
+                    f,
+                    text="📂",
+                    width=30,
+                    height=24,
+                    fg_color="gray70",
+                    hover_color="gray50",
+                    text_color="black",
+                    command=lambda p=target_open_path: self.open_file_location(p),
+                ).pack(side="left", padx=(0, 5))
+
+            if display_filename != "(不明)":
+                ctk.CTkButton(
+                    f,
+                    text=display_filename,
+                    fg_color="transparent",
+                    text_color=("#1F6AA5", "#63B8FF"),
+                    hover_color=("gray85", "gray25"),
+                    anchor="w",
+                    height=20,
+                    command=lambda fn=display_filename: self.quick_search(f"file:{fn}"),
+                ).pack(side="left", fill="x", expand=True)
+            else:
+                ctk.CTkLabel(f, text=display_filename, anchor="w").pack(side="left")
+
+        add_row("ファイル:", create_file_widget)
+
+        # 5. タグ
+        tags_list = [t for t in str(current_data.get("tags", "")).split(";") if t]
+
+        def create_tags_widget(r):
+            if tags_list:
+                s = ctk.CTkScrollableFrame(
+                    self.text_info_frame,
+                    height=35,
+                    orientation="horizontal",
+                    fg_color="transparent",
+                )
+                s.grid(row=r, column=1, sticky="ew")
+                for t in tags_list:
+                    ctk.CTkButton(
+                        s,
+                        text=t,
+                        font=("", 11),
+                        fg_color=("gray80", "gray30"),
+                        text_color=("black", "white"),
+                        hover_color=("gray70", "gray40"),
+                        height=20,
+                        width=30,
+                        command=lambda tag=t: self.quick_search(f"tag:{tag}"),
+                    ).pack(side="left", padx=2)
+            else:
+                ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
+                    row=r, column=1, sticky="ew"
+                )
+
+        add_row("タグ:", create_tags_widget)
+
+        # 6. 概要
+        add_row(
+            "概要:",
+            lambda r: ctk.CTkLabel(
+                self.text_info_frame,
+                text=current_data.get("summary", ""),
+                wraplength=390,
+                justify="left",
+                anchor="w",
+            ).grid(row=r, column=1, sticky="ew"),
+        )
+
+        # --- ▼ 3. PDFプレビューの表示 (完全再生成) ▼ ---
+
+        # 既存ウィジェットを全て破棄
+        for widget in self.preview_frame.winfo_children():
+            widget.destroy()
+
+        max_preview_width = 200
+        pil_image = None
+
+        # 画像取得を試みる
+        try:
+            pil_image = get_pdf_page_image(
+                current_data,
+                self.loaded_db_path,
+                self.pdf_root_folder,
+                max_width=max_preview_width,
+                pdf_archive_folder=self.pdf_archive_folder,
+            )
+        except Exception as e:
+            logger.error(f"画像取得エラー: {e}")
+            pil_image = None
+
+        # 新しいラベルを生成して配置
         if pil_image:
-            # Pillow Image を CTkImage に変換
-            self.preview_image_object = ctk.CTkImage(
-                light_image=pil_image,
-                dark_image=pil_image,
-                size=(pil_image.width, pil_image.height),
-            )
-            self.pdf_preview_label.configure(
-                image=self.preview_image_object, text="", fg_color="transparent"
-            )
+            try:
+                new_image = ctk.CTkImage(
+                    light_image=pil_image,
+                    dark_image=pil_image,
+                    size=(pil_image.width, pil_image.height),
+                )
+                self.preview_image_object = new_image  # 参照保持
+                self.pdf_preview_label = ctk.CTkLabel(
+                    self.preview_frame, text="", image=new_image, fg_color="transparent"
+                )
+                self.pdf_preview_label.pack()
+            except Exception:
+                # 画像生成エラー時フォールバック
+                self.pdf_preview_label = ctk.CTkLabel(
+                    self.preview_frame,
+                    text="Preview Error",
+                    fg_color="gray20",
+                    text_color="#D9534F",
+                    width=200,
+                    height=280,
+                )
+                self.pdf_preview_label.pack()
+                self.preview_image_object = None
         else:
-            # 画像取得失敗
-            self.preview_image_object = None
-            self.pdf_preview_label.configure(
-                image=None,
-                text="プレビューの読み込みに失敗しました",
+            # 画像がない場合
+            self.pdf_preview_label = ctk.CTkLabel(
+                self.preview_frame,
+                text="Preview Failed",
                 fg_color="gray20",
                 text_color="#D9534F",
+                width=200,
+                height=280,
             )
+            self.pdf_preview_label.pack()
+            self.preview_image_object = None
 
-        # --- メモと引用元の取得 ---
+        # --- 4. メモと引用元の表示 ---
 
-        current_key = row.get("key", "")
-
-        memo_text = ""
-        backlinks_df = pd.DataFrame()  # 空で初期化
-
-        try:
-            # (db_conn は読み取り専用接続)
-            cursor = self.db_conn.cursor()
-
-            # 1. このノートの 'memo' と 'summary' を取得
-            cursor.execute(
-                "SELECT memo, summary FROM notes WHERE key = ?", (current_key,)
-            )
-            data = cursor.fetchone()
-            if data:
-                memo_text = str(data[0])
-                # メモリ上にある row_data にも最新の memo と summary をセット
-                self.current_selected_row["memo"] = memo_text
-                self.current_selected_row["summary"] = str(data[1])
-                self.summary_label.configure(text=str(data[1]))
-
-            # 2. 引用元 (Backlinks) を 'note_links' テーブルから取得
-
-            # リンクテーブルを検索
-            sql = "SELECT source_key FROM note_links WHERE target_key = ?"
-
-            cursor.execute(sql, (current_key,))
-
-            matching_keys = {row[0] for row in cursor.fetchall()}
-
-            if matching_keys:
-                logger.debug(
-                    f"[show_details] リンクテーブル検索ヒット: {len(matching_keys)} 件 "
-                    f"(Key: {current_key})"
-                )
-                backlinks_df = self.df[self.df["key"].isin(matching_keys)]
-            else:
-                logger.debug(
-                    f"[show_details] リンクテーブル検索 0件 " f"(Key: {current_key})"
-                )
-
-        except Exception as e:
-            logger.error(f"詳細表示のためのDBアクセスエラー: {e}", exc_info=True)
-            pass  # 失敗時は空のまま
-
-        # メモ表示（リンク構築）
+        # メモ表示
         for widget in self.memo_display_frame.winfo_children():
             widget.destroy()
-        frame_width = 450
         build_memo_display(
             self.memo_display_frame,
-            memo_text,
+            current_data.get("memo", ""),
             self.df,
-            lambda key: self.open_preview_window(key, default_view_mode="compact"),
-            frame_width,
+            lambda k: self.open_preview_window(k, default_view_mode="compact"),
+            450,
         )
-        # 引用元UIを構築
+
+        # 引用元表示
         build_references_display(
             self.references_display_frame,
             backlinks_df,
-            lambda key: self.open_preview_window(key, default_view_mode="compact"),
+            lambda k: self.open_preview_window(k, default_view_mode="compact"),
             self.key_icons,
             self.key_colors,
         )
@@ -2494,7 +2701,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         if self.selected_keys:
             if self.df is not None:
                 target_df = self.df[self.df["key"].isin(self.selected_keys)]
-                mode = "selected_items"
+            mode = "selected_items"
         else:
             target_df = self.filtered_df_cache
 
@@ -2728,10 +2935,10 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # 最終確認
         answer = messagebox.askyesno(
             "削除の最終確認",
-            f"以下のノートをマスターデータベースから完全に削除しますか？\n\n"
+            "以下のノートをマスターデータベースから完全に削除しますか？\n\n"
             f"Key: {key_to_delete}\n"
             f"Title: {title_to_delete}\n\n"
-            f"この操作は元に戻せません。",
+            "この操作は元に戻せません。",
             parent=self,
         )
 
@@ -2816,6 +3023,7 @@ Ctrl + Shift + 移動 : 範囲選択 (追加モード)
 [リスト操作 (コマンド)]
 Ctrl + A : すべて選択
 Ctrl + D : 選択解除
+Ctrl + J : リストへ移動
 Alt + S  : ソート順切り替え (昇順/降順)
 Ctrl + E : 選択中のノートを編集
 Ctrl + Enter : 選択中のノートをCanvasへ送る
