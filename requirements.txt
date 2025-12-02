@@ -10,4 +10,5 @@ pytesseract
 pyvis
 pyzbar
 qrcode
+reportlab
 tkinterdnd2

@@ -100,7 +100,7 @@
 * ノートごとにタグ、メモ、Index Key（索引キー）を編集。
 * 複数のノートを選択し、Index Keyやタグを一括で設定（追加・削除）する**バッチ編集機能**。
 * 指定した月のノート群を1つのPDFに統合。
-* （LuaLaTeXを使用し）目次、タグ索引、Index Key索引を自動生成。
+* **（ReportLabを使用し）目次、タグ索引、Index Key索引を自動生成。**
 * **データ保全・復旧機能:**
     * **メタデータ埋め込み:** 統合PDF生成時、全ノートのメタデータ（JSON）をPDFの添付ファイルとして埋め込みます。 これにより、元ファイルやDBが消失しても**統合PDF単体から完全に復旧可能**です。
     * **DB復旧ツール:** 万が一データベースが破損・紛失した場合でも、統合PDFからデータベースを再構築できる専用GUIツールを搭載しています。
@@ -297,10 +297,6 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 ## 動作環境・依存関係
 
 * **Python 3.x**
-* **LuaLaTeX** (TeX Live, MiKTeX などの TeX ディストリビューション)
-    * `Synapsen Ersteller` でのPDFビルドに必須です。
-    * 導入方法は、こちらの解説記事などを参考にしてください。<br>
-        → **[LaTeXの環境構築 \~VSCodeでLaTeXを使いたいだけなのに TeX Liveの導入が必要なのは何故?\~](https://qiita.com/Kurato-Tsukishiro/items/58232e619a1878692bed)**
 * **(オプション) Tesseract OCR**
     * `Normalisierer` で画像PDFのOCR（本文テキスト抽出）機能 を使う場合に必要です。
     * インストール後、`pytesseract` が認識できるようPATHを通してください。
@@ -321,6 +317,7 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     * [**NumPy**](https://github.com/numpy/numpy) (BSD-3-Clause License) - 画像補正（射影変換）の計算処理用
     * [**PyMuPDF (fitz)**](https://github.com/pymupdf/PyMuPDF) (AGPL-3.0 License) - PDFの正規化・情報抽出・フラット化用 (※プロジェクト全体のAGPLライセンスの要因)
     * [**pypdf**](https://github.com/py-pdf/pypdf) (BSD-3-Clause License) - PDFの統合・正規化用
+    * [**reportlab**](https://github.com/MrBitBucket/reportlab-mirror) (BSD-3-Clause License) - 統合PDF（目次・索引）の生成用
     * [**Pillow**](https://github.com/python-pillow/Pillow) (HPND License) - OCR処理のための画像操作用
     * [**pytesseract**](https://github.com/madmaze/pytesseract) (Apache-2.0 License) - Tesseract OCRエンジン連携用
     * [**networkx**](https://github.com/networkx/networkx) (BSD-3-Clause License) - グラフ・ビジュアライゼーションのデータ構築用
@@ -463,18 +460,20 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 
 
     ; ------------------------------------------------------------------------------
-    ; [LaTeX] PDF生成設定
+    ; [ReportLab] PDF生成設定
     ; Ersteller が統合PDFを作成する際のスタイル設定
     ; ------------------------------------------------------------------------------
-    [LaTeX]
+    [ReportLab]
     ; 正規化及び統合の用紙サイズの指定 (A4/A5)
     paper_size = 
 
-    ; PDF生成時に使用するフォント名 (LaTeX環境にインストールされているフォント名)
-    ; font = Noto Sans JP
+    ; PDF生成時に使用するフォントファイルの絶対パス (.ttf または .ttc)
+    ; 空欄の場合は [Paths] セクションの font_path で指定したフォントが使用されます。
+    ; ※ .otf (OpenType) や Variable Font は正常に動作しないため、必ず静的フォント(.ttf/.ttc)を指定してください。
+    ; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
     font = 
 
-    ; PDFのプロパティに表示される著者名
+    ; PDFのプロパティ及び表紙に表示される著者名
     author = 
 
     ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
@@ -613,18 +612,20 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 
 
     ; ------------------------------------------------------------------------------
-    ; [LaTeX] PDF生成設定
+    ; [ReportLab] PDF生成設定
     ; Ersteller が統合PDFを作成する際のスタイル設定
     ; ------------------------------------------------------------------------------
-    [LaTeX]
+    [ReportLab]
     ; 正規化及び統合の用紙サイズの指定 (A4/A5)
     paper_size = A4
 
-    ; PDF生成時に使用するフォント名 (LaTeX環境にインストールされているフォント名)
-    ; font = Noto Sans JP
-    font = MS UI Gothic
+    ; PDF生成時に使用するフォントファイルの絶対パス (.ttf または .ttc)
+    ; 空欄の場合は [Paths] セクションの font_path で指定したフォントが使用されます。
+    ; ※ .otf (OpenType) や Variable Font は正常に動作しないため、必ず静的フォント(.ttf/.ttc)を指定してください。
+    ; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
+    font = 
 
-    ; PDFのプロパティに表示される著者名
+    ; PDFのプロパティ及び表紙に表示される著者名
     author = Synapsen Ersteller
 
     ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
@@ -826,6 +827,7 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 特に、GUI構築のための **CustomTkinter**、<br>
 データ操作のための **pandas** と **NumPy**、<br>
 PDF処理の中核を担う **PyMuPDF** と **pypdf**、<br>
+PDF生成エンジンである **ReportLab**、<br>
 OCR機能を実現する **Pillow** と **pytesseract**、<br>
 知識グラフの可視化を実現する **NetworkX** と **Pyvis**、<br>
 D&D機能を実現する **tkinterdnd2**、<br>
