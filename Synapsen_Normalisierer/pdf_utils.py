@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 CM_TO_PT: float = 72 / 2.54
 
-# Ersteller (LaTeX) のレイアウトに合わせた安全な余白設定
+# Erstellerで行う統合のレイアウトに合わせた安全な余白設定
 # (単位: cm)
 LAYOUT_MARGINS = {
     "A4": {
@@ -202,11 +202,12 @@ def add_metadata_to_clip(
                 meta_info["key"] = auto_generated_key
 
         if meta_info:
-            # 安全策: Subjectフィールドの末尾に隠しJSONとして追記する
-            # (多くのPDFリーダーでプロパティとして確認可能になるメリットもあります)
+            # Subjectフィールドの末尾に <synapsen>...</synapsen> で囲んで追記
             json_str = json.dumps(meta_info, ensure_ascii=False)
             current_subject = new_metadata.get("subject", "") or ""
-            new_metadata["subject"] = f"{current_subject}\n"
+            new_metadata["subject"] = (
+                f"{current_subject}\n<synapsen>{json_str}</synapsen>"
+            )
 
         # メタデータを適用
         doc.set_metadata(new_metadata)
@@ -228,29 +229,8 @@ def add_metadata_to_clip(
             try:
                 # --- QRコードに埋め込むJSONデータを構築 (cpk と key のみ) ---
                 qr_data = {"cpk": index_key_to_embed}
-                auto_generated_key = ""
-
-                if base_name:
-                    # base_name をパースして Ersteller と同じ "key" のみ生成
-                    match = re.match(
-                        r"(\d{8})_(?:(\d{4,6})_)?(.+)", base_name, re.IGNORECASE
-                    )
-
-                    if match:
-                        date_str, time_val, _ = match.groups()
-
-                        if time_val:
-                            time_str = time_val.ljust(6, "0")
-                        else:
-                            time_str = "999999"
-
-                        if time_str != "999999":
-                            key_time = time_str
-                        else:
-                            key_time = "000000"
-                        auto_generated_key = date_str + key_time
-
-                        qr_data["key"] = auto_generated_key
+                if base_name and auto_generated_key:
+                    qr_data["key"] = auto_generated_key
 
                 # JSON文字列に変換
                 qr_data_str = json.dumps(qr_data, ensure_ascii=False)
@@ -298,7 +278,7 @@ def add_metadata_to_clip(
 
             shape1.commit()
 
-        # --- 2. 最終ページに コメントと書誌情報 を描画 ---
+        # --- 2. 最終ページに コメント・書誌情報・引用QR を描画 ---
         if comment_to_embed or sist_string_formal or sist_string_readable:
 
             # 既存のページ数 (len(doc)) をpnoに指定し、末尾に新しい白紙ページを挿入
@@ -538,7 +518,7 @@ def _flatten_annot_manually(page: fitz.Page, annot: fitz.Annot) -> bool:
                 page.insert_textbox(
                     rect,
                     text_content,
-                    color=stroke_color,  # テキスト色は通常strokeに入る
+                    color=stroke_color,
                     fontsize=fs,
                     align=fitz.TEXT_ALIGN_LEFT,
                 )
@@ -608,8 +588,7 @@ def high_fidelity_flatten(
                 ):
                     try:
                         page.insert_font(fontname=font_name_in_pdf, fontfile=font_path)
-                    except (FileNotFoundError, RuntimeError):
-                        # 登録済みの可能性が高いため、エラーログは記録せず無視
+                    except Exception:
                         pass
 
                     page.insert_textbox(
@@ -679,12 +658,10 @@ def normalize_pdf_to_papersize(
             if keywords and "Synapsen:SkipNormalization" in keywords:
                 skip_processing = True
     except Exception as e:
-        logger.warning(f"メタデータ確認中にエラー (スキップ判定失敗): {e}")
+        logger.warning(f"メタデータ確認中にエラー: {e}")
 
     if skip_processing:
-        logger.info(
-            f"正規化スキップフラグを検出しました。コピーのみ行います: {input_path}"
-        )
+        logger.info(f"正規化スキップフラグ検出: {input_path}")
         shutil.copy2(input_path, output_path)
         return
     # -----------------------
@@ -705,8 +682,8 @@ def normalize_pdf_to_papersize(
         writer = PdfWriter()
 
         # 描画可能領域（Safe Area）の計算
-        drawable_height: float = paper_height - m_top - m_bottom
-        drawable_width_relaxed: float = paper_width - (min_side_margin * 2)
+        drawable_height = paper_height - m_top - m_bottom
+        drawable_width_relaxed = paper_width - (min_side_margin * 2)
 
         for content_page in reader.pages:
             # 指定された用紙サイズの白紙ページを作成
@@ -777,7 +754,7 @@ def embed_ocr_text_in_pdf(
     doc = None
     # 一時ファイルへの保存パスを定義
     temp_output_path = pdf_path_str + "._temp_ocr.pdf"
-    OCR_FONT_NAME = "synapsen_ocr_font"  # 埋め込みフォントのエイリアス
+    OCR_FONT_NAME = "synapsen_ocr_font"
 
     try:
         doc = fitz.open(pdf_path_str)
@@ -792,12 +769,12 @@ def embed_ocr_text_in_pdf(
         meaningful_text_threshold = 10
 
         if not enable_tesseract:
-            logger.info("Tesseract OCR は無効です。スキップします。")
+            logger.info("Tesseract OCR 無効のためスキップ")
             return
 
         logger.info(
-            "Tesseract OCR を実行し、テキストを埋め込みます: "
-            f"{Path(pdf_path_str).name}"
+            f"Tesseract OCR 実行中: {Path(pdf_path_str).name}",
+            extra={"sensitive": True},
         )
 
         pages_processed_count = 0
@@ -808,8 +785,7 @@ def embed_ocr_text_in_pdf(
             page_text = page.get_text("text", sort=True).strip()
             if len(page_text) > meaningful_text_threshold:
                 logger.info(
-                    f"Page {page_num + 1} には既存テキストがあるためスキップ。",
-                    extra={"sensitive": True},
+                    f"Page {page_num + 1} には既存テキストがあるためスキップ。"
                 )
                 continue
 
@@ -831,11 +807,7 @@ def embed_ocr_text_in_pdf(
                     img, lang=lang, output_type=Output.STRING
                 )
 
-                if tsv_data is None or len(tsv_data.strip()) == 0:
-                    logger.warning(
-                        "TesseractがTSVデータを返しませんでした "
-                        f"(Page {page_num + 1})"
-                    )
+                if not tsv_data or len(tsv_data.strip()) == 0:
                     continue
 
                 # 8. TesseractのTSVデータを解析
@@ -860,10 +832,11 @@ def embed_ocr_text_in_pdf(
                 try:
                     page.insert_font(fontname=OCR_FONT_NAME, fontfile=font_path)
                 except Exception:
-                    pass  # 既に登録済みなどのエラーは無視
+                    pass
 
                 # 10. 透明テキストを挿入
-                dpi_scale = 72 / 300  # DPI=300 -> 72 DPI (ポイント) に座標を戻す
+
+                dpi_scale = 72 / 300
                 for _, row in df.iterrows():
                     x0, y0, w, h = (
                         row["left"],
@@ -877,24 +850,20 @@ def embed_ocr_text_in_pdf(
                         (x0 + w) * dpi_scale,
                         (y0 + h) * dpi_scale,
                     )
-                    fs = max(h * dpi_scale * 0.8, 6.0)  # フォントサイズ
-
+                    fs = max(h * dpi_scale * 0.8, 6.0)
                     page.insert_text(
                         rect.bottom_left,
                         str(row["text"]),
                         fontname=OCR_FONT_NAME,
                         fontsize=fs,
-                        render_mode=3,  # 3 = 透明 (描画せず、テキスト選択・検索のみ可能)
+                        render_mode=3,
                         rotate=0,
                     )
 
             except pytesseract.TesseractNotFoundError:
-                # このエラーは回復不能なので、ループを抜けて上位に投げる
-                raise Exception(
-                    "Tesseract-OCRが見つかりません。PATHを確認してください。"
-                )
+                raise Exception("Tesseract-OCRが見つかりません。")
             except Exception as ocr_err:
-                logger.warning(f"Tesseract OCRエラー (Page {page_num + 1}): {ocr_err}")
+                logger.warning(f"OCRエラー (Page {page_num + 1}): {ocr_err}")
                 continue
 
         if pages_processed_count == 0:
@@ -912,18 +881,16 @@ def embed_ocr_text_in_pdf(
 
     except Exception as e:
         logger.error(
-            f"PDFテキスト埋め込み処理中にエラー ({pdf_path_str}): {e}",
-            extra={"sensitive": True},
+            f"OCR処理中にエラー ({pdf_path_str}): {e}", extra={"sensitive": True}
         )
         if Path(temp_output_path).is_file():
             try:
-                Path(temp_output_path).unlink()  # エラー時は一時ファイルを削除
-            except Exception as e_del:
-                logger.warning(f"エラー発生後の一時ファイル削除に失敗: {e_del}")
+                Path(temp_output_path).unlink()
+            except Exception:
+                pass
         if doc:
             doc.close()
-        raise  # TesseractNotFoundError などを上位に伝える
-
+        raise
     finally:
         if doc:
             doc.close()
@@ -1100,15 +1067,14 @@ def convert_document_to_pdf(
         elif file_suffix == ".txt":
             import html
 
-            escaped_content = html.escape(content)
+            escaped = html.escape(content)
             # preタグで囲み、CSSでフォントと言語を指定 (font-familyはシステムのsans-serifに依存させます)
             modified_content = (
-                "<pre style='white-space: pre-wrap; "
-                "font-family: sans-serif;'>"
-                f"{escaped_content}</pre>"
+                "<pre style='white-space: pre-wrap; font-family: sans-serif;'>"
+                f"{escaped}</pre>"
             )
         else:
-            modified_content = content  # DOCXなどはそのままPandocに渡す
+            modified_content = content
 
         # 前処理が不要な形式（docxなど）と、処理済みの内容を一時ファイルに書き出す
         if file_suffix in [".docx", ".rtf", ".odt"]:
@@ -1139,7 +1105,7 @@ def convert_document_to_pdf(
         "pandoc",
         "--from",
         input_format,
-        str(temp_modified_content_path),  # 処理後の一時ファイルを使用
+        str(temp_modified_content_path),
         "-s",
         "--embed-resources",
         "--mathml",

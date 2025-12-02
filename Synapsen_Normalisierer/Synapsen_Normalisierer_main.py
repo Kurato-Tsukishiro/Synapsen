@@ -196,7 +196,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         読み込む設定:
         - Paths: font_path, tags_data_path, database_path
-        - LaTeX: paper_size, font, author, title_prefix
+        - ReportLab: paper_size, font, author, title_prefix
         - Automation:
             enable_tesseract_ocr,
             auto_append_to_default_db,
@@ -241,8 +241,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.font_path = os.path.join(config_dir, expanded_path)
             self.config_data["font_path"] = self.font_path
 
+            # --- セクション名の切り替え処理 ---
+
             # 2. 用紙サイズの読み込み
-            paper_size_str = config.get("LaTeX", "paper_size", fallback="A4").upper()
+            paper_size_str = config.get(
+                "ReportLab", "paper_size", fallback="A4"
+            ).upper()
             if paper_size_str == "A5":
                 self.paper_width = A5_WIDTH
                 self.paper_height = A5_HEIGHT
@@ -263,9 +267,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
             self.config_data["flatten_ink_annotations"] = self.flatten_ink
 
-            # 5. LaTeXフォント名の読み込み (Pandoc用)
-            self.config_data["latex_font"] = config.get(
-                "LaTeX", "font", fallback="MS UI Gothic"
+            # 5. フォント設定 (現在未使用だが、設定としては読み込んでおく)
+            self.config_data["reportlab_font"] = config.get(
+                "ReportLab", "font", fallback=""
             )
 
             # 6. 引用Key用QRコードのサイズの読み込み
@@ -302,7 +306,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             messagebox.showerror(
                 "設定エラー", f"config.ini の読み込みに失敗しました:\n{e}"
             )
-            self.font_path = None  # エラー時はフォントパスをNoneに
+            self.font_path = None
 
     def _validate_config_and_update_ui(self) -> None:
         """
