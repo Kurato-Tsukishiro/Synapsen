@@ -331,10 +331,10 @@ class Synapsen_Ersteller(ctk.CTk):
         # フォントパスの環境変数展開
         raw_font = config.get(section_name, "font", fallback="").strip()
         if raw_font:
-            self.latex_font = os.path.expandvars(raw_font)
+            self.reportlab_font = os.path.expandvars(raw_font)
 
-        self.latex_author = config.get(section_name, "author", fallback="Your Name")
-        self.latex_title_prefix = config.get(
+        self.reportlab_author = config.get(section_name, "author", fallback="Your Name")
+        self.reportlab_title_prefix = config.get(
             section_name, "title_prefix", fallback="月刊 統合ノート"
         )
         try:
@@ -1020,7 +1020,7 @@ class Synapsen_Ersteller(ctk.CTk):
             return
         year, month = date_input
 
-        base_pdf_title = f"{self.latex_title_prefix} ({year}年 {month}月)"
+        base_pdf_title = f"{self.reportlab_title_prefix} ({year}年 {month}月)"
 
         save_filepath_str = tkinter.filedialog.asksaveasfilename(
             defaultextension=".pdf",
@@ -1081,8 +1081,8 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 gen_config = {
                     "font_path": self.font_path,
-                    "latex_font": self.latex_font,
-                    "latex_author": self.latex_author,
+                    "reportlab_font": self.reportlab_font,
+                    "reportlab_author": self.reportlab_author,
                     "key_icons": self.key_icons,
                     "key_colors": self.key_colors,
                 }
@@ -1155,7 +1155,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 # PDFプロパティにタイトルや作成者を書き込む
                 metadata = {
                     "/Title": current_pdf_title,
-                    "/Author": self.latex_author,
+                    "/Author": self.reportlab_author,
                     "/Producer": "Synapsen Ersteller (ReportLab + pypdf)",
                     "/Creator": "Synapsen",
                     "/CreationDate": datetime.now().strftime("D:%Y%m%d%H%M%S"),

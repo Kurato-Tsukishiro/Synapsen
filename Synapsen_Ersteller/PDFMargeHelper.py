@@ -10,7 +10,7 @@ IMAGE_DPI = 200
 
 
 def hex_to_rgb_frac(hex_color):
-    """16進数カラーコードをLaTeXのrgb形式(0-1)に変換するヘルパー関数
+    """16進数カラーコードをrgb形式(0-1)に変換するヘルパー関数
 
     Args:
         hex_color (_type_): 16進数のカラーコード

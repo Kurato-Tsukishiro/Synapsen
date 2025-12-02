@@ -52,12 +52,12 @@ class ReportLabPDFGenerator:
         設定ファイル (config.ini) のパスを確認し、有効なフォントが見つからない場合は
         Helvetica (デフォルト) を使用する。
         """
-        path_latex = self.config.get("latex_font", "")
+        path_reportlab = self.config.get("reportlab_font", "")
         path_common = self.config.get("font_path", "")
         target_path = None
 
-        if path_latex and os.path.exists(path_latex):
-            target_path = path_latex
+        if path_reportlab and os.path.exists(path_reportlab):
+            target_path = path_reportlab
         elif path_common and os.path.exists(path_common):
             target_path = path_common
         else:
@@ -378,7 +378,7 @@ class ReportLabPDFGenerator:
         pdf_canvas.drawCentredString(width / 2, height / 2 + 20 * mm, title)
 
         pdf_canvas.setFont(self.font_name, 12)
-        author = self.config.get("latex_author", "Synapsen Ersteller")
+        author = self.config.get("reportlab_author", "Synapsen Ersteller")
         pdf_canvas.drawCentredString(width / 2, height / 2 - 20 * mm, author)
 
         dt_now = datetime.datetime.now()

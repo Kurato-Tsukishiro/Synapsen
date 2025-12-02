@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 CM_TO_PT: float = 72 / 2.54
 
-# Ersteller (LaTeX) のレイアウトに合わせた安全な余白設定
+# Erstellerで行う統合のレイアウトに合わせた安全な余白設定
 # (単位: cm)
 LAYOUT_MARGINS = {
     "A4": {

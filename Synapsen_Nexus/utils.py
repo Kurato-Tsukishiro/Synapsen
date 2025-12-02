@@ -147,9 +147,11 @@ def load_app_config(base_path):
             config_data["include_all_tags_for_autocomplete"] = True
             config_data["exclude_tags_by_default"] = []
 
-        # [LaTeX]
-        if parser.has_section("LaTeX"):
-            config_data["paper_size"] = parser.get("LaTeX", "paper_size", fallback="A4")
+        # [ReportLab]
+        if parser.has_section("ReportLab"):
+            config_data["paper_size"] = parser.get(
+                "ReportLab", "paper_size", fallback="A4"
+            )
         else:
             config_data["paper_size"] = "A4"
 
