@@ -59,6 +59,7 @@ class ReportLabPDFGenerator:
         if path_reportlab and os.path.exists(path_reportlab):
             target_path = path_reportlab
         elif path_common and os.path.exists(path_common):
+            # [ReportLab]の"font"が未設定なら [Path]の"font_path"を使用
             target_path = path_common
         else:
             logger.warning(

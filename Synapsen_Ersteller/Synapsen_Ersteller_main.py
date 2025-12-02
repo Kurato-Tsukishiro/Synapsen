@@ -329,9 +329,23 @@ class Synapsen_Ersteller(ctk.CTk):
             logger.debug("Ersteller paper size set to A4")
 
         # フォントパスの環境変数展開
-        raw_font = config.get(section_name, "font", fallback="").strip()
+        font_from_config = config.get(section_name, "font", fallback="").strip()
+        raw_font = os.path.expandvars(font_from_config)
+
         if raw_font:
-            self.reportlab_font = os.path.expandvars(raw_font)
+            expanded_reportlab_font = os.path.expandvars(raw_font)
+        else:
+            expanded_reportlab_font = ""
+
+        if not expanded_reportlab_font:
+            # 空文字の場合そのまま使用
+            self.reportlab_font = ""
+        elif os.path.isabs(expanded_reportlab_font):
+            # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合、そのまま使用
+            self.reportlab_font = expanded_reportlab_font
+        else :
+            # configの値が相対パスの場合、config_dir と結合する
+            self.reportlab_font = os.path.join(config_dir, expanded_path)
 
         self.reportlab_author = config.get(section_name, "author", fallback="Your Name")
         self.reportlab_title_prefix = config.get(

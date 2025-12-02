@@ -51,9 +51,9 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
     優先順位: PDFメタデータ(JSON) -> QRコード -> key_rect テキスト -> ファイル名
     """
     try:
-        # --- 1. まずファイル名を解析 (基本フォールバック用) ---
+        # --- 1. ファイル名解析 ---
         match = re.match(
-            r"(\d{8})_(?:(\d{4,6})_)?(.+)\.pdf", pdf_path.name, re.IGNORECASE
+            r"(\d{8})_(?:(\d{4,6})_)?(.*)\.pdf", pdf_path.name, re.IGNORECASE
         )
 
         if match:
@@ -62,10 +62,19 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             key_time = time_str if time_str != "999999" else "000000"
             auto_generated_key = date_str + key_time
             is_warning = False
+
+            # タイトルが空、または記号のみの場合は空文字にする
+            if not title or not title.strip():
+                title = ""
         else:
             date_str = "日付不明"
             time_str = "999999"
             title = pdf_path.stem
+
+            # ".pdf" のようなドット始まりや空文字はタイトルとみなさない
+            if title.startswith(".") or not title.strip():
+                title = ""
+
             auto_generated_key = ""
             is_warning = True
 
@@ -76,7 +85,6 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
         auto_detected_tags = []  # 自動検出されたタグを格納するリスト
 
         doc = None
-        data_found_priority = False
 
         # ハイブリッド処理のステータス管理
         # (メタデータが見つかれば、後の重い処理をスキップするため)
@@ -122,7 +130,9 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                 subject = metadata.get("subject", "") or ""
 
                 # 隠しJSONを探す
-                json_match = re.search(r"", subject, re.DOTALL)
+                json_match = re.search(
+                    r"<synapsen>(.*?)</synapsen>", subject, re.DOTALL
+                )
 
                 if json_match:
                     try:
@@ -160,13 +170,12 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         logger.warning(f"Metadata parse error ({pdf_path.name}): {e}")
 
                 # ============================================================
-                # Phase 2: QRコード / テキスト解析 (メタデータがない場合のみ実行)
+                # Phase 2: QRコード / テキスト解析
                 # ============================================================
                 if not data_found_priority:
+                    qr_found = False
 
-                    qr_found = False  # Page 1 QRが見つかったか
-
-                    # --- 2A. QRコードからの読み取り (Page 1: Key/CPK) ---
+                    # 2A. QRコード (Page 1)
                     if decode is not None:
                         try:
                             page1 = doc[0]
@@ -204,7 +213,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         except Exception as e:
                             logger.warning(f"QR scan error (Page 1): {e}")
 
-                    # --- 2B. QRコードからの読み取り (Last Page: Refs) ---
+                    # 2B. QRコード (Last Page)
                     if len(doc) > 1 and decode is not None:
                         try:
                             pageLast = doc[-1]
@@ -240,9 +249,8 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         except Exception as e:
                             logger.warning(f"QR scan error (Last Page): {e}")
 
-                    # --- 2C. 座標指定テキスト抽出 ---
+                    # 2C. テキスト抽出
                     if not qr_found and key_rect and len(key_rect) == 4:
-                        # メタデータもQRもなく、スキャン画像でもない(テキストがある)場合
                         try:
                             raw_text = doc[0].get_textbox(key_rect)
                             if raw_text.strip():
@@ -267,9 +275,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             if "STypes_MOC" not in auto_detected_tags:
                 auto_detected_tags.append("STypes_MOC")
 
-        # --- 3. 結果の返却 ---
-        # ページ数の再取得 (pypdfの方が軽量な場合があるが、ここでは正確性のため再オープンせずdoc情報を使いたいがclose済み)
-        # pypdfで安全にページ数を取得
+        # ページ数取得 (pypdf)
         try:
             page_count = len(PdfReader(pdf_path).pages)
         except Exception:
