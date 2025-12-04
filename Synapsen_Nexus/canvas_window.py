@@ -1476,7 +1476,8 @@ class CanvasWindow(BaseSubWindow):
 
     # --- アイテム作成 ---
     def add_selected_notes(self, target_keys=None):
-        # 引数がなければ Nexus の選択状態を参照 (ショートカット 'N' の場合など)
+        """Nexusで選択中のノートをキャンバスに追加する"""
+        # 引数がなければ Nexus の選択状態を参照
         selected_keys = (
             target_keys if target_keys is not None else self.parent_app.selected_keys
         )
@@ -1491,22 +1492,62 @@ class CanvasWindow(BaseSubWindow):
 
         self._snapshot()
 
-        df = self.parent_app.df
-        start_x = (self.canvas.canvasx(100) - self.canvas_offset_x) / self.current_scale
-        start_y = (self.canvas.canvasy(100) - self.canvas_offset_y) / self.current_scale
-        added = 0
-        for _, row in df[df["key"].isin(selected_keys)].iterrows():
-            key = row["key"]
-            if key in self.notes_on_canvas:
-                continue
-            self.create_note_item(
-                key, row["title"], row.get("commonplace_key", ""), start_x, start_y
+        conn = self.parent_app.db_conn
+        if not conn:
+            return
+
+        try:
+            # 選択されたキーのリスト化
+            keys_list = list(selected_keys)
+
+            # SQLクエリの構築
+            placeholders = ",".join("?" * len(keys_list))
+            sql = (
+                "SELECT key, title, "
+                f"commonplace_key FROM notes WHERE key IN ({placeholders})")
+
+            cursor = conn.cursor()
+            cursor.execute(sql, keys_list)
+            rows = cursor.fetchall()
+
+            # 配置座標の計算
+            start_x = (
+                self.canvas.canvasx(100) - self.canvas_offset_x
+            ) / self.current_scale
+            start_y = (
+                self.canvas.canvasy(100) - self.canvas_offset_y
+            ) / self.current_scale
+            added = 0
+
+            for row in rows:
+                # DBから取得したタプル (key, title, commonplace_key)
+                # sqlite3.Row factoryが設定されている場合もありますが、インデックスアクセスは共通で使えます
+                key = row[0]
+                title = row[1]
+                cp_key = row[2]
+
+                # 既にキャンバスにある場合はスキップ
+                if key in self.notes_on_canvas:
+                    continue
+
+                # ノートを作成
+                self.create_note_item(
+                    key, title, cp_key if cp_key else "", start_x, start_y
+                )
+
+                # 座標をずらす
+                start_x += 30
+                start_y += 30
+                added += 1
+
+            if added > 0:
+                self.save_canvas()
+
+        except Exception as e:
+            logger.error(f"Canvas add notes error: {e}")
+            messagebox.showerror(
+                "エラー", f"ノートの追加に失敗しました: {e}", parent=self
             )
-            start_x += 30
-            start_y += 30
-            added += 1
-        if added > 0:
-            self.save_canvas()
 
     def create_note_item(self, key, title, cp_key, x, y, w=160, h=80):
         color = self.parent_app.key_colors.get(cp_key.lower(), "#aaaaaa")
