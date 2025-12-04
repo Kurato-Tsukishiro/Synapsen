@@ -343,7 +343,7 @@ class Synapsen_Ersteller(ctk.CTk):
         elif os.path.isabs(expanded_reportlab_font):
             # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合、そのまま使用
             self.reportlab_font = expanded_reportlab_font
-        else :
+        else:
             # configの値が相対パスの場合、config_dir と結合する
             self.reportlab_font = os.path.join(config_dir, expanded_path)
 
@@ -461,6 +461,10 @@ class Synapsen_Ersteller(ctk.CTk):
         マスターDB（config.iniのdatabase_path）に、
         重複をチェックしながらノート情報を追記する。
         """
+        if not self.default_db_path:
+            logger.error("DBパスが設定されていないため追記できません。")
+            return
+
         master_db_path = Path(self.default_db_path)
         table_name = "notes"
 
@@ -474,6 +478,9 @@ class Synapsen_Ersteller(ctk.CTk):
         if df_new_notes.empty:
             logger.info("DB追記対象のノート（有効なKeyを持つもの）がありません。")
             return
+
+        # 入力データ内の重複を排除 (Keyが同じなら最初のものを優先)
+        df_new_notes = df_new_notes.drop_duplicates(subset=["key"], keep="first")
 
         # タグリストを ';' 区切りの文字列に変換
         if "tags" in df_new_notes.columns:
@@ -571,14 +578,14 @@ class Synapsen_Ersteller(ctk.CTk):
             # 2. 既存のキーをDBから取得
             existing_keys = set()
             try:
-                # テーブルが存在するか確認し、存在すればキーを取得
-                existing_keys = set(
-                    pd.read_sql_query(f"SELECT key FROM {table_name}", conn)["key"]
+                # 既存キーを取得
+                current_keys_df = pd.read_sql_query(
+                    f"SELECT key FROM {table_name}", conn
                 )
-            except pd.io.sql.DatabaseError:
-                logger.info(
-                    f"テーブル '{table_name}' が存在しません。新規に作成します。"
-                )
+                existing_keys = set(current_keys_df["key"])
+            except Exception:
+                # テーブルが今作られたばかりならデータはない
+                pass
 
             # 3. 既存キーと重複しないノートのみをフィルタリング
             keys_to_append = df_new_notes["key"]
