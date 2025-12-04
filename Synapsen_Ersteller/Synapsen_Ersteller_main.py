@@ -1154,9 +1154,9 @@ class Synapsen_Ersteller(ctk.CTk):
 
                             template_page = draft_reader.pages[note_page_cursor]
                             content_page = original_reader.pages[i]
-                            template_page.merge_page(content_page)
+                            content_page.merge_page(template_page)
 
-                            final_writer.add_page(template_page)
+                            final_writer.add_page(content_page)
                             note_page_cursor += 1
                     except Exception as e:
                         logger.error(f"ノート結合エラー ({note.get('title')}): {e}")
