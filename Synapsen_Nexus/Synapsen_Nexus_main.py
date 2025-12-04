@@ -18,7 +18,6 @@ import logging
 
 from utils import (
     load_app_config,
-    load_sql_data_file,
     open_pdf_viewer,
     build_memo_display,
     build_references_display,
@@ -27,8 +26,10 @@ from utils import (
     delete_note_from_db,
     get_pdf_page_image,
     find_file_in_paths,
+    fetch_notes_from_db,
+    count_notes_from_db,
 )
-from search_parser import parse_or_expression
+from search_parser import parse_query_to_sql
 from list_navigator import ListNavigatorMixin
 
 from preview_window import NotePreviewWindow
@@ -89,8 +90,15 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.grid_columnconfigure(1, weight=2)  # 右パネル
         self.grid_rowconfigure(1, weight=1)
 
+        # --- ページネーション管理 ---
+        self.current_page = 0
+        self.items_per_page = 50
+        self.total_items = 0
+        self.current_where_clause = ""
+        self.current_params = []
+        self._pending_reveal_key = None  # ページジャンプ後のカーソル移動予約
+
         # --- アプリケーションの状態変数 ---
-        self.df = None                      # ノートデータを保持するDataFrame
         self.pdf_root_folder = None         # 統合PDFが存在する(メイン)フォルダのルートパス
         self.pdf_archive_folder = None      # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス  # noqa: E501
         self.loaded_db_path = None          # 現在開いているDBのパス
@@ -457,6 +465,14 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             lambda e: self._handle_shortcut(self.reveal_current_note_in_list),
         )
 
+        # ページ切り替え (左右キー)
+        self.bind("<Left>", lambda e: self._handle_shortcut(self.prev_page))
+        self.bind("<Right>", lambda e: self._handle_shortcut(self.next_page))
+
+        # 最初/最後のページへ移動 (Alt + Home/End)
+        self.bind("<Alt-Home>", lambda e: self._handle_shortcut(self.first_page))
+        self.bind("<Alt-End>", lambda e: self._handle_shortcut(self.last_page))
+
         # Escキー: フォーカス解除
         self.bind("<Escape>", self._handle_escape)
 
@@ -505,8 +521,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
     def reveal_current_note_in_list(self):
         """
-        詳細パネルに表示中のノートをリスト内で探し、そこへスクロール＆カーソル移動する。
-        リスト内に存在しない場合は、選択数ラベルで通知する。
+        詳細パネルに表示中のノートをリスト内で探し、カーソル移動する。
+        別ページにある場合はページ遷移を行う。
         """
         # ノートが選択されていない場合は何もしない
         if self.current_selected_row is None:
@@ -516,7 +532,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         if not target_key:
             return
 
-        # リストウィジェットを走査してインデックスを探す
+        # 1. まず現在の表示リスト内を探す
         target_index = -1
         if self.list_item_widgets:
             for i, item in enumerate(self.list_item_widgets):
@@ -525,16 +541,76 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                     break
 
         if target_index != -1:
-            # 見つかった場合: カーソル移動＆スクロール
+            # 現在のページに見つかった場合
             self._set_list_cursor(target_index)
-            self.focus_set()  # リスト操作できるようにフォーカスをウィンドウに戻す
+            self.focus_set()
         else:
-            # 見つからなかった場合: ユーザーに通知
-            logger.info(f"Reveal failed: Note {target_key} not in current list.")
-            # 一時的にラベルで通知
-            self.selection_info_label.configure(text="リスト外", text_color="orange")
-            # 1.5秒後に元の表示に戻す
-            self.after(1500, self.update_selection_ui_state)
+            # 2. 見つからない場合、別ページにあるか計算してジャンプ
+            target_page = self._calculate_page_for_key(target_key)
+
+            if target_page != -1:
+                if target_page == self.current_page:
+                    # 計算上は今のページにいるはずだが見つからない (フィルタで除外されている等)
+                    self.selection_info_label.configure(
+                        text="リスト外", text_color="orange"
+                    )
+                    self.after(1500, self.update_selection_ui_state)
+                else:
+                    # ページ遷移を実行
+                    self.selection_info_label.configure(
+                        text="ジャンプ中...", text_color="#E0a800"
+                    )
+
+                    self._pending_reveal_key = target_key  # 読み込み完了後の予約
+                    self.current_page = target_page
+                    self.perform_search(reset_page=False)  # 指定ページで再検索
+            else:
+                # 検索条件に合致しない (除外タグなど)
+                self.selection_info_label.configure(
+                    text="リスト外", text_color="orange"
+                )
+                self.after(1500, self.update_selection_ui_state)
+
+    def _calculate_page_for_key(self, target_key):
+        """
+        指定されたKeyが、現在の検索条件・ソート順で何ページ目にあるかを計算する。
+        """
+        if not self.db_conn or not target_key:
+            return -1
+
+        try:
+            # 現在の検索条件 (WHERE句)
+            where_clause = self.current_where_clause
+            params = list(self.current_params) if self.current_params else []
+
+            # 現在のソート順
+            order_dir = "ASC" if self.sort_ascending else "DESC"
+
+            # 全件のKeyをソート順通りに取得 (軽量なので全件取得しても高速)
+            sql = "SELECT key FROM notes"
+            if where_clause:
+                sql += f" WHERE {where_clause}"
+
+            # utils.fetch_notes_from_db と同じソート順にする
+            sql += f" ORDER BY date {order_dir}, time {order_dir}, key {order_dir}"
+
+            cursor = self.db_conn.cursor()
+            cursor.execute(sql, params)
+
+            # 全キーを取得してインデックスを探す
+            # (数万件程度ならメモリ展開しても一瞬です)
+            all_keys = [row[0] for row in cursor.fetchall()]
+
+            if target_key in all_keys:
+                index = all_keys.index(target_key)
+                # ページ番号 = インデックス // 1ページあたりの件数
+                return index // self.items_per_page
+
+            return -1
+
+        except Exception as e:
+            logger.error(f"ページ計算エラー: {e}")
+            return -1
 
     # -------------------------------------------------------------------------
 
@@ -546,25 +622,20 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         # 1. 事前定義タグでセットを初期化
         tags_set = set(self.predefined_tags)
 
-        # 設定が True の場合のみ、全ノートのタグをスキャンして追加
-        if self.include_all_tags_for_autocomplete:
-            if self.df is not None and not self.df.empty and "tags" in self.df.columns:
-                valid_tags_series = self.df["tags"].dropna()
-                valid_tags_series = valid_tags_series[valid_tags_series != ""]
+        if self.include_all_tags_for_autocomplete and self.db_conn:
+            try:
+                # DISTINCT tags を取得して分解
+                cursor = self.db_conn.cursor()
+                cursor.execute("SELECT DISTINCT tags FROM notes")
+                for (tags_str,) in cursor.fetchall():
+                    if tags_str:
+                        for t in tags_str.split(";"):
+                            if t.strip():
+                                tags_set.add(t.strip())
+            except Exception as e:
+                logger.error(f"Tags refresh error: {e}")
 
-                for tags_str in valid_tags_series:
-                    current_note_tags = [
-                        t.strip() for t in tags_str.split(";") if t.strip()
-                    ]
-                    tags_set.update(current_note_tags)
-
-        # 3. ソートしてリスト化
         self.all_unique_tags = sorted(list(tags_set))
-        logger.debug(
-            "タグリスト更新 "
-            f"(全タグ含む: {self.include_all_tags_for_autocomplete}): "
-            f"{len(self.all_unique_tags)} 件"
-        )
 
     def create_widgets(self):
         # --- トップコンテナ (全体を包むフレーム) ---
@@ -818,6 +889,33 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             self.left_panel, label_text="ノート一覧"
         )
         self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
+
+        # --- ページネーション UI ---
+        self.pagination_frame = ctk.CTkFrame(
+            self.left_panel, fg_color="transparent", height=40
+        )
+        self.pagination_frame.grid(row=3, column=0, sticky="ew", pady=(5, 0))
+
+        self.btn_prev_page = ctk.CTkButton(
+            self.pagination_frame,
+            text="< 前へ",
+            width=80,
+            command=self.prev_page,
+            state="disabled",
+        )
+        self.btn_prev_page.pack(side="left", padx=10)
+
+        self.page_label = ctk.CTkLabel(self.pagination_frame, text="0 / 0")
+        self.page_label.pack(side="left", expand=True)
+
+        self.btn_next_page = ctk.CTkButton(
+            self.pagination_frame,
+            text="次へ >",
+            width=80,
+            command=self.next_page,
+            state="disabled",
+        )
+        self.btn_next_page.pack(side="right", padx=10)
 
         # --- 右パネル (詳細・プレビュー) ---
         self.details_frame = ctk.CTkFrame(self)
@@ -1295,16 +1393,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             # --- 1. 読み取り専用接続 (db_conn) のクローズ/再生成 ---
             if self.db_conn:
                 self.db_conn.close()
-                self.db_conn = None
 
-            self.df = load_sql_data_file(filepath)  # utils (full_textなし)
             self.loaded_db_path = filepath
-
-            # 読み取り専用のDB接続を保持 (メインのUI用)
+            # SQLite接続 (読み取り専用)
             self.db_conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
 
-            # --- 2. テーブル構造の確認 (書き込み接続) ---
-            # アプリ起動時/DB読込時に note_links テーブルが存在するか確認し、なければ作成
+            # --- テーブル構造チェック ---
             conn_write = None
             try:
                 conn_write = sqlite3.connect(filepath)  # 書き込みモードで接続
@@ -1338,35 +1432,26 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 if conn_write:
                     conn_write.close()
 
-            # --- 3. UIリセット ---
-            self.refresh_unique_tags()
-            self.perform_search()
+            # UIリセット & 初期検索
+            self.current_page = 0
+            self.refresh_unique_tags()  # タグリスト更新はSQLで行うよう要修正(後述)
+            self.perform_search()  # ここで最初の50件がロードされる
 
-            # 変更したノートを再表示するロジック
-            if key_to_redisplay and self.df is not None:
-                # key_to_redisplay を使って、更新後のdfから行を検索
-                target_note_row = self.df[self.df["key"] == key_to_redisplay]
-
-                if not target_note_row.empty:
-                    # 編集したノートが見つかったら、詳細を再表示
-                    self.show_details(target_note_row.iloc[0])
+            # 再表示処理
+            if key_to_redisplay:
+                # 特定のノートだけ個別に取得して表示
+                notes = fetch_notes_from_db(self.db_conn, "key = ?", [key_to_redisplay])
+                if notes:
+                    self.show_details(
+                        pd.Series(notes[0])
+                    )  # 互換性のためSeriesに変換して渡す
                 else:
-                    # ノートが見つからない場合 (削除されたなど) はクリア
                     self.clear_details()
             else:
-                # 再表示するキーが指定されていない場合はクリア
                 self.clear_details()
 
-            self.filter_panel_expanded = False
-            self.sync_filter_panel_view()
-
-        except sqlite3.OperationalError as e:
-            messagebox.showerror(
-                "データベース読み込みエラー",
-                f"DB接続に失敗しました (読み取り専用モード): {e}",
-            )
         except Exception as e:
-            messagebox.showerror("データベース読み込みエラー", str(e))
+            messagebox.showerror("DBエラー", str(e))
 
     def populate_key_filters(self):
         for widget in self.key_filter_frame.winfo_children():
@@ -1403,221 +1488,195 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         """
         try:
             while True:
-                # キューからデータを取り出す (非ブロッキング)
-                # キューが空になるまでループして取り出す
-                search_id, result_df = self._search_result_queue.get_nowait()
-                self._on_search_complete(search_id, result_df)
+                # キューから (search_id, result_data) を取り出す
+                # result_data は (rows, total) のタプル
+                search_id, result_data = self._search_result_queue.get_nowait()
+                self._on_search_complete(search_id, result_data)
         except queue.Empty:
-            # キューが空になったら、100ms後にまたチェック
             pass
         finally:
             self.after(100, self._poll_search_result)
 
-    def perform_search(self):
+    def perform_search(self, reset_page=True):
         """
         検索処理のエントリーポイント。
         UIスレッドで直接検索せず、バックグラウンドスレッドを開始します。
         """
-        if self.df is None:
-            self.update_results_list(pd.DataFrame())
+        if not self.db_conn:
             return
 
-        # 1. UIからの検索条件取得（これはメインスレッドで行う必要がある）
+        if reset_page:
+            self.current_page = 0
+
         user_query = self.search_entry.get().strip()
         include_full_text = self.fts_checkbox.get()
-        current_ascending = self.sort_ascending  # 現在のソート設定を取得
 
-        # 除外タグのクエリ結合
-        final_query = user_query
+        # --- 検索条件の構築 (メインスレッド) ---
 
-        # チェックボックスがON かつ 設定されたタグがある場合
+        # 1. 除外タグ
+        exclusion_query = ""
         if self.exclude_tags_checkbox.get() == 1 and self.exclude_tags_by_default:
-            # マイナス検索クエリを作成 (例: "-tag:Archive -tag:Done")
-            exclusion_parts = [f"-tag:{tag}" for tag in self.exclude_tags_by_default]
-            exclusion_query = " ".join(exclusion_parts)
+            parts = [f"-tag:{t}" for t in self.exclude_tags_by_default]
+            exclusion_query = " ".join(parts)
 
-            # ユーザーの入力がある場合は AND で結合、なければそのまま使用
-            if final_query:
-                final_query = f"({final_query}) AND ({exclusion_query})"
-            else:
-                final_query = exclusion_query
+        full_query_str = (
+            f"({user_query}) AND ({exclusion_query})"
+            if user_query and exclusion_query
+            else (user_query or exclusion_query)
+        )
 
-            logger.debug(
-                f"除外タグ適用後の内部クエリ: {final_query}", extra={"sensitive": True}
-            )
+        # 2. IndexKey フィルター
+        selected_filters = [
+            k for k, v in self.filter_checkboxes.items() if v.get() == "1"
+        ]
 
-        # IndexKey フィルターの状態取得
-        selected_filter_keys = []
-        for key, var in self.filter_checkboxes.items():
-            if var.get() == "1":
-                selected_filter_keys.append(key)
+        # 3. SQLへのパース
+        where_parts = []
+        params = []
 
-        # 2. 検索IDを更新
+        # クエリ文字列 -> SQL
+        if full_query_str:
+            q_sql, q_params = parse_query_to_sql(full_query_str, include_full_text)
+            if q_sql:
+                where_parts.append(q_sql)
+                params.extend(q_params)
+
+        # IndexKey -> SQL
+        if selected_filters:
+            placeholders = ",".join(["?"] * len(selected_filters))
+            where_parts.append(f"commonplace_key IN ({placeholders})")
+            params.extend(selected_filters)
+
+        final_where = " AND ".join(where_parts) if where_parts else ""
+
+        # 状態保存 (ページネーション用)
+        self.current_where_clause = final_where
+        self.current_params = params
+
+        # ID更新
         with self._search_lock:
             self._current_search_id += 1
             search_id = self._current_search_id
 
-        # 3. UIの更新: 検索中表示
-        self.results_list.configure(
-            label_text="検索結果 (検索中...)", label_text_color="#E0a800"  # オレンジ色
-        )
-
-        # マウスカーソルを待機状態に
+        # ローディング表示
+        self.results_list.configure(label_text="検索中...")
         self.configure(cursor="watch")
 
-        # 4. バックグラウンドスレッドの開始
+        # スレッド開始
         thread = threading.Thread(
             target=self._execute_search_worker,
             args=(
                 search_id,
-                final_query,
-                include_full_text,
-                selected_filter_keys,
-                self.loaded_db_path,
-                current_ascending,
+                self.loaded_db_path,  # パスを渡してスレッド内で接続
+                final_where,
+                params,
+                self.current_page,
+                self.items_per_page,
+                self.sort_ascending,
             ),
             daemon=True,
         )
         thread.start()
 
     def _execute_search_worker(
-        self,
-        search_id,
-        query_text,
-        include_full_text,
-        selected_filter_keys,
-        db_path,
-        ascending_flag,
+        self, search_id, db_path, where, params, page, limit, asc
     ):
-        """
-        バックグラウンドスレッドで実行される検索ロジック。
-        Args:
-            search_id (int): この検索の一意なID。
-            query_text (str): 検索クエリ文字列。
-            include_full_text (bool): 本文・メモ検索を含めるか。
-            selected_filter_keys (list): 選択されたIndexKeyフィルターのリスト。
-            db_path (Path): FTS用のDBファイルパス。
-            ascending_flag (bool): ソート順。DefaultはTrueで昇順。
-        """
         try:
-            # (A) ベースDF (メモリ上のメタデータ)
-            base_df = self.df
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
-            # (B) --- 1. IndexKey フィルター (Pandas) ---
-            key_filter_mask = pd.Series([True] * len(base_df), index=base_df.index)
-            if selected_filter_keys:
-                key_filter_mask = base_df["commonplace_key"].isin(selected_filter_keys)
+            # 1. 総件数取得
+            total = count_notes_from_db(conn, where, params)
 
-            # (C) FTS用のDB接続(conn)準備
-            conn = None
+            # 2. データ取得
+            offset = page * limit
+            rows = fetch_notes_from_db(conn, where, params, limit, offset, asc)
 
-            # 孤立ノート (is:orphan) 検索の判定
-            is_orphan_search = "is:orphan" in query_text.lower()
-            if is_orphan_search:
-                # is:orphan をクエリから除去して、他の検索語(もしあれば)と併用できるようにする
-                # (例: "is:orphan tag:Python" -> Pythonタグを持つ孤立ノート)
-                query_text = re.sub(
-                    r"is:orphan", "", query_text, flags=re.IGNORECASE
-                ).strip()
+            conn.close()
 
-            # '本文・メモ検索' (include_full_text) が有効 又は
-            # 'memo:'/'fulltext:'/'text:' プレフィックスがクエリに含まれる場合に
-            # DB接続(conn)を準備する
-            query_lower = query_text.lower()
-            needs_db_search = (
-                include_full_text
-                or "memo:" in query_lower
-                or "fulltext:" in query_lower
-                or "text:" in query_lower
-                or is_orphan_search
-            )
-
-            if needs_db_search:  # クエリが空でもorphan検索なら接続する
-                try:
-                    # スレッドごとに読み取り専用接続を作成
-                    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-                except Exception as e:
-                    logger.error(f"FTS用DB接続エラー: {e}")
-                    # conn は None のまま
-
-            # (D) --- 2. 検索クエリ (search_parser.py) ---
-            query_mask = pd.Series([True] * len(base_df), index=base_df.index)
-            if query_text:
-                try:
-                    query_mask = parse_or_expression(
-                        base_df, query_text, include_full_text, conn
-                    )
-                except Exception as e:
-                    logger.error(f"検索クエリ解析エラー: {e}")
-                    query_mask = pd.Series([False] * len(base_df), index=base_df.index)
-
-            # (E) --- 孤立ノートフィルタリング ---
-            orphan_mask = pd.Series([True] * len(base_df), index=base_df.index)
-
-            if is_orphan_search and conn:
-                try:
-                    # リンクテーブルにある全ての source_key と target_key を取得
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        """
-                        SELECT source_key FROM note_links
-                        UNION
-                        SELECT target_key FROM note_links
-                    """
-                    )
-                    linked_keys = {row[0] for row in cursor.fetchall()}
-
-                    # リンクされているキーに含まれ「ない」ものを True にする
-                    orphan_mask = ~base_df["key"].isin(linked_keys)
-
-                except Exception as e:
-                    logger.error(f"孤立ノート検索エラー: {e}")
-            # --- 3. クリーンアップ ---
-            if conn:
-                conn.close()
-
-            # --- 4. 【重要】最終的な絞り込み ---
-            final_mask = key_filter_mask & query_mask & orphan_mask
-            filtered_df = base_df[final_mask]
-
-            if not filtered_df.empty:
-                # 受け取った ascending_flag を使用してソート
-                filtered_df = filtered_df.sort_values(
-                    by="key", ascending=ascending_flag
-                )
-
-            # --- 5. メインスレッドに結果を渡す (Queue経由) ---
-            self._search_result_queue.put((search_id, filtered_df))
+            self._search_result_queue.put((search_id, (rows, total)))
 
         except Exception as e:
-            logger.error(f"検索スレッドエラー: {e}", exc_info=True)
-            self._search_result_queue.put((search_id, pd.DataFrame()))
+            logger.error(f"Search thread error: {e}")
+            # エラー時も形式を合わせる
+            self._search_result_queue.put((search_id, ([], 0)))
 
-    def _on_search_complete(self, search_id, result_df):
-        """
-        【新規】
-        検索完了時にメインスレッドから呼び出されるコールバック。
-        結果の検証とUI更新を行います。
-        """
-        # マウスカーソルを元に戻す
+    def _on_search_complete(self, search_id, result_data):
+        """検索完了時のコールバック"""
+        if isinstance(result_data, tuple):
+            rows, total_count = result_data
+        else:
+            return
+
         self.configure(cursor="")
 
-        # 最新の検索IDと一致するか確認
         with self._search_lock:
             if search_id != self._current_search_id:
                 return
 
-        # キャッシュの更新
-        self.filtered_df_cache = result_df
+        self.filtered_df_cache = rows
+        self.total_items = total_count
 
-        # UIリストの更新
-        self.update_results_list(result_df)
-        self.update_collapsed_filter_view()
+        self.update_results_list(rows)
+        self._update_pagination_ui()
 
-        self.results_list.configure(label_text_color=("gray10", "#DCE4EE"))
+        # 【追加】 ジャンプ予約がある場合の処理
+        if self._pending_reveal_key:
+            target_index = -1
+            for i, item in enumerate(self.list_item_widgets):
+                if item["key"] == self._pending_reveal_key:
+                    target_index = i
+                    break
 
-        # デバッグ用出力
-        logger.debug(f"検索完了 (ID: {search_id}): {len(result_df)} 件ヒット")
+            if target_index != -1:
+                self._set_list_cursor(target_index)
+                self.focus_set()  # フォーカスをリストに戻す
+                # 成功メッセージ
+                self.selection_info_label.configure(
+                    text=f"ページ {self.current_page + 1}", text_color="#28a745"
+                )
+                self.after(1500, self.update_selection_ui_state)
+
+            # 予約をクリア
+            self._pending_reveal_key = None
+
+    def _update_pagination_ui(self):
+        max_page = max(0, (self.total_items - 1) // self.items_per_page)
+
+        self.page_label.configure(text=f"{self.current_page + 1} / {max_page + 1}")
+
+        if self.current_page > 0:
+            self.btn_prev_page.configure(state="normal")
+        else:
+            self.btn_prev_page.configure(state="disabled")
+
+        if self.current_page < max_page:
+            self.btn_next_page.configure(state="normal")
+        else:
+            self.btn_next_page.configure(state="disabled")
+
+    def last_page(self):
+        """最後のページへ移動"""
+        # 現在の総アイテム数から最大ページ数を計算
+        max_page = max(0, (self.total_items - 1) // self.items_per_page)
+
+        if self.current_page < max_page:
+            self.current_page = max_page
+            self.perform_search(reset_page=False)
+
+    def next_page(self):
+        self.current_page += 1
+        self.perform_search(reset_page=False)
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.perform_search(reset_page=False)
+
+    def first_page(self):
+        """最初のページへ移動"""
+        if self.current_page > 0:
+            self.current_page = 0
+            self.perform_search(reset_page=False)
 
     def _trigger_search_now(self):
         """
@@ -1690,58 +1749,52 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def show_random_note(self):
         """
         「閃き」ボタン押下時。
-        現在の検索結果（または全データ）からランダムに1件のノートを選択し、
-        詳細ペインに表示する。
+        現在の検索条件（または全データ）からランダムに1件のノートを取得し表示する。
         """
-
-        # 1. 使用するDataFrameを選択
-        target_df = None
-        if self.filtered_df_cache is not None and not self.filtered_df_cache.empty:
-            # 現在の検索結果キャッシュが存在すれば、それを使用
-            target_df = self.filtered_df_cache
-        elif self.df is not None and not self.df.empty:
-            # 検索結果が空（または未検索）だが、DB自体は読み込まれている場合
-            target_df = self.df
-
-        # 2. 選択対象が存在するかチェック
-        if target_df is None or target_df.empty:
-            messagebox.showinfo(
-                "ランダムノート",
-                "表示できるノートがありません。\nデータベースを読み込んでいるか確認してください。",
-                parent=self,
-            )
+        if not self.db_conn:
             return
 
         try:
-            # 3. DataFrameからランダムに1行を取得
-            # .sample() はランダムにDataFrameを返し、
-            # .iloc[0] でその最初の行 (Series) を取得
-            random_note_row = target_df.sample(n=1).iloc[0]
+            # 現在の検索条件 (WHERE句とパラメータ) を利用
+            where_clause = self.current_where_clause
+            params = list(self.current_params) if self.current_params else []
 
-            # 4. 詳細表示メソッドを呼び出す
-            self.show_details(random_note_row)
+            # ランダムに1件取得するSQL
+            sql = "SELECT * FROM notes"
+            if where_clause:
+                sql += f" WHERE {where_clause}"
 
-            # --- リスト上のカーソル移動 ---
-            # 選ばれたノートのキーを取得
-            target_key = random_note_row.get("key")
+            sql += " ORDER BY RANDOM() LIMIT 1"
 
-            # 現在表示中のリストウィジェットから、該当するキーを持つインデックスを探す
-            target_index = -1
-            if self.list_item_widgets:
-                for i, item in enumerate(self.list_item_widgets):
-                    if item["key"] == target_key:
-                        target_index = i
-                        break
+            cursor = self.db_conn.cursor()
+            cursor.execute(sql, params)
+            row = cursor.fetchone()
 
-            # 見つかった場合、カーソルを移動させる（ハイライト＆スクロール）
-            if target_index != -1:
-                self._set_list_cursor(target_index)
+            if row:
+                # カラム名付きの辞書に変換
+                columns = [col[0] for col in cursor.description]
+                note_data = dict(zip(columns, row))
+
+                # 詳細表示
+                self.show_details(note_data)
+
+                # リスト内にあればカーソル移動
+                target_key = note_data.get("key")
+                target_index = -1
+                if self.list_item_widgets:
+                    for i, item in enumerate(self.list_item_widgets):
+                        if item["key"] == target_key:
+                            target_index = i
+                            break
+
+                if target_index != -1:
+                    self._set_list_cursor(target_index)
+            else:
+                messagebox.showinfo("情報", "表示できるノートがありません。")
 
         except Exception as e:
-            logger.error(f"ランダムノートの表示中にエラー: {e}")
-            messagebox.showerror(
-                "エラー", f"ノートのランダム表示に失敗しました:\n{e}", parent=self
-            )
+            logger.error(f"ランダムノート表示エラー: {e}")
+            messagebox.showerror("エラー", f"失敗しました: {e}")
 
     def open_canvas(self, background=False, notes_to_add=None):
         """キャンバスウィンドウを開く"""
@@ -1790,13 +1843,11 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.focus_force()
 
     # --- UI更新・表示メソッド ---
-    def update_results_list(self, df_to_show):
+    def update_results_list(self, rows):
         """
-        フィルタリングされたDataFrameに基づき、検索結果リストUIを更新する。
-
-        Args:
-            df_to_show (pd.DataFrame): リストに表示するデータ。
+        検索結果リストUIを更新する。
         """
+        # 既存ウィジェットの削除
         for widget in self.results_list.winfo_children():
             widget.destroy()
 
@@ -1804,9 +1855,20 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.list_cursor_index = -1  # カーソルリセット
         self.list_anchor_index = -1  # アンカーのリセット
 
-        self.results_list.configure(label_text=f"検索結果 ({len(df_to_show)}件)")
+        # ラベル表示の更新
+        if hasattr(self, "total_items") and self.total_items > 0:
+            page_str = (
+                f" (ページ {self.current_page + 1})"
+                if hasattr(self, "current_page")
+                else ""
+            )
+            label = f"検索結果: {self.total_items} 件{page_str}"
+        else:
+            label = f"検索結果 ({len(rows)}件)"
 
-        for index, row in df_to_show.iterrows():
+        self.results_list.configure(label_text=label)
+
+        for row in rows:
             # 行フレームの作成
             item_frame = ctk.CTkFrame(self.results_list, fg_color="transparent")
             item_frame.pack(fill="x", padx=5, pady=2)
@@ -1830,6 +1892,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 offvalue="off",
                 command=on_toggle,
             )
+            if not note_key:
+                checkbox.configure(state="disabled")
+
             checkbox.pack(side="left", padx=(0, 5))
 
             cp_key = str(row.get("commonplace_key", "")).lower()
@@ -1879,7 +1944,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
                 return handler
 
-            # シングルクリックで詳細表示
             show_details_command = create_show_details_handler()
             # item_frame自体へのクリックは詳細表示
             item_frame.bind("<Button-1>", show_details_command)
@@ -1893,6 +1957,9 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             icon_label.bind("<Double-Button-1>", open_pdf_command)
             text_label.bind("<Double-Button-1>", open_pdf_command)
 
+        # リスト更新後、スクロール位置を最上部にリセットする
+        self.results_list._parent_canvas.yview_moveto(0)
+
     def toggle_note_selection(self, key, var):
         """チェックボックスの切り替え時の処理"""
         if var.get() == "on":
@@ -1903,18 +1970,20 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.update_selection_ui_state()
 
     def select_all_notes(self):
-        """現在の検索結果（表示されているノート）をすべて選択状態にする"""
-        # 表示中のデータがない場合は何もしない
-        if self.filtered_df_cache is None or self.filtered_df_cache.empty:
+        """現在のページ（表示されているノート）をすべて選択状態にする"""
+        # データがない場合は何もしない
+        if not self.filtered_df_cache:
             return
 
         # 表示中のノートのKeyを取得
-        keys_in_view = self.filtered_df_cache["key"].dropna().tolist()
+        keys_in_view = [
+            item["key"] for item in self.filtered_df_cache if item.get("key")
+        ]
 
         # 選択セットに追加
         self.selected_keys.update(keys_in_view)
 
-        # UI更新 (選択数ラベルの更新)
+        # UI更新
         self.update_selection_ui_state()
 
         # リストのチェックボックス表示を更新するために再描画
@@ -1951,60 +2020,83 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         選択されたノートのリンク文字列（[[Key: Title]]）を生成し、
         クリップボードにコピーする。
         """
-        if not self.selected_keys or self.df is None:
+        if not self.selected_keys or not self.db_conn:
             return
 
-        # 選択されたキーに対応する行を取得
-        selected_df = self.df[self.df["key"].isin(self.selected_keys)]
+        try:
+            # 選択キーのリスト化
+            target_keys = list(self.selected_keys)
+            if not target_keys:
+                return
 
-        if selected_df.empty:
-            return
+            # SQLでタイトルを取得
+            placeholders = ",".join("?" * len(target_keys))
+            sql = (
+                "SELECT key, title FROM notes "
+                f"WHERE key IN ({placeholders}) ORDER BY date, time"
+            )
 
-        # 日付順（またはKey順）にソートしてリスト化
-        selected_df = selected_df.sort_values(by="key")
+            cursor = self.db_conn.cursor()
+            cursor.execute(sql, target_keys)
+            rows = cursor.fetchall()
 
-        link_texts = []
-        for _, row in selected_df.iterrows():
-            key = row["key"]
-            title = row["title"]
-            # Synapsenのリンク形式: [[Key: Title]]
-            link_texts.append(f"[[{key}: {title}]]")
+            link_texts = []
+            for r in rows:
+                key, title = r[0], r[1]
+                link_texts.append(f"[[{key}: {title}]]")
 
-        # 改行区切りで結合
-        clipboard_text = "\n".join(link_texts)
+            if not link_texts:
+                return
 
-        # クリップボードへコピー
-        self.clipboard_clear()
-        self.clipboard_append(clipboard_text)
-        self.update()  # クリップボード更新を確定させるために必要
+            # 改行区切りで結合
+            clipboard_text = "\n".join(link_texts)
 
-        messagebox.showinfo(
-            "コピー完了",
-            f"{len(link_texts)}件のリンクをクリップボードにコピーしました。\n"
-            "新しいノートのメモ欄にペーストして、MOC（目次）として利用できます。",
-            parent=self,
-        )
+            # クリップボードへコピー
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_text)
+            self.update()
+
+            messagebox.showinfo(
+                "コピー完了",
+                f"{len(link_texts)}件のリンクをクリップボードにコピーしました。",
+                parent=self,
+            )
+
+        except Exception as e:
+            logger.error(f"リンクコピーエラー: {e}")
+            messagebox.showerror("エラー", f"リンクのコピーに失敗しました: {e}")
 
     def show_selected_graph(self):
         """
         選択されたノート(self.selected_keys)のみでグラフを表示する。
         """
         if not self.selected_keys:
+            messagebox.showinfo("情報", "ノートが選択されていません。")
             return
 
-        if self.df is None:
+        if not self.db_conn:
             return
 
-        # 全データ(self.df)から、選択されたキーを持つ行だけを抽出
-        selected_df = self.df[self.df["key"].isin(self.selected_keys)]
+        try:
+            keys_list = list(self.selected_keys)
+            placeholders = ",".join("?" * len(keys_list))
 
-        if selected_df.empty:
-            messagebox.showinfo("情報", "選択されたノートのデータが見つかりません。")
-            return
+            # GraphManagerに必要なカラムを取得
+            sql = f"SELECT * FROM notes WHERE key IN ({placeholders})"
 
-        logger.info(f"Selected Graph: {len(selected_df)} notes")
-        # 既存のグラフ生成メソッドを再利用
-        self.generate_and_show_graph(target_df=selected_df)
+            # Pandasを使ってSQL結果を直接DataFrameにする
+            selected_df = pd.read_sql_query(sql, self.db_conn, params=keys_list)
+
+            if selected_df.empty:
+                messagebox.showinfo("情報", "データが見つかりません。")
+                return
+
+            logger.info(f"Selected Graph: {len(selected_df)} notes")
+            self.generate_and_show_graph(target_df=selected_df)
+
+        except Exception as e:
+            logger.error(f"選択グラフ生成エラー: {e}")
+            messagebox.showerror("エラー", f"グラフ生成に失敗しました: {e}")
 
     def clear_details(self):
         self.update_details_panel(None)
@@ -2115,37 +2207,43 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def open_preview_window(self, key, default_view_mode="compact", ui_master=None):
         """
         指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
-        ui_master: キャンバス等、別のウィンドウから呼び出す場合にそのウィンドウを指定
+        【修正】pandas依存を排除し、DBからデータを取得する。
         """
-        if self.df is None or self.db_conn is None:
+        from utils import fetch_notes_from_db  # ローカルインポート (念のため)
+
+        if not self.db_conn:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
             return
 
-        # 1. メタデータを self.df から取得 (高速)
-        target_note_row = self.df[self.df["key"] == key]
-        if target_note_row.empty:
+        # 1. DBからメタデータを取得 (リストが返る)
+        notes = fetch_notes_from_db(self.db_conn, "key = ?", [key])
+
+        if not notes:
             messagebox.showwarning(
                 "ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。"
             )
             return
 
-        # 2. memo と full_text を DB から取得
+        # 辞書として取得
+        note_data = notes[0].copy()
+
+        # 2. memo, full_text, summary をDBから確実に取得
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
                 "SELECT memo, full_text, summary FROM notes WHERE key = ?", (key,)
             )
             db_data = cursor.fetchone()
-            note_data = target_note_row.iloc[0].copy()
             if db_data:
-                note_data["memo"] = db_data[0]
-                note_data["full_text"] = db_data[1]
-                note_data["summary"] = db_data[2]
+                note_data["memo"] = str(db_data[0]) if db_data[0] is not None else ""
+                note_data["full_text"] = (
+                    str(db_data[1]) if db_data[1] is not None else ""
+                )
+                note_data["summary"] = str(db_data[2]) if db_data[2] is not None else ""
         except Exception as e:
             logger.error(f"プレビュー用のDBデータ取得エラー: {e}")
-            note_data = target_note_row.iloc[0]
 
-        # 3. プレビューウィンドウのインスタンスを作成 (ui_masterを渡す)
+        # 3. プレビューウィンドウのインスタンスを作成
         preview_win = NotePreviewWindow(
             self, note_data, default_view_mode, ui_master=ui_master
         )
@@ -2159,12 +2257,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         Args:
             row_data (pd.Series): 表示するノートの行データ。
         """
-        if not isinstance(row_data, pd.Series):
-            logger.error(
-                f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}"
-            )
-            self.clear_details()
-            return
+        # pd.Series に加えて dict も許可する
+        # (sqlite3.Row は dict(row) で変換済み想定ですが、念のため許可リストに入れるか、dict変換する)
+        if not isinstance(row_data, (pd.Series, dict)):
+            # row_data が sqlite3.Row の場合も考慮して dict 化を試みる
+            try:
+                row_data = dict(row_data)
+            except (ValueError, TypeError):
+                logger.error(
+                    f"Error: show_details に不正なデータ型が渡されました: {type(row_data)}"
+                )
+                self.clear_details()
+                return
 
         self.update_details_panel(row_data)
 
@@ -2215,46 +2319,62 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def update_details_panel(self, row_data):
         """
         右パネル（詳細情報）の内容を更新する。
-        row_data が None の場合はクリア（未選択状態）にする。
+        【修正】
+          1. pandas依存を排除し、SQLと辞書リストを使用。
+          2. PDFプレビュー生成を非同期(スレッド)で実行し、UIフリーズを回避。
         """
-
-        # --- 1. データの前処理 (コピー & DB取得) ---
         current_data = None
-        backlinks_df = pd.DataFrame()
+        backlinks_data = []  # 辞書リストとして初期化
 
+        # --- 1. データの前処理 (DB取得) ---
         if row_data is not None:
-            # SettingWithCopyWarning 回避のためにコピー
-            current_data = row_data.copy()
-
-            # DBから最新情報を取得して current_data を更新
+            # 辞書としてコピー
+            current_data = dict(row_data).copy()
             current_key = current_data.get("key", "")
+
             if self.db_conn and current_key:
                 try:
                     cursor = self.db_conn.cursor()
+
+                    # (A) 最新のメモ・概要を取得
                     cursor.execute(
                         "SELECT memo, summary FROM notes WHERE key = ?", (current_key,)
                     )
                     data = cursor.fetchone()
                     if data:
-                        memo_val = str(data[0]) if data[0] else ""
-                        summary_val = str(data[1]) if data[1] else ""
-                        current_data["memo"] = memo_val
-                        current_data["summary"] = summary_val
+                        current_data["memo"] = (
+                            str(data[0]) if data[0] is not None else ""
+                        )
+                        current_data["summary"] = (
+                            str(data[1]) if data[1] is not None else ""
+                        )
 
-                    # 引用元 (Backlinks) を取得
-                    cursor.execute(
-                        "SELECT source_key FROM note_links WHERE target_key = ?",
-                        (current_key,),
-                    )
-                    matching_keys = {row[0] for row in cursor.fetchall()}
+                    # (B) 引用元 (Backlinks) をSQLで取得
+                    sql_backlinks = """
+                        SELECT n.key, n.title, n.date, n.commonplace_key
+                        FROM notes n
+                        JOIN note_links l ON n.key = l.source_key
+                        WHERE l.target_key = ?
+                        ORDER BY n.date DESC, n.time DESC
+                    """
+                    cursor.execute(sql_backlinks, (current_key,))
+                    rows = cursor.fetchall()
 
-                    if matching_keys and self.df is not None:
-                        backlinks_df = self.df[self.df["key"].isin(matching_keys)]
+                    # 辞書リストに変換
+                    for r in rows:
+                        backlinks_data.append(
+                            {
+                                "key": r[0],
+                                "title": r[1],
+                                "date": r[2],
+                                "commonplace_key": r[3],
+                            }
+                        )
 
                 except Exception as e:
                     logger.error(f"詳細データ取得エラー: {e}")
 
-            # 選択状態を更新 (最新データで上書き)
+            # 選択状態を更新
             self.current_selected_row = current_data
 
             # ボタン有効化
@@ -2269,8 +2389,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             self.delete_button.configure(state="disabled")
             self.open_preview_button.configure(state="disabled")
 
-        # --- 2. UI構築 (以下は current_data を使用して描画) ---
-
+        # --- 2. UI構築 ---
         # テキスト情報の再構築
         for widget in self.text_info_frame.winfo_children():
             widget.destroy()
@@ -2289,44 +2408,22 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         if current_data is None:
             # 未選択状態の描画
-            add_row(
+            for label in [
                 "タイトル:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
-            add_row(
                 "キー:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
-            add_row(
                 "Index Key:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
-            add_row(
                 "ファイル:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
-            add_row(
                 "タグ:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
-            add_row(
                 "概要:",
-                lambda r: ctk.CTkLabel(self.text_info_frame, text="-", anchor="w").grid(
-                    row=r, column=1, sticky="ew"
-                ),
-            )
+            ]:
+                add_row(
+                    label,
+                    lambda r: ctk.CTkLabel(
+                        self.text_info_frame, text="-", anchor="w"
+                    ).grid(row=r, column=1, sticky="ew"),
+                )
 
-            # プレビューリセット (再生成)
+            # プレビューリセット
             for widget in self.preview_frame.winfo_children():
                 widget.destroy()
             self.pdf_preview_label = ctk.CTkLabel(
@@ -2345,10 +2442,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 widget.destroy()
             for widget in self.references_display_frame.winfo_children():
                 widget.destroy()
-            self.references_display_frame.configure(
-                label_text="このノートを引用しているノート"
-            )
-
+            self.references_display_frame.configure(label_text="このノートを引用 (0件)")
             return
 
         # --- 選択状態の描画 ---
@@ -2402,7 +2496,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         add_row("Index Key:", create_ikey_widget)
 
-        # 4. ファイル
+        # 4. ファイル (ここを修正)
         merged_name = current_data.get("merged_pdf_filename", "")
         file_path_str = current_data.get("filepath", "")
         display_filename = (
@@ -2411,7 +2505,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             else (Path(file_path_str).name if file_path_str else "(不明)")
         )
 
-        # 統合PDFのパス検索 (開くボタン用)
+        # 開くべきファイルのパス検索
         target_open_path = file_path_str
         if merged_name and merged_name != "nan":
             search_paths = []
@@ -2429,8 +2523,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         def create_file_widget(r):
             f = ctk.CTkFrame(self.text_info_frame, fg_color="transparent")
             f.grid(row=r, column=1, sticky="ew")
-
-            # [フォルダ] ボタン
             if target_open_path:
                 ctk.CTkButton(
                     f,
@@ -2442,7 +2534,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                     text_color="black",
                     command=lambda p=target_open_path: self.open_file_location(p),
                 ).pack(side="left", padx=(0, 5))
-
             if display_filename != "(不明)":
                 ctk.CTkButton(
                     f,
@@ -2504,11 +2595,11 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # --- ▼ 3. PDFプレビューの表示 ▼ ---
 
-        # リクエストIDを更新
+        # 1. リクエストIDを更新 (古いスレッドの結果を破棄するため)
         self._preview_request_id += 1
         req_id = self._preview_request_id
 
-        # まず「Loading...」を表示しておく
+        # 2. まず「Loading...」を表示しておく
         for widget in self.preview_frame.winfo_children():
             widget.destroy()
 
@@ -2522,13 +2613,19 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         )
         self.pdf_preview_label.pack()
 
-        # スレッドで実行する関数
+        # 3. 画像生成を別スレッドで実行する関数
         def run_preview_generation():
             image = None
             try:
-                # get_pdf_page_image は重い処理（zlibエラーの発生源）
+                # get_pdf_page_image は Series を期待する場合があるため念のため変換
+                # (utils.py の実装によっては dict でも動くが、安全策)
+                try:
+                    data_for_utils = pd.Series(current_data)
+                except Exception:
+                    data_for_utils = current_data
+
                 image = get_pdf_page_image(
-                    current_data,
+                    data_for_utils,
                     self.loaded_db_path,
                     self.pdf_root_folder,
                     max_width=200,
@@ -2538,29 +2635,29 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 # ここでのエラーはログに出して無視（メイン処理を止めない）
                 logger.warning(f"プレビュー生成失敗(非同期): {e}")
 
-            # メインスレッドでUI更新を予約
+            # 4. メインスレッドでUI更新を予約 (スレッドセーフな呼び出し)
             self.after(0, lambda: self._update_preview_ui(req_id, image))
 
-        # スレッド開始 (daemon=Trueでアプリ終了時に強制終了可能に)
+        # スレッド開始
         threading.Thread(target=run_preview_generation, daemon=True).start()
 
         # --- 4. メモと引用元の表示 ---
-
-        # メモ表示
         for widget in self.memo_display_frame.winfo_children():
             widget.destroy()
+
+        # DB接続を渡す (SQL化対応)
         build_memo_display(
             self.memo_display_frame,
             current_data.get("memo", ""),
-            self.df,
+            self.db_conn,
             lambda k: self.open_preview_window(k, default_view_mode="compact"),
             450,
         )
 
-        # 引用元表示
+        # 辞書リストを渡す (SQL化対応)
         build_references_display(
             self.references_display_frame,
-            backlinks_df,
+            backlinks_data,
             lambda k: self.open_preview_window(k, default_view_mode="compact"),
             self.key_icons,
             self.key_colors,
@@ -2581,24 +2678,28 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def jump_to_pdf(self, key):
         """
         (現在未使用) 指定されたキーを持つノートのPDFを開く。
-
-        Args:
-            key (str): PDFを開くノートの 'key' (ID)。
         """
-        if self.df is None:
-            messagebox.showerror("エラー", "CSVデータが読み込まれていません。")
+        if not self.db_conn:
             return
 
-        target_note_row = self.df[self.df["key"] == key]
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT * FROM notes WHERE key = ?", (key,))
+            row = cursor.fetchone()
 
-        if target_note_row.empty:
-            messagebox.showwarning(
-                "ノート不明", f"ID '{key}' に一致するノートが見つかりませんでした。"
-            )
-            return
+            if not row:
+                messagebox.showwarning(
+                    "ノート不明", f"ID '{key}' が見つかりませんでした。"
+                )
+                return
 
-        note_data = target_note_row.iloc[0]
-        self.open_pdf(note_data)
+            columns = [col[0] for col in cursor.description]
+            note_data = dict(zip(columns, row))
+
+            self.open_pdf(note_data)
+
+        except Exception as e:
+            logger.error(f"jump_to_pdf error: {e}")
 
     def open_pdf(self, row_data):
         """
@@ -2628,22 +2729,60 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 グラフ化対象のデータフレーム。
                 Noneの場合は現在の検索結果(self.filtered_df_cache)を使用する。
         """
-        # 1. データフレーム決定
-        df = target_df if target_df is not None else self.filtered_df_cache
+        df = None
 
+        # 1. データソースの決定
+        if target_df is not None:
+            df = target_df
+        else:
+            # 選択なし -> 検索結果全体 (ただしグラフなので上限を設ける)
+            limit = 500
+            if self.db_conn:
+                try:
+                    from utils import fetch_notes_from_db
+
+                    rows = fetch_notes_from_db(
+                        self.db_conn,
+                        where_clause=self.current_where_clause,
+                        params=list(self.current_params),
+                        limit=limit,
+                        offset=0,
+                        sort_ascending=self.sort_ascending,
+                    )
+
+                    if not rows:
+                        if not output_path:
+                            messagebox.showinfo(
+                                "グラフ表示",
+                                "グラフ化するノートがありません。",
+                                parent=self,
+                            )
+                        return
+
+                    df = pd.DataFrame(rows)
+
+                    # 件数が上限に達していたら通知
+                    # (fetch_notes_from_db は limit 件数分しか返さないため、len == limit なら上限到達とみなす)
+                    if len(df) >= limit and not output_path:
+                        messagebox.showwarning(
+                            "グラフ表示",
+                            f"件数が多いため、検索結果の上位 {limit} 件のみを表示します。\n"
+                            "全件表示したい場合はフィルタリングを行ってください。",
+                            parent=self,
+                        )
+                except Exception as e:
+                    logger.error(f"グラフ用データ取得エラー: {e}")
+                    if not output_path:
+                        messagebox.showerror(
+                            "エラー", f"データ取得に失敗しました: {e}", parent=self
+                        )
+                    return
+
+        # 2. DataFrame空チェック
         if df is None or df.empty:
             if not output_path:
-                messagebox.showinfo(
-                    "グラフ表示", "グラフ化するノートがありません。", parent=self
-                )
+                messagebox.showinfo("グラフ表示", "データがありません。", parent=self)
             return
-
-        # 2. パフォーマンス制限
-        if len(df) > 500 and not output_path:
-            messagebox.showwarning(
-                "グラフ表示", "件数が多いため500件に制限します。", parent=self
-            )
-            df = df.head(500)
 
         try:
             # 3. GraphManager に処理を委譲
@@ -2663,7 +2802,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 GraphManager.open_graph(generated_path)
 
         except Exception as e:
-            logger.error(f"Graph error: {e}")
+            logger.error(f"Graph error: {e}", exc_info=True)
             if not output_path:
                 messagebox.showerror("エラー", f"グラフ生成失敗: {e}", parent=self)
 
@@ -2683,20 +2822,14 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
     def show_local_graph(self, center_key: str):
         """
-        現在詳細ペインで選択されているノートと、
-        そのノートに「リンクしている」または「リンクされている」ノートのみでグラフを表示する。
+        中心ノートと、それに関連する（リンク/被リンク）ノートでグラフを表示する。
         """
-        if not center_key:
-            messagebox.showinfo("情報", "グラフの中心となるノートのKeyがありません。")
-            return
-        if self.df is None or self.db_conn is None:
+        if not center_key or not self.db_conn:
             return
 
-        related_keys = set()
-        related_keys.add(center_key)
+        related_keys = {center_key}
 
         try:
-            # (db_conn は読み取り専用接続)
             cursor = self.db_conn.cursor()
 
             # A. このノートが引用している先 (Forward Links)
@@ -2713,37 +2846,96 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             for row in cursor.fetchall():
                 related_keys.add(row[0])
 
+            # C. データ取得 (DataFrame化)
+            keys_list = list(related_keys)
+            if not keys_list:
+                return
+
+            placeholders = ",".join("?" * len(keys_list))
+            sql = f"SELECT * FROM notes WHERE key IN ({placeholders})"
+
+            local_df = pd.read_sql_query(sql, self.db_conn, params=keys_list)
+
+            if local_df.empty:
+                messagebox.showinfo("情報", "関連ノートが見つかりませんでした。")
+                return
+
+            logger.info(f"Local Graph: {len(local_df)} notes")
+            self.generate_and_show_graph(target_df=local_df)
+
         except Exception as e:
-            logger.error(f"ローカルグラフのリンク取得エラー: {e}")
-            # エラーが発生しても、中心ノードのみでグラフ生成を試みる
+            logger.error(f"ローカルグラフ生成エラー: {e}")
+            messagebox.showerror("エラー", f"失敗しました: {e}")
 
-        # 2. 関連キーのみを含むDataFrameを作成
-        local_df = self.df[self.df["key"].isin(related_keys)]
+    # --- エクスポート用データ取得ヘルパー ---
+    def _get_target_dataframe(self):
+        """
+        エクスポートやPDF結合のために、現在の対象データ（選択中または検索結果全体）を
+        Pandas DataFrame 形式で取得する。
+        """
+        if not self.db_conn:
+            return None, "search_results"
 
-        if local_df.empty:
-            messagebox.showinfo("情報", "関連するノートが見つかりませんでした。")
-            return
+        target_data = []
+        mode = "search_results"
 
-        # 3. グラフ生成 (target_df を指定して呼び出し)
-        logger.info(f"Local Graph: {len(local_df)} notes related to {center_key}")
-        self.generate_and_show_graph(target_df=local_df)
+        try:
+            # 1. 選択されているノートがある場合 -> DBからそのノートだけを取得
+            if self.selected_keys:
+                mode = "selected_items"
+                keys_list = list(self.selected_keys)
+                placeholders = ",".join("?" * len(keys_list))
 
-    # --- エクスポート機能 ---
+                # 必要なカラムを全て取得
+                sql = f"""
+                    SELECT date, time, title, pages, tags, key, memo,
+                           commonplace_key, filepath, merged_pdf_filename,
+                           merged_start_page, summary
+                    FROM notes
+                    WHERE key IN ({placeholders})
+                    ORDER BY date, time
+                """
+                cursor = self.db_conn.cursor()
+                cursor.execute(sql, keys_list)
+
+                # 辞書リストに変換
+                columns = [col[0] for col in cursor.description]
+                for row in cursor.fetchall():
+                    target_data.append(dict(zip(columns, row)))
+
+            # 2. 選択がない場合 -> 現在の検索条件で【全件】取得
+            else:
+                # utils.fetch_notes_from_db を利用
+                from utils import fetch_notes_from_db
+
+                # limit=-1 は SQLite で「制限なし(全件)」を意味します
+                target_data = fetch_notes_from_db(
+                    self.db_conn,
+                    where_clause=self.current_where_clause,
+                    params=list(self.current_params),
+                    limit=-1,
+                    offset=0,
+                    sort_ascending=self.sort_ascending,
+                )
+
+            if not target_data:
+                return pd.DataFrame(), mode
+
+            # 3. DataFrameに変換
+            df = pd.DataFrame(target_data)
+            return df, mode
+
+        except Exception as e:
+            logger.error(f"エクスポート用データ取得エラー: {e}")
+            return pd.DataFrame(), mode
+
+    # --- エクスポート機能 (修正) ---
     def export_search_results(self, include_pdf=False):
         """
         検索結果(または選択中)のデータをエクスポートする。
-        include_pdf=True の場合、同じフォルダに統合PDFも生成する。
         """
-        target_df = None
-        mode = "search_results"
-
-        # 対象データの決定
-        if self.selected_keys:
-            if self.df is not None:
-                target_df = self.df[self.df["key"].isin(self.selected_keys)]
-            mode = "selected_items"
-        else:
-            target_df = self.filtered_df_cache
+        # 【修正】ヘルパーを使ってDataFrameを取得
+        target_df, mode = self._get_target_dataframe()
 
         if target_df is None or target_df.empty:
             messagebox.showinfo("エクスポート", "対象データがありません。", parent=self)
@@ -2778,6 +2970,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             messagebox.showinfo("完了", msg, parent=self)
 
         except Exception as e:
+            logger.error(f"エクスポート実行エラー: {e}", exc_info=True)
             messagebox.showerror(
                 "エクスポートエラー", f"失敗しました:\n{e}", parent=self
             )
@@ -2785,12 +2978,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def merge_and_export_pdf(self):
         """メニューから「統合PDF」単体を選んだ場合のラッパー"""
         # 対象データの決定
-        target_df = None
-        if self.selected_keys:
-            if self.df is not None:
-                target_df = self.df[self.df["key"].isin(self.selected_keys)]
-        else:
-            target_df = self.filtered_df_cache
+        target_df, _ = self._get_target_dataframe()
 
         if target_df is None or target_df.empty:
             messagebox.showinfo("PDF結合", "対象データがありません。", parent=self)
@@ -2814,28 +3002,29 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         if not save_path:
             return
 
-        # ExportManager の merge_pdf を直接利用
-        if self.exporter.merge_pdf(
-            target_df,
-            Path(save_path),
-            self.pdf_root_folder,
-            pdf_archive_folder=self.pdf_archive_folder,
-        ):
-            messagebox.showinfo("完了", f"PDFを保存しました:\n{save_path}", parent=self)
-        else:
-            messagebox.showwarning(
-                "失敗", "結合可能なPDFが見つかりませんでした。", parent=self
-            )
+        try:
+            if self.exporter.merge_pdf(
+                target_df,
+                Path(save_path),
+                self.pdf_root_folder,
+                self.loaded_db_path,  # DBパスも渡す必要がある場合があります
+                pdf_archive_folder=self.pdf_archive_folder,
+            ):
+                messagebox.showinfo(
+                    "完了", f"PDFを保存しました:\n{save_path}", parent=self
+                )
+            else:
+                messagebox.showwarning(
+                    "失敗", "結合可能なPDFが見つかりませんでした。", parent=self
+                )
+        except Exception as e:
+            logger.error(f"PDF結合エラー: {e}")
+            messagebox.showerror("エラー", f"PDF結合中にエラーが発生しました:\n{e}")
 
     def create_moc_markdown(self):
         """MOC (Markdown) 生成処理のラッパー"""
         # 対象データの決定 (選択中 > 検索結果)
-        target_df = None
-        if self.selected_keys:
-            if self.df is not None:
-                target_df = self.df[self.df["key"].isin(self.selected_keys)]
-        else:
-            target_df = self.filtered_df_cache
+        target_df, _ = self._get_target_dataframe()
 
         if target_df is None or target_df.empty:
             messagebox.showinfo("MOC作成", "対象データがありません。", parent=self)
@@ -2858,20 +3047,24 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             return
 
         # 生成実行
-        if self.exporter.generate_moc_markdown(
-            target_df, Path(save_path), self.loaded_db_path
-        ):
-            messagebox.showinfo(
-                "完了",
-                f"MOC (Markdown) ファイルを保存しました:\n{save_path}\n\n"
-                "このファイルを Normalisierer で処理し PDF 化すると、\n"
-                "ノートへのファイルパスと Index Key の装飾が反映された PDF を作成できます。",
-                parent=self,
-            )
-        else:
-            messagebox.showerror(
-                "失敗", "MOCファイルの生成に失敗しました。", parent=self
-            )
+        try:
+            if self.exporter.generate_moc_markdown(
+                target_df, str(Path(save_path)), str(self.loaded_db_path)
+            ):
+                messagebox.showinfo(
+                    "完了",
+                    f"MOC (Markdown) ファイルを保存しました:\n{save_path}\n\n"
+                    "このファイルを Normalisierer で処理し PDF 化すると、\n"
+                    "ノートへのファイルパスと Index Key の装飾が反映された PDF を作成できます。",
+                    parent=self,
+                )
+            else:
+                messagebox.showerror(
+                    "失敗", "MOCファイルの生成に失敗しました。", parent=self
+                )
+        except Exception as e:
+            logger.error(f"MOC生成エラー: {e}")
+            messagebox.showerror("エラー", f"MOC生成中にエラーが発生しました:\n{e}")
 
     # --- DB編集・削除メソッド ---
     def open_edit_dialog(self, note_data=None):
@@ -2884,29 +3077,41 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 return
             note_data = self.current_selected_row
 
-        if self.df is None or self.db_conn is None:
+        if not self.db_conn:
             messagebox.showwarning("データなし", "データベースが読み込まれていません。")
             return
 
-        key_to_edit = note_data.get("key")
+        # 辞書化 (pd.Series や sqlite3.Row 対策)
+        if not isinstance(note_data, dict):
+            try:
+                note_data = dict(note_data)
+            except (ValueError, TypeError):
+                pass
 
-        # --- DBから最新の 'memo' と 'summary' を取得 ---
-        # NoteEditorWindowに渡す note_data (pd.Series) をコピーして更新する
+        key_to_edit = note_data.get("key")
+        if not key_to_edit:
+            messagebox.showerror("エラー", "Keyが不明です。")
+            return
+
+        # 最新の memo, summary をDBから取得
         note_data_with_memo = note_data.copy()
         try:
             cursor = self.db_conn.cursor()
             cursor.execute(
                 "SELECT memo, summary FROM notes WHERE key = ?", (key_to_edit,)
             )
-            db_data = cursor.fetchone()
-            if memo_data := db_data:
-                note_data_with_memo["memo"] = str(memo_data[0])
-                note_data_with_memo["summary"] = str(memo_data[1])
+            row = cursor.fetchone()
+            if row:
+                note_data_with_memo["memo"] = str(row[0]) if row[0] is not None else ""
+                note_data_with_memo["summary"] = (
+                    str(row[1]) if row[1] is not None else ""
+                )
             else:
                 note_data_with_memo["memo"] = ""
                 note_data_with_memo["summary"] = ""
+
         except Exception as e:
-            logger.error(f"編集ウィンドウ用のメモ取得エラー: {e}")
+            logger.error(f"編集用データ取得エラー: {e}")
             note_data_with_memo["memo"] = ""  # 失敗時は空メモ
 
         # 編集ウィンドウ (書き込み可能) のインスタンスを作成
@@ -3050,23 +3255,30 @@ class SearchHelpWindow(ctk.CTkToplevel):
 ■ アプリケーション ショートカット一覧
 ----------------------------------------------------------------------------------------------------
 
-[リスト操作 (キーボード)]
-↑ / ↓ : リスト内を移動
-Home / End : 先頭 / 末尾へ移動
-PageUp / PageDn : ページ送り
+[リスト操作 (ページネーション)]
+← / → : 前のページ / 次のページへ移動
+Alt + Home : 最初のページ (1ページ目) へ移動
+Alt + End  : 最後のページへ移動
+
+[リスト操作 (カーソル・スクロール)]
+↑ / ↓ : リスト内をカーソル移動
+Home / End : リストの先頭 / 末尾へスクロール (ページ移動はしません)
+PageUp / PageDn : 画面スクロール
+Ctrl + J : 表示中のノートへジャンプ (ページを自動で移動)
+
+[リスト操作 (選択・実行)]
 Space : 選択切り替え (チェックボックス ON/OFF)
 Enter : 詳細を表示 (右ペイン更新)
 Shift + Enter : ノートのPDFを開く
 Shift + 移動 : 範囲選択 (標準)
 Ctrl + Shift + 移動 : 範囲選択 (追加モード)
-
-[リスト操作 (コマンド)]
-Ctrl + A : すべて選択
+Ctrl + A : すべて選択 (表示ページ内)
 Ctrl + D : 選択解除
-Ctrl + J : リストへ移動
-Alt + S  : ソート順切り替え (昇順/降順)
+
+[編集・アクション]
 Ctrl + E : 選択中のノートを編集
 Ctrl + Enter : 選択中のノートをCanvasへ送る
+Alt + S  : ソート順切り替え (昇順/降順)
 
 [画面表示・遷移]
 R : 閃き (ランダムノート表示)
@@ -3118,9 +3330,6 @@ Esc : 入力欄からフォーカスを外す
 
 `memo: (キーワード)`
 - メモ欄を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
-
-`fulltext: (キーワード)` (エイリアス: `text:`)
-- PDF本文を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
 
 `fulltext: (キーワード)` (エイリアス: `text:`)
 - PDF本文を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。

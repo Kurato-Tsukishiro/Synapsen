@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
-import fitz  # PyMuPDF (プレースホルダー生成用に追加)
+import fitz  # PyMuPDF
 from utils import find_file_in_paths
 
 # グラフ出力のためにGraphManagerを利用
@@ -130,115 +130,145 @@ class ExportManager:
         processed_count = 0
         current_page_index = 0
 
-        for _, row in target_df.iterrows():
-            # ノート情報の取得
-            note_title = row.get("title", "No Title")
-            note_key = row.get("key", "Unknown Key")
-            date_str = row.get("date", "??????")
+        # --- Readerキャッシュ: { file_path_str: PdfReaderオブジェクト } ---
+        reader_cache = {}
+        # 開いたファイルオブジェクトを保持するリスト (最後に閉じるため)
+        open_files = []
 
-            if len(date_str) == 8:
-                fmt_date = f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:]}"
-            else:
-                fmt_date = date_str
+        try:
+            for _, row in target_df.iterrows():
+                # ノート情報の取得
+                note_title = row.get("title", "No Title")
+                note_key = row.get("key", "Unknown Key")
+                date_str = row.get("date", "??????")
 
-            bookmark_title = f"{fmt_date} {note_title}"
+                if len(date_str) == 8:
+                    fmt_date = f"{date_str[:4]}/{date_str[4:6]}/{date_str[6:]}"
+                else:
+                    fmt_date = date_str
 
-            # --- 戦略 A: 統合PDF (月刊ノート) から取得 ---
-            merged_filename = row.get("merged_pdf_filename")
-            try:
-                page_count = int(row.get("pages", 0))
-            except Exception as e:
-                logger.error(f"ページ数の取得エラー: {e}")
-                page_count = 0
+                bookmark_title = f"{fmt_date} {note_title}"
 
-            pdf_source_path = None
-            source_type = None  # "merged" or "original" or "fallback"
-            start_p = 0
+                try:
+                    page_count = int(row.get("pages", 0))
+                except Exception:
+                    page_count = 0
 
-            # 1. 統合PDFを探す
-            merged_filename = row.get("merged_pdf_filename")
-            if merged_filename:
-                found = find_file_in_paths(merged_filename, search_paths)
-                if found:
-                    pdf_source_path = found
-                    start_p = int(row.get("merged_start_page", 1)) - 1
-                    source_type = "merged"
+                pdf_source_path = None
+                source_type = None  # "merged" or "original" or "fallback"
+                start_p = 0
 
-            # 2. 元ファイルを探す
-            if not pdf_source_path:
-                filepath_str = row.get("filepath", "")
-                if filepath_str:
-                    found = find_file_in_paths(filepath_str, search_paths)
+                # 1. 統合PDFを探す
+                merged_filename = row.get("merged_pdf_filename")
+                if merged_filename:
+                    found = find_file_in_paths(merged_filename, search_paths)
                     if found:
                         pdf_source_path = found
-                        start_p = 0
-                        source_type = "original"
+                        try:
+                            start_p = int(row.get("merged_start_page", 1)) - 1
+                        except ValueError:
+                            start_p = 0
+                        source_type = "merged"
 
-            # --- PDF結合処理 ---
-            reader = None
+                # 2. 元ファイルを探す
+                if not pdf_source_path:
+                    filepath_str = row.get("filepath", "")
+                    if filepath_str:
+                        found = find_file_in_paths(filepath_str, search_paths)
+                        if found:
+                            pdf_source_path = found
+                            start_p = 0
+                            source_type = "original"
 
-            # ソースが見つかった場合
-            if pdf_source_path:
-                try:
-                    reader = PdfReader(pdf_source_path)
-                except Exception as e:
-                    logger.error(
-                        "[ExportManager] PDF read error "
-                        f"({pdf_source_path.name}): {e}",
+                # --- PDF結合処理 ---
+                reader = None
+
+                # ソースが見つかった場合、キャッシュを確認または新規オープン
+                if pdf_source_path:
+                    path_key = str(pdf_source_path.resolve())
+
+                    if path_key in reader_cache:
+                        # キャッシュヒット (成功 or 失敗済み)
+                        reader = reader_cache[path_key]
+                    else:
+                        # 新規オープン
+                        try:
+                            # ファイルを明示的に開いて管理する
+                            f = open(pdf_source_path, "rb")
+                            open_files.append(f)
+
+                            reader = PdfReader(f)
+                            reader_cache[path_key] = reader
+                        except Exception as e:
+                            # エラー詳細をログに出力 (repr(e)で型も表示)
+                            logger.error(
+                                "[ExportManager] PDF read error "
+                                f"({pdf_source_path.name}): {repr(e)}",
+                                extra={"sensitive": True},
+                            )
+                            reader = None
+                            # 失敗もキャッシュする (何度もトライしない)
+                            reader_cache[path_key] = None
+
+                # ソースがない、または読み込みエラーの場合はフォールバック生成
+                if reader is None:
+                    # フォールバック生成は軽量なのでキャッシュ不要 (内容が毎回違うため)
+                    logger.info(
+                        f"[ExportManager] Creating fallback page for: {note_title}",
                         extra={"sensitive": True},
                     )
-                    reader = None
+                    reader = self._create_fallback_page_reader(
+                        note_title, fmt_date, note_key
+                    )
+                    source_type = "fallback"
+                    # フォールバックページは常に1ページとみなす
+                    start_p = 0
+                    page_count = 1
 
-            # ソースがない、または読み込みエラーの場合はフォールバック生成
-            if reader is None:
-                logger.info(
-                    "[ExportManager] Creating fallback page for: " f"{note_title}",
-                    extra={"sensitive": True},
-                )
-                reader = self._create_fallback_page_reader(
-                    note_title, fmt_date, note_key
-                )
-                source_type = "fallback"
-                # フォールバックページは常に1ページとみなす
-                start_p = 0
-                page_count = 1
+                # ページ追加実行
+                if reader:
+                    try:
+                        # しおり追加 (現在のページ位置)
+                        writer.add_outline_item(bookmark_title, current_page_index)
 
-            # ページ追加実行
-            if reader:
-                try:
-                    # しおり追加 (現在のページ位置)
-                    writer.add_outline_item(bookmark_title, current_page_index)
+                        if source_type == "merged":
+                            # 統合PDF: 指定範囲だけ追加
+                            pages_to_add = page_count if page_count > 0 else 1
+                            for i in range(pages_to_add):
+                                p_idx = start_p + i
+                                if 0 <= p_idx < len(reader.pages):
+                                    writer.add_page(reader.pages[p_idx])
+                                    current_page_index += 1
 
-                    if source_type == "merged":
-                        # 統合PDF: 指定範囲だけ追加
-                        pages_to_add = page_count if page_count > 0 else 1
-                        for i in range(pages_to_add):
-                            p_idx = start_p + i
-                            if 0 <= p_idx < len(reader.pages):
-                                writer.add_page(reader.pages[p_idx])
+                        elif source_type == "original":
+                            # 元PDF: 全ページ追加
+                            for page in reader.pages:
+                                writer.add_page(page)
                                 current_page_index += 1
 
-                    elif source_type == "original":
-                        # 元PDF: 全ページ追加
-                        for page in reader.pages:
-                            writer.add_page(page)
+                        elif source_type == "fallback":
+                            # フォールバック: 生成された1ページを追加
+                            writer.add_page(reader.pages[0])
                             current_page_index += 1
 
-                    elif source_type == "fallback":
-                        # フォールバック: 生成された1ページを追加
-                        writer.add_page(reader.pages[0])
-                        current_page_index += 1
+                        processed_count += 1
 
-                    processed_count += 1
+                    except Exception as e:
+                        logger.error(f"[ExportManager] PDF add page error: {e}")
 
-                except Exception as e:
-                    logger.error(f"[ExportManager] PDF add page error: {e}")
+            if processed_count > 0:
+                with open(save_path, "wb") as f:
+                    writer.write(f)
+                return True
+            return False
 
-        if processed_count > 0:
-            with open(save_path, "wb") as f:
-                writer.write(f)
-            return True
-        return False
+        finally:
+            # 開いたファイルを全て閉じる
+            for f in open_files:
+                try:
+                    f.close()
+                except Exception:
+                    pass
 
     def generate_moc_markdown(
         self, target_df: pd.DataFrame, save_path: str, loaded_db_path: str = None
@@ -314,15 +344,16 @@ class ExportManager:
                     all_relevant_keys = set(keys_in_moc) | all_linked_keys
 
                     # D. 全ての関連ノートのタイトルを一括取得
-                    title_placeholders = ",".join("?" for _ in all_relevant_keys)
-                    sql_titles = (
-                        "SELECT key, title FROM notes "
-                        f"WHERE key IN ({title_placeholders})"
-                    )
-                    cursor.execute(sql_titles, list(all_relevant_keys))
+                    if all_relevant_keys:
+                        title_placeholders = ",".join("?" for _ in all_relevant_keys)
+                        sql_titles = (
+                            "SELECT key, title FROM notes "
+                            f"WHERE key IN ({title_placeholders})"
+                        )
+                        cursor.execute(sql_titles, list(all_relevant_keys))
 
-                    for key, title in cursor.fetchall():
-                        title_map[key] = title if title else "(タイトルなし)"
+                        for key, title in cursor.fetchall():
+                            title_map[key] = title if title else "(タイトルなし)"
 
                 except Exception as e:
                     logger.error(f"MOC生成時のDB取得エラー: {e}")
@@ -520,8 +551,8 @@ class ExportManager:
 
     def _create_fallback_page_reader(self, title, date, key):
         """
-        PyMuPDFを使用して「ファイルが見つかりません」というPDFページをオンメモリで生成し、
-        pypdf.PdfReader オブジェクトとして返す。
+        ファイルが見つからない場合のフォールバックページ(PDF)をオンメモリで生成し、
+        PdfReader オブジェクトとして返す。
         """
         try:
             doc = fitz.open()

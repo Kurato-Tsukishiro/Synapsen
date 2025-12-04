@@ -199,151 +199,98 @@ def load_app_config(base_path):
         raise Exception(f"config.iniの読み込みに失敗しました: {e}")
 
 
-def load_sql_data_file(filepath: Path):
+def fetch_notes_from_db(
+    conn: sqlite3.Connection,
+    where_clause: str = "",
+    params: list = None,
+    limit: int = 50,
+    offset: int = 0,
+    sort_ascending: bool = True,
+) -> list[dict]:
     """
-    指定されたパスからSynapsenのSQLiteデータベースファイルを読み込み、DataFrameを返す。
-    【FTS5対応版】 'full_text' と 'memo' を除外してメモリ消費量を削減します。
-
-    Args:
-        filepath (Path): 読み込むSQLiteデータベースファイルのパス。
-
-    Returns:
-        pd.DataFrame: 読み込まれたデータ。
-
-    Raises:
-        Exception: データベースの読み込みまたは処理に失敗した場合。
+    DBから指定条件でノートを取得する (ページネーション対応)。
     """
-    if not filepath.is_file():
-        # DBファイルが存在しない場合、空のDataFrameを返す
-        logger.warning(
-            f"データベースファイルが見つかりません: {filepath}",
-            extra={"sensitive": True},
-        )
-        # 空でもカラムは定義しておく
-        cols = [
-            "tags",
-            "key",
-            "memo",
-            "title",
-            "commonplace_key",
-            "date",
-            "full_text",
-            "time",
-            "pages",
-            "filepath",
-            "merged_pdf_filename",
-            "merged_start_page",
-        ]
-        return pd.DataFrame(columns=cols)
+    if params is None:
+        params = []
+
+    columns = [
+        "key",
+        "title",
+        "date",
+        "time",
+        "tags",
+        "commonplace_key",
+        "memo",
+        "summary",
+        "filepath",
+        "merged_pdf_filename",
+        "merged_start_page",
+        "pages",
+    ]
+    cols_str = ", ".join(columns)
+
+    order_dir = "ASC" if sort_ascending else "DESC"
+    order_clause = f"ORDER BY date {order_dir}, time {order_dir}, key {order_dir}"
+
+    sql = f"SELECT {cols_str} FROM notes"
+    if where_clause:
+        sql += f" WHERE {where_clause}"
+
+    sql += f" {order_clause} LIMIT ? OFFSET ?"
+
+    query_params = params + [limit, offset]
 
     try:
-        conn = sqlite3.connect(filepath)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        cursor.execute(sql, query_params)
+        rows = cursor.fetchall()
 
-        # 'notes' テーブルの列情報を取得
-        try:
-            cursor.execute("PRAGMA table_info(notes)")
-            all_columns = [info[1] for info in cursor.fetchall()]
-        except sqlite3.OperationalError:
-            logger.error(
-                f"テーブル 'notes' がDBに存在しません: {filepath}",
-                extra={"sensitive": True},
-            )
-            conn.close()
-            cols = [
-                "tags",
-                "key",
-                "memo",
-                "title",
-                "commonplace_key",
-                "date",
-                "full_text",
-                "time",
-                "pages",
-                "filepath",
-                "merged_pdf_filename",
-                "merged_start_page",
-            ]
-            return pd.DataFrame(columns=cols)
+        result = []
+        for row in rows:
+            d = dict(row)
+            for k, v in d.items():
+                if v is None:
+                    d[k] = ""
+            result.append(d)
 
-        # 'full_text' と 'memo' は除外する
-        columns_to_load = [
-            col for col in all_columns if col not in ("full_text", "memo")
-        ]
-
-        if not columns_to_load:
-            logger.warning(
-                f"テーブル 'notes' に読み込み可能な列がありません: {filepath}"
-            )
-            conn.close()
-            cols = [
-                "tags",
-                "key",
-                "memo",
-                "title",
-                "commonplace_key",
-                "date",
-                "full_text",
-                "time",
-                "pages",
-                "filepath",
-                "merged_pdf_filename",
-                "merged_start_page",
-            ]
-            return pd.DataFrame(columns=cols)
-
-        select_query = f"SELECT {', '.join(columns_to_load)} FROM notes"
-        df = pd.read_sql_query(select_query, conn)
-        conn.close()
-
-        df = df.fillna("")
-        df.columns = df.columns.str.strip()
-
-        # 検索対象となる主要な列を文字列型(str)として明示的に変換
-        # 'full_text' 及び 'memo' は型変換リストから除外
-        for col in [
-            "tags",
-            "key",
-            "title",
-            "commonplace_key",
-            "date",
-            "time",
-            "pages",
-            "merged_start_page",
-            "summary",
-        ]:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
-            else:
-                # 読み込まなかったが必須の列を空で追加
-                df[col] = ""
-
-        # FTS検索用に 'full_text' と 'memo' を空で定義しておく
-        df["full_text"] = ""
-        df["memo"] = ""
-        df["summary"] = ""
-
-        return df
-
+        return result
     except Exception as e:
-        # エラーをラップして呼び出し元 (main.py) で処理する
-        raise Exception(
-            f"データベースファイルの読み込みに失敗しました:\n{filepath}\n\n{e}"
-        )
+        logger.error(f"Fetch notes error: {e}")
+        return []
+
+
+def count_notes_from_db(
+    conn: sqlite3.Connection, where_clause: str = "", params: list = None
+) -> int:
+    """条件に合致するノートの総数を返す"""
+    if params is None:
+        params = []
+
+    sql = "SELECT COUNT(*) FROM notes"
+    if where_clause:
+        sql += f" WHERE {where_clause}"
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        return cursor.fetchone()[0]
+    except Exception as e:
+        logger.error(f"Count notes error: {e}")
+        return 0
 
 
 def build_memo_display(
-    parent_frame, memo_text, df, open_preview_callback, frame_width=450
+    parent_frame, memo_text, db_conn, open_preview_callback, frame_width=450
 ):
     """
-    メモテキストを解析し、[[key]]リンクをクリック可能なラベルとして
-    指定された親フレーム内に動的に構築する。
+    メモテキストを解析し、[[key]]リンクを表示する。
 
     Args:
         parent_frame (ctk.CTkFrame or ctk.CTkScrollableFrame):
             ラベルを配置する親ウィジェット。
         memo_text (str): 解析対象のメモテキスト。
-        df (pd.DataFrame): ノート全体のDataFrame (リンク先のタイトル検索用)。
+        db_conn (Connection): DB接続 (リンク先のタイトル検索用)。
         open_preview_callback (callable):
             リンククリック時に呼び出すコールバック関数。
             (例: lambda key: app.open_preview_window(key))
@@ -363,7 +310,7 @@ def build_memo_display(
     content_frame.pack(fill="both", expand=True)
 
     for match in pattern.finditer(memo_text):
-        # 1. リンクより前のテキスト部分
+        # 1. リンク前のテキスト
         if non_link_text := memo_text[last_index : match.start()]:
             label = ctk.CTkLabel(
                 content_frame,
@@ -380,12 +327,18 @@ def build_memo_display(
         link_key = full_match_content.split(":")[0].strip()
 
         display_text = f"[[{link_key} (ノート不明)]]"
-        if df is not None and not df.empty:
-            # key列でリンク先ノートを検索
-            linked_note_row = df[df["key"] == link_key]
-            if not linked_note_row.empty:
-                note_title = linked_note_row.iloc[0].get("title", "（タイトルなし）")
-                display_text = f"[[{link_key}: {note_title}]]"
+
+        # DBからタイトルを検索
+        if db_conn:
+            try:
+                cursor = db_conn.cursor()
+                cursor.execute("SELECT title FROM notes WHERE key = ?", (link_key,))
+                res = cursor.fetchone()
+                if res:
+                    note_title = res[0] if res[0] else "（タイトルなし）"
+                    display_text = f"[[{link_key}: {note_title}]]"
+            except Exception as e:
+                logger.error(f"メモリンクのタイトル取得エラー: {e}")
 
         link_label = ctk.CTkLabel(
             content_frame,
@@ -402,7 +355,7 @@ def build_memo_display(
 
         last_index = match.end()
 
-    # 3. 最後のリンク以降のテキスト部分
+    # 3. 残りのテキスト
     if remaining_text := memo_text[last_index:]:
         label = ctk.CTkLabel(
             content_frame,
@@ -466,16 +419,15 @@ def _update_note_links(cursor: sqlite3.Cursor, source_key: str, new_memo_text: s
 
 
 def build_references_display(
-    parent_frame, backlinks_df, open_preview_callback, key_icons, key_colors
+    parent_frame, backlinks_data, open_preview_callback, key_icons, key_colors
 ):
     """
-    引用元DataFrameに基づき、クリック可能な引用元リストUIを
-    指定された親フレーム内に動的に構築する。
+    引用元リストを表示する。
 
     Args:
         parent_frame (ctk.CTkFrame or ctk.CTkScrollableFrame):
             ラベルを配置する親ウィジェット。
-        backlinks_df (pd.DataFrame): 引用元ノートのDataFrame。
+        backlinks_data (list): 引用元ノートの辞書のリスト
         open_preview_callback (callable):
             リンククリック時に呼び出すコールバック関数。
             (例: lambda key: app.open_preview_window(key))
@@ -486,20 +438,20 @@ def build_references_display(
     for widget in parent_frame.winfo_children():
         widget.destroy()
 
-    if backlinks_df.empty:
+    if not backlinks_data:  # リストの長さで判定
         parent_frame.configure(label_text="このノートを引用 (0件)")
         return
 
-    parent_frame.configure(label_text=f"このノートを引用 ({len(backlinks_df)}件)")
+    parent_frame.configure(label_text=f"このノートを引用 ({len(backlinks_data)}件)")
 
-    # (parent_frame が ScrollableFrame の場合、その中身として機能する)
     content_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
     content_frame.pack(fill="both", expand=True)
 
-    for index, row in backlinks_df.iterrows():
+    for row in backlinks_data:
         item_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         item_frame.pack(fill="x", padx=5, pady=2)
 
+        # 辞書アクセス (.get)
         cp_key = str(row.get("commonplace_key", "")).lower()
         icon = key_icons.get(cp_key, "•")
         color = key_colors.get(cp_key, "gray")

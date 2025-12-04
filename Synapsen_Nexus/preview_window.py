@@ -1,7 +1,7 @@
 from tkinter import messagebox
 import customtkinter as ctk
-import pandas as pd
 import fitz
+import logging
 
 from utils import (
     build_memo_display,
@@ -10,8 +10,6 @@ from utils import (
     get_pdf_page_image_from_doc,
     _extract_links,
 )
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +20,7 @@ logger = logging.getLogger(__name__)
 class NotePreviewWindow(ctk.CTkToplevel):
     """
     ノートのメタデータをプレビュー表示するための専用Toplevelウィンドウ。
-
-    メインウィンドウから独立して表示され、ノートの詳細とPDFへの
-    ショートカットを提供する。
+    メインウィンドウから独立して表示され、ノートの詳細とPDFへのショートカットを提供する。
     """
 
     def __init__(
@@ -48,16 +44,27 @@ class NotePreviewWindow(ctk.CTkToplevel):
         master_window = ui_master if ui_master else parent_app
         super().__init__(parent_app)
         self.parent_app = parent_app  # メインアプリ本体
-        self.note_data = note_data
+
+        # 辞書化を保証
+        if not isinstance(note_data, dict):
+            try:
+                self.note_data = dict(note_data)
+            except Exception:
+                self.note_data = {}
+        else:
+            self.note_data = note_data
 
         # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
         self.preview_image_object = None
 
         # ページめくり用の状態変数
-        self.current_pdf_doc: fitz.Document | None = None  # PDFドキュメント本体
-        self.current_pdf_page_index = 0  # 現在表示中のページ (0-indexed)
-        self.current_pdf_page_count = 0  # このノートの総ページ数
-        self.current_pdf_doc_start_index = 0  # doc内の開始インデックス
+        self.current_pdf_doc: fitz.Document | None = None
+        self.current_pdf_page_index = 0
+        self.current_pdf_page_count = 0
+        self.current_pdf_doc_start_index = 0
+
+        # メモ欄から抽出された引用先リンクのセット
+        self.forward_links = set()
 
         # プレビューウィンドウのレイアウト状態とサイズを管理
         self.is_compact_view = default_view_mode == "compact"
@@ -132,7 +139,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.info_container.grid_rowconfigure(5, weight=1)  # メモ
         self.info_container.grid_rowconfigure(7, weight=1)  # 引用元
 
-        # --- ウィジェットの作成  ---
+        # --- ウィジェットの作成 ---
         # 1. タイトル
         ctk.CTkLabel(self.info_container, text="タイトル:", anchor="w").grid(
             row=0, column=0, padx=10, pady=5, sticky="w"
@@ -159,7 +166,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             anchor="w",
         ).grid(row=2, column=1, padx=10, pady=5, sticky="ew")
 
-        # 4. 概要 (Summary)
+        # 4. 概要
         ctk.CTkLabel(self.info_container, text="概要:", anchor="w").grid(
             row=3, column=0, padx=10, pady=5, sticky="w"
         )
@@ -186,21 +193,21 @@ class NotePreviewWindow(ctk.CTkToplevel):
             anchor="w",
         ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
-        # 5. メモ (ラベル)
+        # 6. メモ
         ctk.CTkLabel(self.info_container, text="メモ:", anchor="w").grid(
             row=5, column=0, padx=10, pady=5, sticky="nw"
         )
 
-        # 6. メモ (フレーム)
+        # 7. メモ (フレーム)
         self.memo_display_frame = ctk.CTkScrollableFrame(self.info_container)
         self.memo_display_frame.grid(row=5, column=1, padx=10, pady=5, sticky="nsew")
 
-        # 7. 引用元 (ラベル)
+        # 8. 引用元
         ctk.CTkLabel(self.info_container, text="引用元:", anchor="w").grid(
             row=6, column=0, padx=10, pady=5, sticky="nw"
         )
 
-        # 8. 引用元 (フレーム)
+        # 9. 引用元 (フレーム)
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.info_container, label_text="このノートを引用"
         )
@@ -211,13 +218,13 @@ class NotePreviewWindow(ctk.CTkToplevel):
         # --- [Row 1] ボタンエリア ---
         self.button_frame = ctk.CTkFrame(self, fg_color="transparent")
 
-        # 9. PDFを開くボタン
+        # 10. PDFを開くボタン
         self.pdf_button = ctk.CTkButton(
             self.button_frame, text="PDFを開く", command=self.open_pdf_action, width=50
         )
         self.pdf_button.pack(side="left", padx=5)
 
-        # 10. 編集ボタン
+        # 11. 編集ボタン
         self.edit_button = ctk.CTkButton(
             self.button_frame,
             text="編集する",
@@ -227,7 +234,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.edit_button.pack(side="left", padx=5)
 
-        # 11. ウィンドウサイズ切り替えボタン
+        # 12. ウィンドウサイズ切り替えボタン
         self.toggle_view_button = ctk.CTkButton(
             self.button_frame,
             text="表示切替",  # テキストは update_layout で設定
@@ -235,7 +242,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.toggle_view_button.pack(side="left", padx=5)
 
-        # 12. 関連グラフボタン
+        # 13. 関連グラフボタン
         self.graph_button = ctk.CTkButton(
             self.button_frame,
             text="関連グラフ",
@@ -245,7 +252,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.graph_button.pack(side="left", padx=5)
 
-        # 13. 本体Key/引用先コピーボタン
+        # 14. 本体Key/引用先コピーボタン
         self.copy_menu_var = ctk.StringVar(value="コピー...")
         self.copy_menu = ctk.CTkOptionMenu(
             self.button_frame,
@@ -258,7 +265,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
         self.copy_menu.pack(side="left", padx=5)
 
-        # 14. 選択ノートへリンク
+        # 15. 選択ノートへリンク
         self.link_to_selected_button = ctk.CTkButton(
             self.button_frame,
             text="選択へリンク",
@@ -324,10 +331,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.update_layout()
 
     def update_layout(self):
-        """
-        self.is_compact_view の状態に基づき、ウィンドウ全体のレイアウトを再構築する。
-        """
-
+        """ウィンドウ全体のレイアウトを再構築する"""
         # 1. すべてのメインコンテナを非表示
         self.pdf_preview_container.grid_forget()
         self.info_container.grid_forget()
@@ -340,7 +344,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.grid_rowconfigure(1, weight=0)
         self.grid_rowconfigure(2, weight=0)
 
-        # 3. メモ欄と引用元欄の中身を再構築 (幅が変わるため)
+        # メモ欄と引用元欄の再構築 (df参照を排除したメソッドを使用)
         self._build_references_display()
 
         if self.is_compact_view:
@@ -451,7 +455,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             self.copy_menu_var.set("コピー...")
 
     def copy_forward_links_action(self):
-        """「引用先コピー」ボタンが押されたときの処理"""
+        """「引用先コピー」ボタンの処理 (DB対応版)"""
         if not self.forward_links:
             messagebox.showinfo(
                 "情報",
@@ -460,41 +464,50 @@ class NotePreviewWindow(ctk.CTkToplevel):
             )
             return
 
-        # リンク先のDFを取得
-        df = self.parent_app.df
-        if df is None:
-            messagebox.showerror(
-                "エラー", "メインのDataFrameが見つかりません。", parent=self
-            )
+        conn = self.parent_app.db_conn
+        if not conn:
             return
 
-        selected_df = df[df["key"].isin(self.forward_links)]
-        if selected_df.empty:
-            messagebox.showwarning(
-                "情報", "引用先リンクのノート情報が見つかりませんでした。", parent=self
+        try:
+            target_keys = list(self.forward_links)
+            if not target_keys:
+                return
+
+            placeholders = ",".join("?" * len(target_keys))
+            sql = (
+                "SELECT key, title FROM notes "
+                f"WHERE key IN ({placeholders}) ORDER BY key"
             )
-            return
 
-        # key順にソート
-        selected_df = selected_df.sort_values(by="key")
-        link_texts = []
-        for _, row in selected_df.iterrows():
-            key = row["key"]
-            title = row["title"]
-            link_texts.append(f"[[{key}: {title}]]")
+            cursor = conn.cursor()
+            cursor.execute(sql, target_keys)
+            rows = cursor.fetchall()
 
-        clipboard_text = "\n".join(link_texts)
+            link_texts = []
+            found_keys = set()
+            for r in rows:
+                key, title = r[0], r[1]
+                link_texts.append(f"[[{key}: {title}]]")
+                found_keys.add(key)
 
-        # クリップボードへコピー
-        self.clipboard_clear()
-        self.clipboard_append(clipboard_text)
-        self.update()
+            # 見つからなかったキーも含める
+            for k in target_keys:
+                if k not in found_keys:
+                    link_texts.append(f"[[{k}]]")
 
-        messagebox.showinfo(
-            "コピー完了",
-            f"{len(link_texts)}件の引用先リンクをクリップボードにコピーしました。",
-            parent=self,
-        )
+            clipboard_text = "\n".join(link_texts)
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_text)
+            self.update()
+
+            messagebox.showinfo(
+                "コピー完了",
+                f"{len(link_texts)}件の引用先リンクをクリップボードにコピーしました。",
+                parent=self,
+            )
+        except Exception as e:
+            logger.error(f"引用先コピーエラー: {e}")
+            messagebox.showerror("エラー", f"コピーに失敗しました: {e}")
 
     def copy_own_key_action(self):
         """「Keyコピー」ボタンが押されたときの処理"""
@@ -507,10 +520,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             )
             return
 
-        if not title_to_copy:
-            title_to_copy = ""  # タイトルがなくてもKeyがあれば続行
-
-        # ★ リンク形式の文字列を生成
+        # リンク形式の文字列を生成
         clipboard_text = f"[[{key_to_copy}: {title_to_copy}]]"
 
         # クリップボードへコピー
@@ -525,18 +535,14 @@ class NotePreviewWindow(ctk.CTkToplevel):
     def link_to_selected_action(self):
         """「選択ノートへリンク」ボタンが押されたときの処理"""
         key_to_link = self.note_data.get("key")
-        title_to_link = self.note_data.get("title")
+        title_to_link = self.note_data.get("title", "")
 
         if not key_to_link:
             messagebox.showwarning(
-                "キー不明", "このノートのKeyが不明なためリンクできません。", parent=self
+                "キー不明", "Keyが不明なためリンクできません。", parent=self
             )
             return
 
-        if not title_to_link:
-            title_to_link = ""
-
-        # メインアプリの新しいメソッドを呼び出す
         self.parent_app.append_link_to_selected_notes(key_to_link, title_to_link)
 
     def _build_memo_display(self, frame_width=400):
@@ -553,9 +559,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
         build_memo_display(
             self.memo_display_frame,
             memo_text,
-            self.parent_app.df,
+            self.parent_app.db_conn,
             lambda key: self.parent_app.open_preview_window(
-                key, default_view_mode="compact"
+                key, default_view_mode="compact", ui_master=self
             ),
             frame_width,
         )
@@ -565,35 +571,39 @@ class NotePreviewWindow(ctk.CTkToplevel):
         プレビューウィンドウの引用元欄を構築する。
         """
         current_key = self.note_data.get("key", "")
-
-        backlinks_df = pd.DataFrame()  # 空で初期化
-        # メインアプリ (parent_app) からDB接続を取得
+        backlinks_data = []
         db_conn = self.parent_app.db_conn
 
         if db_conn and current_key:
             try:
-                # メインウィンドウの show_details と同じ LIKE 検索を実行
-                # リンクテーブルを検索
-                sql = "SELECT source_key FROM note_links WHERE target_key = ?"
+                sql = """
+                    SELECT n.key, n.title, n.date, n.commonplace_key
+                    FROM notes n
+                    JOIN note_links l ON n.key = l.source_key
+                    WHERE l.target_key = ?
+                    ORDER BY n.date DESC, n.time DESC
+                """
                 cursor = db_conn.cursor()
                 cursor.execute(sql, (current_key,))
+                rows = cursor.fetchall()
 
-                matching_keys = {row[0] for row in cursor.fetchall()}
-
-                if matching_keys:
-                    backlinks_df = self.parent_app.df[
-                        self.parent_app.df["key"].isin(matching_keys)
-                    ]
+                for r in rows:
+                    backlinks_data.append(
+                        {
+                            "key": r[0],
+                            "title": r[1],
+                            "date": r[2],
+                            "commonplace_key": r[3],
+                        }
+                    )
             except Exception as e:
                 logger.error(f"[Preview] 引用元のDB検索エラー: {e}", exc_info=True)
-                pass
 
-        # utilsの関数を使って引用元UIを構築
         build_references_display(
             self.references_display_frame,
-            backlinks_df,
+            backlinks_data,
             lambda key: self.parent_app.open_preview_window(
-                key, default_view_mode="compact"
+                key, default_view_mode="compact", ui_master=self
             ),
             self.parent_app.key_icons,
             self.parent_app.key_colors,
