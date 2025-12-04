@@ -465,6 +465,14 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             lambda e: self._handle_shortcut(self.reveal_current_note_in_list),
         )
 
+        # ページ切り替え (左右キー)
+        self.bind("<Left>", lambda e: self._handle_shortcut(self.prev_page))
+        self.bind("<Right>", lambda e: self._handle_shortcut(self.next_page))
+
+        # 最初/最後のページへ移動 (Alt + Home/End)
+        self.bind("<Alt-Home>", lambda e: self._handle_shortcut(self.first_page))
+        self.bind("<Alt-End>", lambda e: self._handle_shortcut(self.last_page))
+
         # Escキー: フォーカス解除
         self.bind("<Escape>", self._handle_escape)
 
@@ -1646,6 +1654,15 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         else:
             self.btn_next_page.configure(state="disabled")
 
+    def last_page(self):
+        """最後のページへ移動"""
+        # 現在の総アイテム数から最大ページ数を計算
+        max_page = max(0, (self.total_items - 1) // self.items_per_page)
+
+        if self.current_page < max_page:
+            self.current_page = max_page
+            self.perform_search(reset_page=False)
+
     def next_page(self):
         self.current_page += 1
         self.perform_search(reset_page=False)
@@ -1653,6 +1670,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def prev_page(self):
         if self.current_page > 0:
             self.current_page -= 1
+            self.perform_search(reset_page=False)
+
+    def first_page(self):
+        """最初のページへ移動"""
+        if self.current_page > 0:
+            self.current_page = 0
             self.perform_search(reset_page=False)
 
     def _trigger_search_now(self):
@@ -3232,23 +3255,30 @@ class SearchHelpWindow(ctk.CTkToplevel):
 ■ アプリケーション ショートカット一覧
 ----------------------------------------------------------------------------------------------------
 
-[リスト操作 (キーボード)]
-↑ / ↓ : リスト内を移動
-Home / End : 先頭 / 末尾へ移動
-PageUp / PageDn : ページ送り
+[リスト操作 (ページネーション)]
+← / → : 前のページ / 次のページへ移動
+Alt + Home : 最初のページ (1ページ目) へ移動
+Alt + End  : 最後のページへ移動
+
+[リスト操作 (カーソル・スクロール)]
+↑ / ↓ : リスト内をカーソル移動
+Home / End : リストの先頭 / 末尾へスクロール (ページ移動はしません)
+PageUp / PageDn : 画面スクロール
+Ctrl + J : 表示中のノートへジャンプ (ページを自動で移動)
+
+[リスト操作 (選択・実行)]
 Space : 選択切り替え (チェックボックス ON/OFF)
 Enter : 詳細を表示 (右ペイン更新)
 Shift + Enter : ノートのPDFを開く
 Shift + 移動 : 範囲選択 (標準)
 Ctrl + Shift + 移動 : 範囲選択 (追加モード)
-
-[リスト操作 (コマンド)]
-Ctrl + A : すべて選択
+Ctrl + A : すべて選択 (表示ページ内)
 Ctrl + D : 選択解除
-Ctrl + J : リストへ移動
-Alt + S  : ソート順切り替え (昇順/降順)
+
+[編集・アクション]
 Ctrl + E : 選択中のノートを編集
 Ctrl + Enter : 選択中のノートをCanvasへ送る
+Alt + S  : ソート順切り替え (昇順/降順)
 
 [画面表示・遷移]
 R : 閃き (ランダムノート表示)
@@ -3300,9 +3330,6 @@ Esc : 入力欄からフォーカスを外す
 
 `memo: (キーワード)`
 - メモ欄を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
-
-`fulltext: (キーワード)` (エイリアス: `text:`)
-- PDF本文を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
 
 `fulltext: (キーワード)` (エイリアス: `text:`)
 - PDF本文を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
