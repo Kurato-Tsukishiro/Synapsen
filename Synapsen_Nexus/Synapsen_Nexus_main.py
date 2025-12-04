@@ -350,17 +350,17 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                         f"デフォルトデータベースが見つかりません: {default_db_path}"
                     )
                 # DBがない場合でも検索UIの初期化は行う
-                self._apply_default_search_query()
                 self.perform_search()
 
         except FileNotFoundError as e:
             messagebox.showerror("設定エラー", str(e))
             self.destroy()
+            return
         except Exception as e:
+            logger.error(f"Config loading error: {e}", exc_info=True)  # ログに出す
             messagebox.showerror(
                 "設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}"
             )
-            self.destroy()
 
     # -------------------------------------------------------------------------
     # ショートカット設定メソッド
