@@ -118,6 +118,10 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self._current_search_id = 0  # 検索リクエストのID
         self._search_lock = threading.Lock()
 
+        self._details_timer = None  # リストのクリックのタイマー
+
+        self._preview_request_id = 0  # プレビュー生成リクエスト管理ID
+
         # スレッド間通信用のキュー
         self._search_result_queue = queue.Queue()
 
@@ -1853,8 +1857,18 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             # --- イベントバインド ---
             def create_show_details_handler(note_row=row, idx=current_widget_index):
                 def handler(event):
-                    self._set_list_cursor(idx)  # クリックされたらカーソルも移動
-                    self.show_details(note_row)
+                    # 1. 見た目のカーソル移動は即座に行う (レスポンス確保)
+                    self._set_list_cursor(idx)
+
+                    # 2. 連続クリックされた場合、前の予約をキャンセル
+                    if self._details_timer:
+                        self.after_cancel(self._details_timer)
+
+                    # 3. 0.25秒後に詳細表示を実行
+                    # (この待ち時間の間にダブルクリックがあれば、そちらが優先される)
+                    self._details_timer = self.after(
+                        250, lambda: self.show_details(note_row)
+                    )
 
                 return handler
 
@@ -2154,6 +2168,50 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         self.update_details_panel(row_data)
 
+    def _update_preview_ui(self, request_id, pil_image):
+        """
+        別スレッドで生成されたプレビュー画像をUIに反映するコールバック
+        """
+        # 最新のリクエストでなければ無視（連打時の古い画像などは破棄）
+        if request_id != self._preview_request_id:
+            return
+
+        # 既存のプレビューエリアをクリア
+        for widget in self.preview_frame.winfo_children():
+            widget.destroy()
+
+        if pil_image:
+            try:
+                new_image = ctk.CTkImage(
+                    light_image=pil_image,
+                    dark_image=pil_image,
+                    size=(pil_image.width, pil_image.height),
+                )
+                self.preview_image_object = new_image  # 参照保持
+                self.pdf_preview_label = ctk.CTkLabel(
+                    self.preview_frame, text="", image=new_image, fg_color="transparent"
+                )
+                self.pdf_preview_label.pack()
+            except Exception as e:
+                logger.error(f"プレビュー画像設定エラー: {e}")
+                self._show_preview_error("Display Error")
+        else:
+            # 取得失敗 (zlib error等含む)
+            self._show_preview_error("No Preview")
+
+    def _show_preview_error(self, message):
+        """プレビュー失敗時のエラー表示"""
+        self.pdf_preview_label = ctk.CTkLabel(
+            self.preview_frame,
+            text=message,
+            fg_color="gray20",
+            text_color="gray70",
+            width=200,
+            height=280,
+        )
+        self.pdf_preview_label.pack()
+        self.preview_image_object = None
+
     def update_details_panel(self, row_data):
         """
         右パネル（詳細情報）の内容を更新する。
@@ -2444,65 +2502,47 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             ).grid(row=r, column=1, sticky="ew"),
         )
 
-        # --- ▼ 3. PDFプレビューの表示 (完全再生成) ▼ ---
+        # --- ▼ 3. PDFプレビューの表示 ▼ ---
 
-        # 既存ウィジェットを全て破棄
+        # リクエストIDを更新
+        self._preview_request_id += 1
+        req_id = self._preview_request_id
+
+        # まず「Loading...」を表示しておく
         for widget in self.preview_frame.winfo_children():
             widget.destroy()
 
-        max_preview_width = 200
-        pil_image = None
+        self.pdf_preview_label = ctk.CTkLabel(
+            self.preview_frame,
+            text="Loading...",
+            fg_color="gray20",
+            text_color="gray70",
+            width=200,
+            height=280,
+        )
+        self.pdf_preview_label.pack()
 
-        # 画像取得を試みる
-        try:
-            pil_image = get_pdf_page_image(
-                current_data,
-                self.loaded_db_path,
-                self.pdf_root_folder,
-                max_width=max_preview_width,
-                pdf_archive_folder=self.pdf_archive_folder,
-            )
-        except Exception as e:
-            logger.error(f"画像取得エラー: {e}")
-            pil_image = None
-
-        # 新しいラベルを生成して配置
-        if pil_image:
+        # スレッドで実行する関数
+        def run_preview_generation():
+            image = None
             try:
-                new_image = ctk.CTkImage(
-                    light_image=pil_image,
-                    dark_image=pil_image,
-                    size=(pil_image.width, pil_image.height),
+                # get_pdf_page_image は重い処理（zlibエラーの発生源）
+                image = get_pdf_page_image(
+                    current_data,
+                    self.loaded_db_path,
+                    self.pdf_root_folder,
+                    max_width=200,
+                    pdf_archive_folder=self.pdf_archive_folder,
                 )
-                self.preview_image_object = new_image  # 参照保持
-                self.pdf_preview_label = ctk.CTkLabel(
-                    self.preview_frame, text="", image=new_image, fg_color="transparent"
-                )
-                self.pdf_preview_label.pack()
-            except Exception:
-                # 画像生成エラー時フォールバック
-                self.pdf_preview_label = ctk.CTkLabel(
-                    self.preview_frame,
-                    text="Preview Error",
-                    fg_color="gray20",
-                    text_color="#D9534F",
-                    width=200,
-                    height=280,
-                )
-                self.pdf_preview_label.pack()
-                self.preview_image_object = None
-        else:
-            # 画像がない場合
-            self.pdf_preview_label = ctk.CTkLabel(
-                self.preview_frame,
-                text="Preview Failed",
-                fg_color="gray20",
-                text_color="#D9534F",
-                width=200,
-                height=280,
-            )
-            self.pdf_preview_label.pack()
-            self.preview_image_object = None
+            except Exception as e:
+                # ここでのエラーはログに出して無視（メイン処理を止めない）
+                logger.warning(f"プレビュー生成失敗(非同期): {e}")
+
+            # メインスレッドでUI更新を予約
+            self.after(0, lambda: self._update_preview_ui(req_id, image))
+
+        # スレッド開始 (daemon=Trueでアプリ終了時に強制終了可能に)
+        threading.Thread(target=run_preview_generation, daemon=True).start()
 
         # --- 4. メモと引用元の表示 ---
 
