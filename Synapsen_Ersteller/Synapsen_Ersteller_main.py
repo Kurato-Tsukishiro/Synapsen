@@ -101,7 +101,7 @@ class Synapsen_Ersteller(ctk.CTk):
         )
         self.label.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-        # --- 1段目のボタフレーム (ファイル操作 + PDF生成) ---
+        # --- 1段目のボタフレーム (ファイル操作 + PDF生成 + 設定) ---
         top_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         top_button_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
@@ -121,24 +121,36 @@ class Synapsen_Ersteller(ctk.CTk):
             load_frame, text="リスト保存 (CSV)", command=self.save_to_csv
         ).pack(side="left", padx=5)
 
-        # PDF生成 (右側)
+        # === 右側のボタン群 (PDF生成 / DB復旧 / 設定) ===
+        # pack(side="right") なので、コード上で先に書いたものが「より右側」に配置されます
+
+        # [1] PDF生成 (一番右)
         ctk.CTkButton(
             top_button_frame,
             text="統合PDFを生成",
             command=self.generate_pdf,
             fg_color="green",
             hover_color="darkgreen",
-        ).pack(
-            side="right", padx=10
-        )  # 1段目の右側に配置
+        ).pack(side="right", padx=10)
 
+        # [2] DB復旧ツール (その左)
         ctk.CTkButton(
             top_button_frame,
             text="DB復旧ツール",
             command=self.open_recovery_tool,
             fg_color="#17a2b8",
-            hover_color="#138496",  # シアン系（ユーティリティ）
+            hover_color="#138496",  # シアン系
             width=100,
+        ).pack(side="right", padx=5)
+
+        # [3] 設定ボタン
+        ctk.CTkButton(
+            top_button_frame,
+            text="設定 (Config)",
+            command=self.open_config_editor,
+            fg_color="#555555",  # ツール系なのでグレー
+            hover_color="#333333",
+            width=80,
         ).pack(side="right", padx=5)
 
         # --- 2段目のボタフレーム (一括編集) ---
@@ -1522,6 +1534,33 @@ class Synapsen_Ersteller(ctk.CTk):
             self, default_db_path=default_db
         )
         recovery_win.focus()
+
+    def open_config_editor(self):
+        """設定編集ウィンドウを開く"""
+        try:
+            # config_editor.py が同じフォルダにあることを前提にインポート
+            from config_editor import ConfigEditorWindow
+        except ImportError:
+            messagebox.showerror(
+                "エラー",
+                "config_editor.py が見つかりません。\nSynapsen_Ersteller フォルダに配置してください。",
+            )
+            return
+
+        # config.ini のパスを解決 (load_config と同じロジック)
+        if getattr(sys, "frozen", False):
+            # .exe実行の場合
+            base_path = os.path.dirname(sys.executable)
+            config_path = os.path.join(base_path, "config.ini")
+        else:
+            # スクリプト実行の場合
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.join(
+                os.path.abspath(os.path.join(base_path, "..")), "config.ini"
+            )
+
+        # ウィンドウを開く
+        ConfigEditorWindow(self, config_path)
 
 
 if __name__ == "__main__":
