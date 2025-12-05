@@ -1,7 +1,8 @@
 import re
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import datetime
+import os
 
 import logging
 
@@ -45,7 +46,7 @@ class DataEditorWindow(ctk.CTkToplevel):
         # グリッド設定 (2カラム)
         main_grid_frame.grid_columnconfigure(0, weight=1)  # 左カラム
         main_grid_frame.grid_columnconfigure(1, weight=1)  # 右カラム
-        main_grid_frame.grid_rowconfigure(0, weight=1)     # 縦方向を拡張
+        main_grid_frame.grid_rowconfigure(0, weight=1)  # 縦方向を拡張
 
         # --- 左カラム (Col 0) : 主要情報 ---
 
@@ -386,36 +387,72 @@ class DateInputDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
 
-        self._custom_icon_path = None  # 強制設定するアイコンパス
+        self._custom_icon_path = None
         if hasattr(parent, "icon_path") and parent.icon_path:
             self._custom_icon_path = str(parent.icon_path)
-
-            # --- 初期アイコンをすぐに設定 ---
             if self._custom_icon_path:
                 try:
-                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
                     super().iconbitmap(self._custom_icon_path)
                 except Exception as e:
                     logger.error(f"Initial icon set error: {e}")
 
-        self.title("年月を指定")
-        self.geometry("300x200")
+        self.title("年月と表紙画像を指定")
+        self.geometry("400x350")  # 高さを少し拡張
         self.result = None
+
         today = datetime.date.today()
         first_day_of_month = today.replace(day=1)
         last_month_date = first_day_of_month - datetime.timedelta(days=1)
+
+        # --- 年月入力 ---
         self.label = ctk.CTkLabel(self, text="生成するPDFの年月を入力してください:")
-        self.label.pack(pady=10, padx=10)
-        self.year_entry = ctk.CTkEntry(self, placeholder_text="年")
-        self.year_entry.pack(pady=5)
+        self.label.pack(pady=(15, 5), padx=10)
+
+        self.date_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.date_frame.pack(pady=5)
+
+        self.year_entry = ctk.CTkEntry(self.date_frame, placeholder_text="年", width=80)
+        self.year_entry.pack(side="left", padx=5)
         self.year_entry.insert(0, str(last_month_date.year))
-        self.month_entry = ctk.CTkEntry(self, placeholder_text="月")
-        self.month_entry.pack(pady=5)
+        ctk.CTkLabel(self.date_frame, text="年").pack(side="left")
+
+        self.month_entry = ctk.CTkEntry(
+            self.date_frame, placeholder_text="月", width=60
+        )
+        self.month_entry.pack(side="left", padx=5)
         self.month_entry.insert(0, str(last_month_date.month))
-        self.ok_button = ctk.CTkButton(self, text="OK", command=self.on_ok)
-        self.ok_button.pack(pady=10)
+        ctk.CTkLabel(self.date_frame, text="月").pack(side="left")
+
+        # --- 表紙画像選択 (追加) ---
+        ctk.CTkLabel(self, text="表紙画像 (任意):", text_color="gray").pack(
+            pady=(20, 5), padx=10
+        )
+
+        self.img_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.img_frame.pack(pady=0, padx=20, fill="x")
+
+        self.img_path_entry = ctk.CTkEntry(
+            self.img_frame, placeholder_text="画像ファイルを選択..."
+        )
+        self.img_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        ctk.CTkButton(
+            self.img_frame, text="参照", width=60, command=self.browse_image
+        ).pack(side="right")
+
+        # --- OKボタン ---
+        self.ok_button = ctk.CTkButton(self, text="OK", command=self.on_ok, width=100)
+        self.ok_button.pack(pady=20)
+
         self.transient(parent)
         self.grab_set()
+
+    def browse_image(self):
+        file_types = [("Images", "*.png;*.jpg;*.jpeg"), ("All Files", "*.*")]
+        path = filedialog.askopenfilename(title="表紙画像を選択", filetypes=file_types)
+        if path:
+            self.img_path_entry.delete(0, "end")
+            self.img_path_entry.insert(0, path)
 
     def on_ok(self):
         try:
@@ -426,7 +463,20 @@ class DateInputDialog(ctk.CTkToplevel):
                     "入力エラー", "月は1から12の間で入力してください。"
                 )
                 return
-            self.result = (year, month)
+
+            # 画像パスの取得 (空欄ならNone)
+            img_path = self.img_path_entry.get().strip()
+            if img_path == "":
+                img_path = None
+            elif not os.path.exists(img_path):
+                messagebox.showwarning(
+                    "警告",
+                    "指定された画像ファイルが見つかりません。\n画像なしで続行します。",
+                )
+                img_path = None
+
+            # 結果に画像パスを含める (year, month, img_path)
+            self.result = (year, month, img_path)
             self.destroy()
         except ValueError:
             messagebox.showerror("入力エラー", "年と月には半角数字を入力してください。")
