@@ -1,48 +1,16 @@
 import shutil
 import customtkinter as ctk
-from canvas_window import CanvasWindow
 import threading
 from tkinter import filedialog, messagebox
 import pandas as pd
 from pathlib import Path
-import re
 import sys
 import datetime
 import sqlite3
-import queue
 import subprocess
 import platform
 
-# 分割したモジュールをインポート
-import logging
-
-from utils import (
-    load_app_config,
-    open_pdf_viewer,
-    build_memo_display,
-    build_references_display,
-    update_note_in_db,
-    _update_note_links,
-    delete_note_from_db,
-    get_pdf_page_image,
-    find_file_in_paths,
-    fetch_notes_from_db,
-    count_notes_from_db,
-)
-from search_parser import parse_query_to_sql
-from list_navigator import ListNavigatorMixin
-
-from preview_window import NotePreviewWindow
-from editor_window import NoteEditorWindow
-from saved_search_manager import SavedSearchManager
-from graph_manager import GraphManager
-from export_manager import ExportManager
-
-
-# ==============================================================================
-# ロギング設定の初期化
-# ==============================================================================
-# 親ディレクトリ(ルート)をパスに追加して logging_setup.py をインポート可能にする
+# --- ロガー設定 ---
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
@@ -51,33 +19,82 @@ if str(root_dir) not in sys.path:
 try:
     from logging_setup import setup_logging
 
-    # アプリ名を指定して初期化
     setup_logging("Synapsen_Nexus")
-    logger = logging.getLogger("Nexus")  # このファイル用のロガー取得
+    import logging
+
+    logger = logging.getLogger("Nexus")
 except ImportError:
-    # logging_setup.py がない場合のフォールバック（print出力）
-    print("Warning: logging_setup.py not found. Logging disabled.")
+    print("Warning: logging_setup.py not found.")
+    import logging
 
-    class MockLogger:
-        def info(self, msg):
-            print(f"[INFO] {msg}")
+    logger = logging.getLogger()
 
-        def error(self, msg, exc_info=None):
-            print(f"[ERROR] {msg} {exc_info if exc_info else ''}")
+# --- 依存モジュールのインポート ---
+# mixinsフォルダを確実にパスに通す
+mixins_path = current_dir / "mixins"
+if str(current_dir) not in sys.path:
+    sys.path.append(str(current_dir))
 
-        def warning(self, msg):
-            print(f"[WARN] {msg}")
+try:
+    # 実行環境によってインポート元が変わる可能性があるため柔軟に対応
+    try:
+        from Synapsen_Nexus.mixins import (
+            NexusDatabaseMixin,
+            NexusUiMixin,
+            NexusSearchMixin,
+        )
+        from Synapsen_Nexus.utils import (
+            load_app_config,
+            open_pdf_viewer,
+            build_memo_display,
+            build_references_display,
+            update_note_in_db,
+            _update_note_links,
+            delete_note_from_db,
+            get_pdf_page_image,
+            find_file_in_paths,
+        )
+        from Synapsen_Nexus.list_navigator import ListNavigatorMixin
+        from Synapsen_Nexus.saved_search_manager import SavedSearchManager
+        from Synapsen_Nexus.graph_manager import GraphManager
+        from Synapsen_Nexus.export_manager import ExportManager
+        from Synapsen_Nexus.canvas_window import CanvasWindow
+        from Synapsen_Nexus.preview_window import NotePreviewWindow
+        from Synapsen_Nexus.editor_window import NoteEditorWindow
+    except ImportError:
+        # ディレクトリ直下で実行された場合など
+        from mixins import NexusDatabaseMixin, NexusUiMixin, NexusSearchMixin
+        from utils import (
+            load_app_config,
+            open_pdf_viewer,
+            build_memo_display,
+            build_references_display,
+            update_note_in_db,
+            _update_note_links,
+            delete_note_from_db,
+            get_pdf_page_image,
+            find_file_in_paths,
+        )
+        from list_navigator import ListNavigatorMixin
+        from saved_search_manager import SavedSearchManager
+        from graph_manager import GraphManager
+        from export_manager import ExportManager
+        from canvas_window import CanvasWindow
+        from preview_window import NotePreviewWindow
+        from editor_window import NoteEditorWindow
 
-    logger = MockLogger()
-# ==============================================================================
+except ImportError as e:
+    logger.critical(f"Critical Import Error: {e}")
+    messagebox.showerror("起動エラー", f"モジュールの読み込みに失敗しました:\n{e}")
+    sys.exit(1)
 
 
-class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
+class Synapsen_Nexus(
+    ctk.CTk, NexusDatabaseMixin, NexusUiMixin, NexusSearchMixin, ListNavigatorMixin
+):
     """
-    デジタル・ツェッテルカステン風ノート管理アプリ「Synapsen Nexus」のメインアプリケーションクラス。
-
-    目次CSVを読み込み、ノートの検索、フィルタリング、
-    詳細表示、関連PDFへのアクセス機能を提供する。
+    Synapsen Nexus メインアプリケーション
+    Mixinを使用して機能を分割・整理しています。
     """
 
     def __init__(self):
@@ -99,83 +116,70 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self._pending_reveal_key = None  # ページジャンプ後のカーソル移動予約
 
         # --- アプリケーションの状態変数 ---
-        self.pdf_root_folder = None         # 統合PDFが存在する(メイン)フォルダのルートパス
-        self.pdf_archive_folder = None      # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス  # noqa: E501
-        self.loaded_db_path = None          # 現在開いているDBのパス
-        self.db_conn = None                 # SQLiteのDB接続オブジェクト
-
-        self.browser_path = None            # configから読み込むブラウザパス
-
-        self.config_data = {}               # Canvas等から参照される設定辞書
-        self.paper_width = 595.276          # デフォルト A4
-        self.paper_height = 841.89          # デフォルト A4
-
-        self.key_icons = {}                 # IndexKeyごとのアイコン
-        self.key_colors = {}                # IndexKeyごとの色
-        self.commonplace_keys_options = []  # IndexKeyの全オプション
-
-        self.filter_checkboxes = {}         # IndexKeyフィルターのチェックボックス変数
+        self.pdf_root_folder = None  # 統合PDFが存在する(メイン)フォルダのルートパス
+        self.pdf_archive_folder = None  # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス
+        self.config_data = {}  # Canvas等から参照される設定辞書
+        self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # 左フィルターパネルが開いているか
         self.details_panel_expanded = True  # 右詳細パネルが開いているか (初期表示)
 
-        self.sort_ascending = True          # ソート順を保持する変数 (デフォルトは (昇順/古い順))
-        self.selected_keys = set()          # 選択されたノートのKeyを保持するセット
-
-        self.setup_navigation_variables()  # Mixinの初期化メソッドを呼びだす
-
-        self._current_search_id = 0  # 検索リクエストのID
-        self._search_lock = threading.Lock()
-
-        self._details_timer = None  # リストのクリックのタイマー
-
-        self._preview_request_id = 0  # プレビュー生成リクエスト管理ID
-
-        # スレッド間通信用のキュー
-        self._search_result_queue = queue.Queue()
-
-        self.filtered_df_cache = pd.DataFrame()
+        self.sort_ascending = True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        self.selected_keys = set()  # 選択されたノートのKeyを保持するセット
         self.current_selected_row = None
+
+        self.search_timer = None  # デバウンス（検索遅延）用タイマー
+        self._details_timer = None  # リストのクリックのタイマー
+        self._preview_request_id = 0  # プレビュー生成リクエスト管理ID
 
         # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
         self.preview_image_object = None
 
-        # --- オートコンプリート関連 ---
-        self.predefined_tags = []  # オートコンプリート用のタグリスト
-        self.all_unique_tags = []  # 全ノート + 事前定義の統合タグリスト
-        self.include_all_tags_for_autocomplete = True
+        # --- Mixinの初期化メソッド呼び出し ---
+        self.setup_database_variables()  # DatabaseMixin
+        self.setup_search_variables()  # SearchMixin
+        self.setup_navigation_variables()  # ListNavigatorMixin
 
-        self.selected_suggestion_index = -1
-        self.current_suggestions = []
-        self.search_timer = None  # デバウンス（検索遅延）用タイマー
-        self.suggestion_timer = None  # オートコンプリート用タイマー
-        self._last_suggestion_args = None  # 予測変換の引数(query, cursor_pos, match)
-
-        self.base_path = None  # アプリの基準パス (config.ini と同じ場所)
-
-        # 検索マネージャのインスタンス化
+        # --- マネージャクラスの初期化 ---
         self.search_manager = SavedSearchManager(self)
 
-        self.create_widgets()
+        # --- 設定読み込み (UI構築前に必要な変数をセット) ---
         self.load_config()
 
-        # ExportManagerの初期化 (config情報を渡す為 設定読み込み後)
+        # --- UI構築 ---
+        self.create_widgets()  # UiMixin
+
+        # 検索マネージャの読み込み
+        root_path = (
+            self.base_path
+            if getattr(sys, "frozen", False)
+            else self.base_path.parent
+        )
+        self.search_manager.load_saved_searches(root_path)
+
+        # ExportManager (UI構築後、config情報を渡す)
         self.exporter = ExportManager(
             {"key_icons": self.key_icons, "key_colors": self.key_colors}
         )
 
-        # ショートカットキーの設定
+        # UI反映 (フィルタアイコンなど)
+        self.populate_key_filters()
+        self.sync_filter_panel_view()
+        self.update_details_panel(None)
+
+        # --- DB接続 ---
+        default_db_path = self.config_data.get("database_path")
+        if default_db_path and default_db_path.is_file():
+            self.load_db_from_path(default_db_path)
+        else:
+            self.perform_search()  # DBなしでもUI初期化
+
+        # ショートカット & イベント
         self._setup_shortcuts()
-
-        # ウィンドウが初めて表示されたら on_map を呼ぶ
         self.bind("<Map>", self.on_map)
-        # 最大化失敗時のフォールバックサイズ指定
-        self.geometry("1200x800")  # (on_mapが呼ばれる前の初期サイズ)
-
-        # ウィンドウを閉じるときのイベントをフック
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # 検索結果監視ループを開始
-        self._poll_search_result()
+        # フォールバックサイズ
+        self.geometry("1200x800")
 
     def on_map(self, event):
         """
@@ -185,70 +189,8 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         try:
             self.unbind("<Map>")
             self.state("zoomed")
-            logger.debug("ウィンドウを最大化しました。")
-        except Exception as e:
-            logger.error(f"ウィンドウの最大化に失敗しました: {e}")
-
-    def on_closing(self):
-        """
-        アプリ終了時の処理
-        1. バックアップ作成 (同日は上書き保存)
-        2. 古いバックアップの削除 (日単位でのローテーション)
-        """
-        if self.loaded_db_path and Path(self.loaded_db_path).exists():
-            try:
-                db_path = Path(self.loaded_db_path)
-                backup_dir = db_path.parent / "db_backups"
-                backup_dir.mkdir(exist_ok=True)
-
-                # --- 1. バックアップの作成 (同日は上書き) ---
-                # ファイル名: Synapsen_Master_YYYYMMDD.db
-                today_str = datetime.datetime.now().strftime("%Y%m%d")
-                backup_filename = f"{db_path.stem}_{today_str}.db"
-                backup_path = backup_dir / backup_filename
-
-                # copy2 は同名ファイルがあれば上書きするため、
-                # その日の最後に終了した時点のデータが残ります
-                shutil.copy2(db_path, backup_path)
-                logger.info(f"DBバックアップを更新しました: {backup_path.name}")
-
-                # --- 2. 古いバックアップの削除 (ローテーション) ---
-                # 保持する日数 (例: 最新7日分を残す)
-                MAX_BACKUP_DAYS = 7
-
-                # バックアップファイルを検索
-                # globパターン: "Synapsen_Master_*.db"
-                # 日付形式 (YYYYMMDD) は文字列ソートで時系列順になるため、sorted()だけで古い順になります
-                backup_files = sorted(list(backup_dir.glob(f"{db_path.stem}_*.db")))
-
-                # 保持数を超えている場合、古いファイルを削除
-                if len(backup_files) > MAX_BACKUP_DAYS:
-                    # 削除対象: リストの先頭から (総数 - 保持数) 個
-                    files_to_delete = backup_files[:-MAX_BACKUP_DAYS]
-
-                    for old_file in files_to_delete:
-                        try:
-                            # 念のため、今日作成したばかりのファイル(バックアップ対象)は除外
-                            if old_file.name == backup_filename:
-                                continue
-
-                            old_file.unlink()
-                            logger.info(
-                                f"古いバックアップ(ローテーション)を削除しました: {old_file.name}"
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"バックアップ削除エラー ({old_file.name}): {e}"
-                            )
-
-            except Exception as e:
-                logger.error(f"DBバックアップ処理全体でエラー: {e}")
-
-        # DB接続を閉じる
-        if self.db_conn:
-            self.db_conn.close()
-
-        self.destroy()
+        except Exception:
+            pass
 
     def get_icon_path(self):
         """
@@ -268,14 +210,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
             if icon_path.is_file():
                 return icon_path
-        except Exception as e:
-            logger.error(f"Error finding icon path: {e}")
+        except Exception:
+            pass
         return None
 
     def load_config(self):
-        """
-        config.iniファイルからアプリケーション設定を読み込み、適用する。
-        """
+        """config.ini読み込みと変数へのセット"""
         try:
             # 実行ファイルのパスを基準にconfig.iniを探す
             if getattr(sys, "frozen", False):
@@ -288,91 +228,56 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 self.base_path = Path(__file__).parent
 
             # utilsから設定を辞書として読み込む
-            config_data = load_app_config(self.base_path)
+            self.config_data = load_app_config(self.base_path)
 
             # 読み込んだ設定をクラス属性にセット
-            self.pdf_root_folder = config_data.get("pdf_root_folder", Path(""))
-            self.pdf_archive_folder = config_data.get("pdf_archive_folder", None)
-            self.nexus_output_folder = config_data.get(
+            self.pdf_root_folder = self.config_data.get("pdf_root_folder", Path(""))
+            self.pdf_archive_folder = self.config_data.get("pdf_archive_folder", None)
+            self.nexus_output_folder = self.config_data.get(
                 "nexus_output_folder", Path("Nexus_Output")
             )
-            self.browser_path = config_data.get("browser_path", None)
-            self.key_icons = config_data.get("key_icons", {})
-            self.key_colors = config_data.get("key_colors", {})
-            self.commonplace_keys_options = config_data.get(
+            self.browser_path = self.config_data.get("browser_path", None)
+            self.key_icons = self.config_data.get("key_icons", {})
+            self.key_colors = self.config_data.get("key_colors", {})
+            self.commonplace_keys_options = self.config_data.get(
                 "commonplace_keys_options", []
             )
-            self.predefined_tags = config_data.get("predefined_tags", [])
+            self.predefined_tags = self.config_data.get("predefined_tags", [])
 
-            self.include_all_tags_for_autocomplete = config_data.get(
+            self.include_all_tags_for_autocomplete = self.config_data.get(
                 "include_all_tags_for_autocomplete", True
             )
 
-            self.exclude_tags_by_default = config_data.get(
+            self.exclude_tags_by_default = self.config_data.get(
                 "exclude_tags_by_default", []
             )
 
-            if self.exclude_tags_by_default:
-                # タグ名を表示して分かりやすくする (例: "除外: Archive")
-                label_text = f"除外: {','.join(self.exclude_tags_by_default)}"
-                if len(label_text) > 20:  # 長すぎる場合は省略
-                    label_text = "除外タグ適用"
-
-                self.exclude_tags_checkbox.configure(text=label_text)
-                self.exclude_tags_checkbox.select()  # 初期状態でONにする
-            else:
-                # 設定がない場合はチェックボックスを無効化または非表示
-                self.exclude_tags_checkbox.configure(
-                    state="disabled", text="除外設定なし"
-                )
-
-            paper_size = config_data.get("paper_size", "A4").upper()
-            if paper_size == "A5":
-                self.paper_width = 419.528
-                self.paper_height = 595.276
-            else:
-                self.paper_width = 595.276
-                self.paper_height = 841.89
-
-            # フィルターチェックボックスをUIに反映
-            self.populate_key_filters()
-
-            # 検索マネージャの読み込み
-            try:
-                # search_manager は config.ini と同じ場所(root) のパスを必要とする
-                if getattr(sys, "frozen", False):
-                    # .exe の場合、self.base_path (e.g., dist/) が root
-                    root_path = self.base_path
-                else:
-                    # .py の場合、self.base_path.parent (e.g., Synapsen/) が root
-                    root_path = self.base_path.parent
-
-                self.search_manager.load_saved_searches(root_path)
-            except Exception as e:
-                logger.error(f"保存済み検索の読み込みエラー: {e}")
-
-            # デフォルトDBが設定されていれば自動で読み込む
-            default_db_path = config_data.get("database_path")
-
-            if default_db_path and default_db_path.is_file():
-                self.load_db_from_path(default_db_path)
-            else:
-                if default_db_path:
-                    logger.warning(
-                        f"デフォルトデータベースが見つかりません: {default_db_path}"
-                    )
-                # DBがない場合でも検索UIの初期化は行う
-                self.perform_search()
-
-        except FileNotFoundError as e:
-            messagebox.showerror("設定エラー", str(e))
-            self.destroy()
-            return
         except Exception as e:
-            logger.error(f"Config loading error: {e}", exc_info=True)  # ログに出す
-            messagebox.showerror(
-                "設定読み込みエラー", f"config.iniの読み込みに失敗しました: {e}"
-            )
+            messagebox.showerror("設定エラー", str(e))
+
+    def on_closing(self):
+        """終了処理: バックアップとクリーンアップ"""
+        if self.loaded_db_path and Path(self.loaded_db_path).exists():
+            try:
+                db_path = Path(self.loaded_db_path)
+                backup_dir = db_path.parent / "db_backups"
+                backup_dir.mkdir(exist_ok=True)
+                today_str = datetime.datetime.now().strftime("%Y%m%d")
+                backup_filename = f"{db_path.stem}_{today_str}.db"
+                shutil.copy2(db_path, backup_dir / backup_filename)
+
+                # ローテーション
+                backup_files = sorted(list(backup_dir.glob(f"{db_path.stem}_*.db")))
+                if len(backup_files) > 7:
+                    for old in backup_files[:-7]:
+                        if old.name != backup_filename:
+                            old.unlink()
+            except Exception as e:
+                logger.error(f"Backup error: {e}")
+
+        if self.db_conn:
+            self.db_conn.close()
+        self.destroy()
 
     # -------------------------------------------------------------------------
     # ショートカット設定メソッド
@@ -481,7 +386,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.bind("<Control-F>", self._focus_search)
 
         # --- 3. リスト操作用ショートカット ---
-        self.setup_navigation_shortcuts()
+        self.setup_navigation_shortcuts()  # ListNavigatorMixin
 
     def _handle_escape(self, event):
         """
@@ -495,15 +400,10 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         ショートカット実行時のハンドラ。
         入力フィールド(Entry, Text)にフォーカスがある場合は無視して文字入力を優先する。
         """
-        focused_widget = self.focus_get()
-
-        # フォーカス中のウィジェットが存在し、かつ入力系クラスの場合
-        if focused_widget:
-            widget_class = focused_widget.winfo_class()
-            # 'Entry': 1行入力 (CTkEntryの中身もこれ)
-            # 'Text': 複数行入力 (CTkTextboxの中身もこれ)
-            if widget_class in ["Entry", "Text"]:
-                return
+        focused = self.focus_get()
+        # 入力ウィジェットにフォーカスがある場合は実行しない
+        if focused and focused.winfo_class() in ["Entry", "Text"]:
+            return
 
         # 入力中でなければコマンドを実行
         command()
@@ -514,111 +414,94 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         self.search_entry.select_range(0, "end")
         return "break"  # デフォルトの動作を抑制
 
-    def _reload_db(self):
-        """現在開いているDBを再読み込みする"""
-        if self.loaded_db_path:
-            self.load_db_from_path(self.loaded_db_path)
-
-    def reveal_current_note_in_list(self):
-        """
-        詳細パネルに表示中のノートをリスト内で探し、カーソル移動する。
-        別ページにある場合はページ遷移を行う。
-        """
-        # ノートが選択されていない場合は何もしない
-        if self.current_selected_row is None:
-            return
-
-        target_key = self.current_selected_row.get("key")
-        if not target_key:
-            return
-
-        # 1. まず現在の表示リスト内を探す
-        target_index = -1
-        if self.list_item_widgets:
-            for i, item in enumerate(self.list_item_widgets):
-                if item["key"] == target_key:
-                    target_index = i
-                    break
-
-        if target_index != -1:
-            # 現在のページに見つかった場合
-            self._set_list_cursor(target_index)
-            self.focus_set()
-        else:
-            # 2. 見つからない場合、別ページにあるか計算してジャンプ
-            target_page = self._calculate_page_for_key(target_key)
-
-            if target_page != -1:
-                if target_page == self.current_page:
-                    # 計算上は今のページにいるはずだが見つからない (フィルタで除外されている等)
-                    self.selection_info_label.configure(
-                        text="リスト外", text_color="orange"
-                    )
-                    self.after(1500, self.update_selection_ui_state)
-                else:
-                    # ページ遷移を実行
-                    self.selection_info_label.configure(
-                        text="ジャンプ中...", text_color="#E0a800"
-                    )
-
-                    self._pending_reveal_key = target_key  # 読み込み完了後の予約
-                    self.current_page = target_page
-                    self.perform_search(reset_page=False)  # 指定ページで再検索
-            else:
-                # 検索条件に合致しない (除外タグなど)
-                self.selection_info_label.configure(
-                    text="リスト外", text_color="orange"
-                )
-                self.after(1500, self.update_selection_ui_state)
-
-    def _calculate_page_for_key(self, target_key):
-        """
-        指定されたKeyが、現在の検索条件・ソート順で何ページ目にあるかを計算する。
-        """
-        if not self.db_conn or not target_key:
-            return -1
-
-        try:
-            # 現在の検索条件 (WHERE句)
-            where_clause = self.current_where_clause
-            params = list(self.current_params) if self.current_params else []
-
-            # 現在のソート順
-            order_dir = "ASC" if self.sort_ascending else "DESC"
-
-            # 全件のKeyをソート順通りに取得 (軽量なので全件取得しても高速)
-            sql = "SELECT key FROM notes"
-            if where_clause:
-                sql += f" WHERE {where_clause}"
-
-            # utils.fetch_notes_from_db と同じソート順にする
-            sql += f" ORDER BY date {order_dir}, time {order_dir}, key {order_dir}"
-
-            cursor = self.db_conn.cursor()
-            cursor.execute(sql, params)
-
-            # 全キーを取得してインデックスを探す
-            # (数万件程度ならメモリ展開しても一瞬です)
-            all_keys = [row[0] for row in cursor.fetchall()]
-
-            if target_key in all_keys:
-                index = all_keys.index(target_key)
-                # ページ番号 = インデックス // 1ページあたりの件数
-                return index // self.items_per_page
-
-            return -1
-
-        except Exception as e:
-            logger.error(f"ページ計算エラー: {e}")
-            return -1
-
     # -------------------------------------------------------------------------
 
+    def populate_key_filters(self):
+        """IndexKeyフィルタのチェックボックス生成"""
+        for widget in self.key_filter_frame.winfo_children():
+            widget.destroy()
+        self.filter_checkboxes.clear()
+
+        for key in self.commonplace_keys_options:
+            var = ctk.StringVar(value="0")
+            row = ctk.CTkFrame(self.key_filter_frame, fg_color="transparent")
+            row.pack(anchor="w", padx=10, pady=2, fill="x")
+
+            icon = self.key_icons.get(key.lower(), "•")
+            color = self.key_colors.get(key.lower(), "gray")
+            ctk.CTkLabel(
+                row, text=icon, text_color=color, font=("", 16), width=20
+            ).pack(side="left")
+            ctk.CTkCheckBox(
+                row,
+                text=key,
+                variable=var,
+                onvalue="1",
+                offvalue="0",
+                command=self._trigger_search_now,
+            ).pack(side="left", expand=True, fill="x")
+            self.filter_checkboxes[key] = var
+
+    def sync_filter_panel_view(self):
+        if self.filter_panel_expanded:
+            self.key_filter_frame.grid()
+            self.toggle_filter_button.configure(text="▼ IndexKey")
+        else:
+            self.key_filter_frame.grid_remove()
+            self.toggle_filter_button.configure(text="▶ IndexKey")
+        self.update_collapsed_filter_view()
+
+    def update_collapsed_filter_view(self):
+        for w in self.collapsed_icons_frame.winfo_children():
+            w.destroy()
+        if not self.filter_panel_expanded:
+            selected = [k for k, v in self.filter_checkboxes.items() if v.get() == "1"]
+            if not selected:
+                ctk.CTkLabel(self.collapsed_icons_frame, text="", font=("", 16)).pack(
+                    side="left"
+                )
+            else:
+                for k in selected:
+                    icon = self.key_icons.get(k.lower(), "•")
+                    col = self.key_colors.get(k.lower(), "gray")
+                    ctk.CTkLabel(
+                        self.collapsed_icons_frame,
+                        text=icon,
+                        text_color=col,
+                        font=("", 16),
+                    ).pack(side="left", padx=2)
+
+    def toggle_filter_panel(self):
+        self.filter_panel_expanded = not self.filter_panel_expanded
+        self.sync_filter_panel_view()
+
+    def toggle_details_panel(self):
+        if self.details_panel_expanded:
+            self.details_frame.grid_remove()
+            self.details_panel_expanded = False
+            self.toggle_details_button.configure(text="◀ 詳細")
+        else:
+            self.details_frame.grid()
+            self.details_panel_expanded = True
+            self.toggle_details_button.configure(text="▶ 詳細")
+
+    # --- アクション系メソッド ---
+    def open_canvas(self, background=False, notes_to_add=None):
+        if hasattr(self, "canvas_window") and self.canvas_window.winfo_exists():
+            if not background:
+                if self.canvas_window.state() == "iconic":
+                    self.canvas_window.deiconify()
+                self.canvas_window.lift()
+                self.canvas_window.focus_force()
+            if notes_to_add:
+                self.canvas_window.add_selected_notes(target_keys=notes_to_add)
+            return
+        self.canvas_window = CanvasWindow(
+            self, background=background, initial_notes=notes_to_add
+        )
+
     def refresh_unique_tags(self):
-        """
-        タグリストを更新する。
-        config設定(include_all_tags_for_autocomplete)によって挙動が変わる。
-        """
+        """タグリスト更新"""
         # 1. 事前定義タグでセットを初期化
         tags_set = set(self.predefined_tags)
 
@@ -637,383 +520,19 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         self.all_unique_tags = sorted(list(tags_set))
 
-    def create_widgets(self):
-        # --- トップコンテナ (全体を包むフレーム) ---
-        # row=0 に配置し、内部を2段構成にする
-        top_container = ctk.CTkFrame(self)
-        top_container.grid(
-            row=0, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="ew"
+    def _reload_db(self):
+        if self.loaded_db_path:
+            self.load_db_from_path(self.loaded_db_path)
+
+    def load_database_dialog(self):
+        """「目次データベースを開く」ボタンの動作。ファイルダイアログを開く。"""
+        filepath = filedialog.askopenfilename(
+            title="目次データベースファイルを選択",
+            filetypes=[("SQLite Database", "*.db"), ("All files", "*.*")],
         )
-
-        # ============================================================
-        # 【1段目】 検索バー行 (DB操作 / 検索入力 / 検索保存)
-        # ============================================================
-        row1_frame = ctk.CTkFrame(top_container, fg_color="transparent")
-        row1_frame.pack(side="top", fill="x", expand=True, pady=(5, 2), padx=5)
-
-        # --- [左側] 基本ボタン (DB, ヘルプ) ---
-        left_basic_frame = ctk.CTkFrame(row1_frame, fg_color="transparent")
-        left_basic_frame.pack(side="left", padx=(0, 5))
-
-        # "DBを開く" ボタン
-        ctk.CTkButton(
-            left_basic_frame, text="DB", command=self.load_database_dialog, width=50
-        ).pack(side="left", padx=(0, 5))
-
-        # 検索ヘルプボタン
-        ctk.CTkButton(
-            left_basic_frame, text="？", command=self.show_search_help, width=30
-        ).pack(side="left", padx=0)
-
-        # --- [右側] スマート検索 (検索保存, 呼び出し) ---
-        # 検索バーより先にpackして右端を確保する
-        smart_search_frame = ctk.CTkFrame(row1_frame, fg_color="transparent")
-        smart_search_frame.pack(side="right", padx=(5, 0))
-
-        self.save_search_button = ctk.CTkButton(
-            smart_search_frame,
-            text="検索保存",
-            command=self.search_manager.save_current_search,
-            width=80,
-        )
-        self.save_search_button.pack(side="left", padx=(0, 5))
-
-        # 保存済み検索呼び出しボタン
-        self.saved_search_combo = ctk.CTkComboBox(
-            smart_search_frame,
-            values=["保存済み検索..."],
-            width=150,
-            command=self.search_manager.on_saved_search_selected,
-        )
-        self.saved_search_combo.pack(side="left", padx=0)
-        self.saved_search_combo.set("保存済み検索...")
-
-        # --- [中央] 検索バー (残りのスペースを埋める) ---
-        search_container = ctk.CTkFrame(row1_frame, fg_color="transparent")
-        search_container.pack(side="left", fill="x", expand=True, padx=5)
-
-        self.search_entry = ctk.CTkEntry(
-            search_container,
-            placeholder_text=(
-                "検索 (例: (date:>=20240101 AND date:<=20240131) AND"
-                + " (tag:Type_Fleeting OR tag:Question))"
-            ),
-        )
-        self.search_entry.pack(fill="x", expand=True)
-
-        # 検索バーのイベントバインド (既存維持)
-        self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
-        self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
-        self.search_entry.bind("<Down>", self.navigate_suggestions)
-        self.search_entry.bind("<Up>", self.navigate_suggestions)
-        self.search_entry.bind("<Return>", self.confirm_suggestion)
-
-        # ============================================================
-        # 【2段目】 ツールバー行 (ソート / アクション / ツール)
-        # ============================================================
-        row2_frame = ctk.CTkFrame(top_container, fg_color="transparent")
-        row2_frame.pack(side="top", fill="x", pady=(0, 5), padx=5)
-
-        # --- [左側] 表示・フィルタリング系 ---
-        view_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
-        view_tools_frame.pack(side="left", padx=0)
-
-        # ソート順切り替えボタン
-        self.sort_button = ctk.CTkButton(
-            view_tools_frame,
-            text="▲ 古い順",
-            command=self.toggle_sort_order,
-            width=90,
-            fg_color="#585a9c",
-            hover_color="#494B83",
-        )
-        self.sort_button.pack(side="left", padx=(0, 5))
-
-        # 本文・メモ検索(FTS)
-        self.fts_checkbox = ctk.CTkCheckBox(view_tools_frame, text="本文・メモ検索")
-        self.fts_checkbox.pack(side="left", padx=(0, 10))
-        self.fts_checkbox.configure(command=self._trigger_search_now)
-
-        # 除外タグ有効化チェックボックス
-        self.exclude_tags_checkbox = ctk.CTkCheckBox(view_tools_frame, text="除外タグ")
-        self.exclude_tags_checkbox.pack(side="left", padx=(0, 10))
-        self.exclude_tags_checkbox.configure(command=self._trigger_search_now)
-
-        # 選択数表示ラベル
-        self.selection_info_label = ctk.CTkLabel(
-            view_tools_frame,
-            text="選択: 0",
-            font=("", 12, "bold"),
-            text_color="gray",
-            width=60,
-        )
-        self.selection_info_label.pack(side="left", padx=(0, 5))
-
-        # 選択解除ボタン
-        self.clear_selection_button = ctk.CTkButton(
-            view_tools_frame,
-            text="×",
-            command=self.clear_selection,
-            width=30,
-            fg_color="#6C757D",
-            hover_color="#5A6268",
-        )
-        self.clear_selection_button.pack(side="left", padx=0)
-
-        # 分区切り線（視覚的な区切り）
-        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
-
-        # --- [中央～右] アクション系 ---
-        action_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
-        action_tools_frame.pack(side="left", padx=0)
-
-        # グラフメニュー
-        self.graph_menu_var = ctk.StringVar(value="グラフ表示")
-        self.graph_menu = ctk.CTkOptionMenu(
-            action_tools_frame,
-            variable=self.graph_menu_var,
-            values=["全体 (Global)", "関連 (Local)", "選択 (Selected)"],
-            command=self.handle_graph_menu,
-            width=130,
-            fg_color="#585a9c",
-            button_color="#494B83",
-        )
-        self.graph_menu.pack(side="left", padx=(0, 5))
-
-        # リンクコピーボタン
-        self.copy_links_button = ctk.CTkButton(
-            action_tools_frame,
-            text="リンクコピー",
-            command=self.copy_selected_links,
-            width=90,
-            fg_color="#28a745",
-            hover_color="#218838",
-            state="disabled",
-        )
-        self.copy_links_button.pack(side="left", padx=(0, 5))
-
-        # エクスポートメニュー
-        self.export_menu_var = ctk.StringVar(value="エクスポート")
-        self.export_menu = ctk.CTkOptionMenu(
-            action_tools_frame,
-            variable=self.export_menu_var,
-            values=[
-                "データ (CSV/TXT)",
-                "統合PDF (Merge)",
-                "全て (Data + PDF)",
-                "MOC (Markdown)",
-            ],
-            command=self.handle_export_menu,
-            width=130,
-            fg_color="#17a2b8",
-            button_color="#138496",
-        )
-        self.export_menu.pack(side="left", padx=(0, 5))
-
-        # 分区切り線
-        ctk.CTkLabel(row2_frame, text="|", text_color="gray").pack(side="left", padx=5)
-
-        # --- [右側] ツール系 ---
-        extra_tools_frame = ctk.CTkFrame(row2_frame, fg_color="transparent")
-        extra_tools_frame.pack(side="left", padx=0)
-
-        # ランダムノートボタン
-        self.random_note_button = ctk.CTkButton(
-            extra_tools_frame,
-            text="閃き (R)",
-            command=self.show_random_note,
-            width=70,
-            fg_color="#585a9c",
-            hover_color="#494B83",
-        )
-        self.random_note_button.pack(side="left", padx=(0, 5))
-
-        # キャンバスボタン
-        self.canvas_button = ctk.CTkButton(
-            extra_tools_frame,
-            text="キャンバス",
-            command=self.open_canvas,
-            width=80,
-            fg_color="#e0a800",
-            hover_color="#c69500",
-        )
-        self.canvas_button.pack(side="left", padx=0)
-
-        # 詳細パネルトグルボタン
-        self.toggle_details_button = ctk.CTkButton(
-            extra_tools_frame,
-            text="▶ 詳細",
-            command=self.toggle_details_panel,
-            width=60,
-            fg_color="transparent",
-            border_width=1,
-            text_color=("gray10", "gray90"),
-        )
-        self.toggle_details_button.pack(side="left", padx=(5, 0))
-
-        # ============================================================
-        # その他のUI要素 (初期化)
-        # ============================================================
-
-        # オートコンプリート用の非表示フレーム
-        self.autocomplete_frame = ctk.CTkScrollableFrame(self, label_text="")
-
-        # --- 左パネル (フィルタ・リスト) ---
-        self.left_panel = ctk.CTkFrame(self, fg_color="transparent")
-        self.left_panel.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-        self.left_panel.grid_rowconfigure(2, weight=1)
-        self.left_panel.grid_columnconfigure(0, weight=1)
-
-        # フィルターコンテナ
-        filter_container = ctk.CTkFrame(self.left_panel)
-        filter_container.grid(row=0, column=0, sticky="ew")
-        filter_container.grid_columnconfigure(1, weight=1)
-        self.toggle_filter_button = ctk.CTkButton(
-            filter_container, text="", command=self.toggle_filter_panel, width=20
-        )
-        self.toggle_filter_button.grid(row=0, column=0, padx=5, pady=5)
-
-        # フィルター非表示時に選択中アイコンを表示するフレーム
-        self.collapsed_icons_frame = ctk.CTkFrame(
-            filter_container, fg_color="transparent"
-        )
-        self.collapsed_icons_frame.grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        # IndexKeyフィルターのスクロールフレーム (初期非表示)
-        self.key_filter_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="")
-        self.key_filter_frame.grid(row=1, column=0, padx=0, pady=(0, 5), sticky="nsew")
-
-        # 検索結果リスト
-        self.results_list = ctk.CTkScrollableFrame(
-            self.left_panel, label_text="ノート一覧"
-        )
-        self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
-
-        # --- ページネーション UI ---
-        self.pagination_frame = ctk.CTkFrame(
-            self.left_panel, fg_color="transparent", height=40
-        )
-        self.pagination_frame.grid(row=3, column=0, sticky="ew", pady=(5, 0))
-
-        self.btn_prev_page = ctk.CTkButton(
-            self.pagination_frame,
-            text="< 前へ",
-            width=80,
-            command=self.prev_page,
-            state="disabled",
-        )
-        self.btn_prev_page.pack(side="left", padx=10)
-
-        self.page_label = ctk.CTkLabel(self.pagination_frame, text="0 / 0")
-        self.page_label.pack(side="left", expand=True)
-
-        self.btn_next_page = ctk.CTkButton(
-            self.pagination_frame,
-            text="次へ >",
-            width=80,
-            command=self.next_page,
-            state="disabled",
-        )
-        self.btn_next_page.pack(side="right", padx=10)
-
-        # --- 右パネル (詳細・プレビュー) ---
-        self.details_frame = ctk.CTkFrame(self)
-        self.details_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
-        self.details_panel_visible = True  # 初期表示状態
-
-        # グリッド設定 (上部情報(2列)、メモ、引用元、ボタン)
-        self.details_frame.grid_rowconfigure(0, weight=0)  # 上部情報
-        self.details_frame.grid_rowconfigure(1, weight=1)  # メモ
-        self.details_frame.grid_rowconfigure(2, weight=1)  # 引用元
-        self.details_frame.grid_rowconfigure(3, weight=0)  # ボタン
-        self.details_frame.grid_columnconfigure(0, weight=1)
-
-        # === 1. 上部情報エリア (2列構成) ===
-        top_info_frame = ctk.CTkFrame(self.details_frame, fg_color="transparent")
-        top_info_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-        top_info_frame.grid_columnconfigure(0, weight=1)  # テキスト情報 (伸縮)
-        top_info_frame.grid_columnconfigure(1, weight=0)  # プレビュー (固定気味)
-
-        # [左カラム] テキスト情報 (動的生成用コンテナ)
-        self.text_info_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
-        self.text_info_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-
-        # [右カラム] プレビュー (親フレーム)
-        self.preview_frame = ctk.CTkFrame(top_info_frame, fg_color="transparent")
-        self.preview_frame.grid(row=0, column=1, sticky="n", padx=(5, 0))
-
-        self.pdf_preview_label = ctk.CTkLabel(
-            self.preview_frame,
-            text="No Preview",
-            fg_color="gray20",
-            text_color="gray70",
-            width=200,
-            height=280,  # A4比率に近いサイズ固定
-        )
-        self.pdf_preview_label.pack()
-
-        # === 2. メモ ===
-        ctk.CTkLabel(self.details_frame, text="メモ:", anchor="w").grid(
-            row=1, column=0, padx=10, pady=(5, 0), sticky="w"
-        )
-        self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame, height=150)
-        self.memo_display_frame.grid(
-            row=2, column=0, padx=10, pady=(0, 5), sticky="nsew"
-        )
-
-        # === 3. 引用元 ===
-        self.references_display_frame = ctk.CTkScrollableFrame(
-            self.details_frame, label_text="このノートを引用", height=100
-        )
-        self.references_display_frame.grid(
-            row=3, column=0, padx=10, pady=5, sticky="nsew"
-        )
-
-        # === 4. ボタン ===
-        self.edit_button_frame = ctk.CTkFrame(
-            self.details_frame, fg_color="transparent"
-        )
-        self.edit_button_frame.grid(row=4, column=0, pady=10)
-
-        # 詳細プレビューボタン
-        self.open_preview_button = ctk.CTkButton(
-            self.edit_button_frame,
-            text="詳細プレビューで開く",
-            command=self.open_current_note_in_preview,
-            state="disabled",
-            fg_color="#00695C",
-            hover_color="#004D40",
-        )
-        self.open_preview_button.pack(side="left", padx=10)
-
-        self.edit_button = ctk.CTkButton(
-            self.edit_button_frame,
-            text="このノートを編集",
-            command=self.open_edit_dialog,
-            state="disabled",
-        )
-        self.edit_button.pack(side="left", padx=10)
-
-        self.delete_button = ctk.CTkButton(
-            self.edit_button_frame,
-            text="DBから削除",
-            command=self.confirm_delete_note,
-            fg_color="#D9534F",
-            hover_color="#C9302C",
-            state="disabled",
-        )
-        self.delete_button.pack(side="left", padx=10)
-
-        # フィルターパネルの初期表示を同期
-        self.sync_filter_panel_view()
-        self.update_details_panel(None)  # 初期状態として「未選択」表示を行う
-
-    def quick_search(self, query):
-        """指定されたクエリを検索バーに入力して即座に検索を実行する"""
-        self.search_entry.delete(0, "end")
-        self.search_entry.insert(0, query)
-        self.perform_search()
+        if not filepath:
+            return
+        self.load_db_from_path(Path(filepath))
 
     def open_file_location(self, file_path_str):
         """指定されたファイルの保存場所をエクスプローラで開く"""
@@ -1033,18 +552,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
         except Exception as e:
             logger.error(f"フォルダオープンエラー: {e}")
             messagebox.showerror("エラー", f"フォルダを開けませんでした: {e}")
-
-    def show_search_help(self):
-        """検索プレフィックスのヘルプウィンドウを表示する。"""
-
-        # 既にウィンドウが開いている場合は、それをフォーカスする
-        if hasattr(self, "help_window") and self.help_window.winfo_exists():
-            self.help_window.focus()
-            self.help_window.grab_set()
-            return
-
-        # カスタムクラス (SearchHelpWindow) をインスタンス化する
-        self.help_window = SearchHelpWindow(self)
 
     def toggle_sort_order(self):
         """ソート順（昇順/降順）を切り替え、検索を再実行する"""
@@ -1085,666 +592,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             self.create_moc_markdown()
 
         self.export_menu.set("エクスポート")
-
-    # --- オートコンプリート関連メソッド ---
-    def handle_keyrelease(self, event):
-        """検索バーでのキー入力（リリース）イベントを処理する。"""
-
-        # 1. 無視すべきキー（ナビゲーション、修飾キー、ファンクションキー等）
-        ignored_keys = (
-            "Return",
-            "Escape",
-            "Left",
-            "Up",
-            "Down",
-            "Right",
-            "Home",
-            "End",
-            "Prior",
-            "Next",
-            "Control_L",
-            "Control_R",
-            "Shift_L",
-            "Shift_R",
-            "Alt_L",
-            "Alt_R",
-            "Caps_Lock",
-            "Tab",
-            "ISO_Left_Tab",
-            "F1",
-            "F2",
-            "F3",
-            "F4",
-            "F5",
-            "F6",
-            "F7",
-            "F8",
-            "F9",
-            "F10",
-            "F11",
-            "F12",
-            # 半角/全角
-            "Zenkaku_Hankaku",
-            "Kanji",
-            # 無変換、変換
-            "Muhenkan",
-            "Henkan",
-            # ひらがな、カタカナ
-            "Hiragana",
-            "Katakana",
-            "Hiragana_Katakana",
-            # 英数
-            "Eisu_toggle",
-            "Alphanumeric",
-        )
-
-        if event.keysym in ignored_keys:
-            return
-
-        # 2. ショートカット操作（Ctrl+F, Ctrl+Aなど）を無視する
-        # event.state のビットマスクで Ctrl(4) または Alt(8 or 131072) が押されているか判定
-        is_ctrl = (event.state & 0x0004) != 0
-        is_alt = (event.state & 0x0008) != 0 or (event.state & 0x20000) != 0
-
-        if is_ctrl or is_alt:
-            return
-
-        # 上記以外のキー (文字入力、Delete, BackSpaceなど) の場合のみ
-        # 予測変換と検索をスケジュールする
-        self.schedule_suggestions()
-        self.schedule_search()
-
-    def update_suggestions(self, query, cursor_pos, match_value):
-        """
-        'tag:' プレフィックス入力中にオートコンプリート候補を更新する。
-        """
-        self.selected_suggestion_index = -1
-        # 'tag:abc' の 'abc' の部分 (group 2) を取得
-        last_tag_word = match_value.group(2).strip() if match_value else ""
-        target_list = self.all_unique_tags or self.predefined_tags
-
-        if last_tag_word == "":
-            # 'tag:' 直後は全リスト
-            suggestions = target_list
-        else:
-            # 前方一致検索# 'tag:Py' のように入力中の場合は、前方一致検索
-            last_word_lower = last_tag_word.lower()
-            suggestions = [
-                tag for tag in target_list if tag.lower().startswith(last_word_lower)
-            ]
-
-        # 上下キーでの移動 (navigate_suggestions) のために引数を保存
-        self._last_suggestion_args = (query, cursor_pos, match_value)
-
-        if suggestions:
-            # show_autocomplete にも引数を渡す
-            self.show_autocomplete(suggestions, query, cursor_pos, match_value)
-        else:
-            self.hide_autocomplete()
-
-    def show_autocomplete(self, suggestions, query, cursor_pos, match_value):
-        """オートコンプリートの候補リストウィンドウを表示する。"""
-        self.current_suggestions = suggestions
-        for widget in self.autocomplete_frame.winfo_children():
-            widget.destroy()
-
-        for i, suggestion in enumerate(suggestions):
-            # 選択中のインデックスに基づいてハイライト色を決定
-            fg_color = (
-                "gray30" if i == self.selected_suggestion_index else "transparent"
-            )
-
-            btn = ctk.CTkButton(
-                self.autocomplete_frame,
-                text=suggestion,
-                fg_color=fg_color,
-                text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"],
-                anchor="w",
-                # select_suggestion に必要な情報をラムダで渡す
-                command=lambda s=suggestion: self.select_suggestion(
-                    s, query, cursor_pos, match_value
-                ),
-            )
-            btn.pack(fill="x", padx=5, pady=2)
-
-        # 検索バーの真下に配置 (元のコード)
-        x = self.search_entry.winfo_rootx() - self.winfo_rootx()
-        y = (
-            self.search_entry.winfo_rooty()
-            - self.winfo_rooty()
-            + self.search_entry.winfo_height()
-        )
-        width = self.search_entry.winfo_width()
-        height = min(200, len(suggestions) * 35)
-
-        self.autocomplete_frame.configure(width=width, height=height)
-        self.autocomplete_frame.place(x=x, y=y)
-        self.autocomplete_frame.lift()
-
-    def select_suggestion(self, suggestion, query, cursor_pos, match_value):
-        """オートコンプリート候補をクリックまたはEnterで選択したときの処理。"""
-
-        prefix_part = ""
-        suffix_part = query[cursor_pos:]  # カーソルより後ろのテキスト
-
-        if match_value:
-            # 'tag:Py' のように入力中の場合
-            # (group 2 が 'Py' の部分)
-            # 'tag:' の直前までを取得
-            prefix_part = query[: match_value.start(2)]
-        else:
-            # 'tag:' と入力した直後の場合 (match_value は None)
-            # カーソル位置までをそのまま使用
-            prefix_part = query[:cursor_pos]
-
-            # 'tag:' の直後にスペースがない場合、自動でスペースを追加
-            if not prefix_part.endswith(" "):
-                suggestion = " " + suggestion
-
-        # クエリを再構築
-        new_query = f"{prefix_part}{suggestion} {suffix_part}"
-
-        # 新しいカーソル位置 = 'tag:' + 'Python' + ' ' の直後
-        new_cursor_pos = len(prefix_part) + len(suggestion) + 1
-
-        # UIに反映
-        self.search_entry.delete(0, "end")
-        self.search_entry.insert(0, new_query)
-        self.search_entry.focus_force()
-        self.search_entry.icursor(new_cursor_pos)  # カーソル位置を更新
-
-        self.hide_autocomplete()
-        self._trigger_search_now()  # 検索を即時実行
-
-    def hide_autocomplete(self, event=None):
-        """オートコンプリートウィンドウを非表示にする。"""
-        # 少し遅延させて非表示にし、クリックイベントが発火できるようにする
-        self.after(200, lambda: self.autocomplete_frame.place_forget())
-
-    def navigate_suggestions(self, event):
-        """キーボードの上下矢印キーで候補リストを移動する。"""
-        if (
-            not self.autocomplete_frame.winfo_ismapped()
-            or not self.current_suggestions
-            or self._last_suggestion_args is None
-        ):
-            return
-
-        num = len(self.current_suggestions)
-        if event.keysym == "Down":
-            self.selected_suggestion_index = (self.selected_suggestion_index + 1) % num
-        elif event.keysym == "Up":
-            self.selected_suggestion_index = (
-                self.selected_suggestion_index - 1 + num
-            ) % num
-
-        # 選択項目がリストに表示されるようにスクロール
-        self.autocomplete_frame._parent_canvas.yview_moveto(
-            self.selected_suggestion_index / num
-        )
-
-        # 選択ハイライトを更新 (保存しておいた引数を使う)
-        q, c, m = self._last_suggestion_args
-        self.show_autocomplete(self.current_suggestions, q, c, m)
-        return "break"  # 他のキーバインドを抑制
-
-    def confirm_suggestion(self, event):
-        """Enterキーで選択中の候補を確定する。"""
-        if (
-            self.autocomplete_frame.winfo_ismapped()
-            and self.selected_suggestion_index != -1
-            and self._last_suggestion_args is not None
-        ):
-
-            # 保存しておいた引数を取得
-            q, c, m = self._last_suggestion_args
-            # select_suggestion を呼び出す
-            self.select_suggestion(
-                self.current_suggestions[self.selected_suggestion_index], q, c, m
-            )
-            return "break"  # 検索が二重に実行されるのを防ぐ
-
-        # 候補が選択されていない場合は、通常の検索を実行
-        self._trigger_search_now()
-        self.hide_autocomplete()
-
-    # --- フィルターパネル関連メソッド ---
-    def sync_filter_panel_view(self):
-        """フィルターパネルの開閉状態をUIに同期させる。"""
-        if self.filter_panel_expanded:
-            self.key_filter_frame.grid()
-            self.toggle_filter_button.configure(text="▼ IndexKey フィルター")
-        else:
-            self.key_filter_frame.grid_remove()
-            self.toggle_filter_button.configure(text="▶ IndexKey フィルター")
-        self.update_collapsed_filter_view()
-
-    def toggle_filter_panel(self):
-        """フィルターパネルの開閉状態を切り替える。"""
-        self.filter_panel_expanded = not self.filter_panel_expanded
-        self.sync_filter_panel_view()
-
-    def update_collapsed_filter_view(self):
-        """
-        フィルターパネルが閉じているときに、
-        選択中のフィルターアイコンを表示する。
-        """
-        for widget in self.collapsed_icons_frame.winfo_children():
-            widget.destroy()
-
-        if not self.filter_panel_expanded:
-            if not self.filter_panel_expanded:
-                # 選択されている IndexKey をリストアップ
-                selected_keys = []
-                for key, var in self.filter_checkboxes.items():
-                    if var.get() == "1":
-                        selected_keys.append(key)
-
-            if not selected_keys:
-                ctk.CTkLabel(self.collapsed_icons_frame, text="", font=("", 16)).pack(
-                    side="left"
-                )
-            else:
-                for key in selected_keys:
-                    icon = self.key_icons.get(key.lower(), "•")
-                    color = self.key_colors.get(key.lower(), "gray")
-                    ctk.CTkLabel(
-                        self.collapsed_icons_frame,
-                        text=icon,
-                        text_color=color,
-                        font=("", 16),
-                    ).pack(side="left", padx=2)
-
-    # --- 右サイドバー（詳細パネル）のトグル ---
-    def toggle_details_panel(self):
-        """右側の詳細パネルの表示/非表示を切り替える"""
-        if self.details_panel_expanded:
-            self.details_frame.grid_remove()
-            self.details_panel_expanded = False
-            self.toggle_details_button.configure(text="◀ 詳細")
-        else:
-            self.details_frame.grid()
-            self.details_panel_expanded = True
-            self.toggle_details_button.configure(text="▶ 詳細")
-
-    # --- データ読み込み・検索実行メソッド ---
-    def load_database_dialog(self):
-        """「目次データベースを開く」ボタンの動作。ファイルダイアログを開く。"""
-        filepath = filedialog.askopenfilename(
-            title="目次データベースファイルを選択",
-            filetypes=[("SQLite Database", "*.db"), ("All files", "*.*")],
-        )
-        if not filepath:
-            return
-        self.load_db_from_path(Path(filepath))
-
-    def load_db_from_path(self, filepath: Path, key_to_redisplay: str = None):
-        """
-        指定されたパスからDBを読み込み、DataFrameを更新する。
-        utils.load_sql_data_file を使用する。
-
-        Args:
-            filepath (Path): 読み込むDBファイルのパス。
-            key_to_redisplay (str, optional):
-                読み込み後に詳細ペインに再表示するノートのキー。
-                Noneの場合は詳細ペインをクリアする。
-        """
-        try:
-            # --- 1. 読み取り専用接続 (db_conn) のクローズ/再生成 ---
-            if self.db_conn:
-                self.db_conn.close()
-
-            self.loaded_db_path = filepath
-            # SQLite接続 (読み取り専用)
-            self.db_conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
-
-            # --- テーブル構造チェック ---
-            conn_write = None
-            try:
-                conn_write = sqlite3.connect(filepath)  # 書き込みモードで接続
-                cursor = conn_write.cursor()
-
-                # リンクテーブルの作成
-                cursor.execute(
-                    """
-                CREATE TABLE IF NOT EXISTS note_links (
-                    source_key TEXT NOT NULL,
-                    target_key TEXT NOT NULL,
-                    PRIMARY KEY (source_key, target_key)
-                )
-                """
-                )
-                # 引用元検索(target_key)を高速化するインデックス
-                cursor.execute(
-                    """
-                CREATE INDEX IF NOT EXISTS idx_target_key
-                    ON note_links (target_key)
-                """
-                )
-                conn_write.commit()
-                logger.info("'note_links' テーブルの存在を確認・作成しました。")
-
-            except Exception as e_tbl:
-                logger.error(f"'note_links' テーブルの作成に失敗: {e_tbl}")
-                if conn_write:
-                    conn_write.rollback()
-            finally:
-                if conn_write:
-                    conn_write.close()
-
-            # UIリセット & 初期検索
-            self.current_page = 0
-            self.refresh_unique_tags()  # タグリスト更新はSQLで行うよう要修正(後述)
-            self.perform_search()  # ここで最初の50件がロードされる
-
-            # 再表示処理
-            if key_to_redisplay:
-                # 特定のノートだけ個別に取得して表示
-                notes = fetch_notes_from_db(self.db_conn, "key = ?", [key_to_redisplay])
-                if notes:
-                    self.show_details(
-                        pd.Series(notes[0])
-                    )  # 互換性のためSeriesに変換して渡す
-                else:
-                    self.clear_details()
-            else:
-                self.clear_details()
-
-        except Exception as e:
-            messagebox.showerror("DBエラー", str(e))
-
-    def populate_key_filters(self):
-        for widget in self.key_filter_frame.winfo_children():
-            widget.destroy()
-        self.filter_checkboxes.clear()
-
-        for key in self.commonplace_keys_options:
-            var = ctk.StringVar(value="0")
-            row_frame = ctk.CTkFrame(self.key_filter_frame, fg_color="transparent")
-            row_frame.pack(anchor="w", padx=10, pady=2, fill="x")
-
-            icon = self.key_icons.get(key.lower(), "•")
-            color = self.key_colors.get(key.lower(), "gray")
-
-            ctk.CTkLabel(
-                row_frame, text=icon, text_color=color, font=("", 16), width=20
-            ).pack(side="left")
-
-            ctk.CTkCheckBox(
-                row_frame,
-                text=key,
-                variable=var,
-                onvalue="1",
-                offvalue="0",
-                command=self._trigger_search_now,  # チェック時に検索を再実行
-            ).pack(side="left", expand=True, fill="x")
-
-            self.filter_checkboxes[key] = var
-
-    def _poll_search_result(self):
-        """
-        バックグラウンドスレッドからの検索結果を監視し、
-        キューにデータがあればメインスレッドで更新処理を行う。
-        """
-        try:
-            while True:
-                # キューから (search_id, result_data) を取り出す
-                # result_data は (rows, total) のタプル
-                search_id, result_data = self._search_result_queue.get_nowait()
-                self._on_search_complete(search_id, result_data)
-        except queue.Empty:
-            pass
-        finally:
-            self.after(100, self._poll_search_result)
-
-    def perform_search(self, reset_page=True):
-        """
-        検索処理のエントリーポイント。
-        UIスレッドで直接検索せず、バックグラウンドスレッドを開始します。
-        """
-        if not self.db_conn:
-            return
-
-        if reset_page:
-            self.current_page = 0
-
-        user_query = self.search_entry.get().strip()
-        include_full_text = self.fts_checkbox.get()
-
-        # --- 検索条件の構築 (メインスレッド) ---
-
-        # 1. 除外タグ
-        exclusion_query = ""
-        if self.exclude_tags_checkbox.get() == 1 and self.exclude_tags_by_default:
-            parts = [f"-tag:{t}" for t in self.exclude_tags_by_default]
-            exclusion_query = " ".join(parts)
-
-        full_query_str = (
-            f"({user_query}) AND ({exclusion_query})"
-            if user_query and exclusion_query
-            else (user_query or exclusion_query)
-        )
-
-        # 2. IndexKey フィルター
-        selected_filters = [
-            k for k, v in self.filter_checkboxes.items() if v.get() == "1"
-        ]
-
-        # 3. SQLへのパース
-        where_parts = []
-        params = []
-
-        # クエリ文字列 -> SQL
-        if full_query_str:
-            q_sql, q_params = parse_query_to_sql(full_query_str, include_full_text)
-            if q_sql:
-                where_parts.append(q_sql)
-                params.extend(q_params)
-
-        # IndexKey -> SQL
-        if selected_filters:
-            placeholders = ",".join(["?"] * len(selected_filters))
-            where_parts.append(f"commonplace_key IN ({placeholders})")
-            params.extend(selected_filters)
-
-        final_where = " AND ".join(where_parts) if where_parts else ""
-
-        # 状態保存 (ページネーション用)
-        self.current_where_clause = final_where
-        self.current_params = params
-
-        # ID更新
-        with self._search_lock:
-            self._current_search_id += 1
-            search_id = self._current_search_id
-
-        # ローディング表示
-        self.results_list.configure(label_text="検索中...")
-        self.configure(cursor="watch")
-
-        # スレッド開始
-        thread = threading.Thread(
-            target=self._execute_search_worker,
-            args=(
-                search_id,
-                self.loaded_db_path,  # パスを渡してスレッド内で接続
-                final_where,
-                params,
-                self.current_page,
-                self.items_per_page,
-                self.sort_ascending,
-            ),
-            daemon=True,
-        )
-        thread.start()
-
-    def _execute_search_worker(
-        self, search_id, db_path, where, params, page, limit, asc
-    ):
-        try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-
-            # 1. 総件数取得
-            total = count_notes_from_db(conn, where, params)
-
-            # 2. データ取得
-            offset = page * limit
-            rows = fetch_notes_from_db(conn, where, params, limit, offset, asc)
-
-            conn.close()
-
-            self._search_result_queue.put((search_id, (rows, total)))
-
-        except Exception as e:
-            logger.error(f"Search thread error: {e}")
-            # エラー時も形式を合わせる
-            self._search_result_queue.put((search_id, ([], 0)))
-
-    def _on_search_complete(self, search_id, result_data):
-        """検索完了時のコールバック"""
-        if isinstance(result_data, tuple):
-            rows, total_count = result_data
-        else:
-            return
-
-        self.configure(cursor="")
-
-        with self._search_lock:
-            if search_id != self._current_search_id:
-                return
-
-        self.filtered_df_cache = rows
-        self.total_items = total_count
-
-        self.update_results_list(rows)
-        self._update_pagination_ui()
-
-        # 【追加】 ジャンプ予約がある場合の処理
-        if self._pending_reveal_key:
-            target_index = -1
-            for i, item in enumerate(self.list_item_widgets):
-                if item["key"] == self._pending_reveal_key:
-                    target_index = i
-                    break
-
-            if target_index != -1:
-                self._set_list_cursor(target_index)
-                self.focus_set()  # フォーカスをリストに戻す
-                # 成功メッセージ
-                self.selection_info_label.configure(
-                    text=f"ページ {self.current_page + 1}", text_color="#28a745"
-                )
-                self.after(1500, self.update_selection_ui_state)
-
-            # 予約をクリア
-            self._pending_reveal_key = None
-
-    def _update_pagination_ui(self):
-        max_page = max(0, (self.total_items - 1) // self.items_per_page)
-
-        self.page_label.configure(text=f"{self.current_page + 1} / {max_page + 1}")
-
-        if self.current_page > 0:
-            self.btn_prev_page.configure(state="normal")
-        else:
-            self.btn_prev_page.configure(state="disabled")
-
-        if self.current_page < max_page:
-            self.btn_next_page.configure(state="normal")
-        else:
-            self.btn_next_page.configure(state="disabled")
-
-    def last_page(self):
-        """最後のページへ移動"""
-        # 現在の総アイテム数から最大ページ数を計算
-        max_page = max(0, (self.total_items - 1) // self.items_per_page)
-
-        if self.current_page < max_page:
-            self.current_page = max_page
-            self.perform_search(reset_page=False)
-
-    def next_page(self):
-        self.current_page += 1
-        self.perform_search(reset_page=False)
-
-    def prev_page(self):
-        if self.current_page > 0:
-            self.current_page -= 1
-            self.perform_search(reset_page=False)
-
-    def first_page(self):
-        """最初のページへ移動"""
-        if self.current_page > 0:
-            self.current_page = 0
-            self.perform_search(reset_page=False)
-
-    def _trigger_search_now(self):
-        """
-        デバウンスタイマーをキャンセルし、検索を即座に実行する。
-        Enterキー押下時やチェックボックス変更時に使用する。
-        """
-        # 検索のタイマー
-        if self.search_timer:
-            self.after_cancel(self.search_timer)
-            self.search_timer = None
-
-        # 予測変換のタイマー
-        if self.suggestion_timer:
-            self.after_cancel(self.suggestion_timer)
-            self.suggestion_timer = None
-
-        # 本体の検索を実行
-        self.perform_search()
-
-    def schedule_search(self):
-        """
-        検索の実行を遅延させる（デバウンス）。
-        既にあるタイマーをキャンセルし、新しいタイマーを設定する。
-        """
-        # 既存のタイマーがあればキャンセル
-        if self.search_timer:
-            self.after_cancel(self.search_timer)
-
-        # 待機時間を 650ミリ秒 (0.65秒) に設定
-        self.search_timer = self.after(650, self.perform_search)
-
-    def schedule_suggestions(self, event=None):
-        """
-        オートコンプリートの更新を遅延させる（デバウンス）。
-        [変更] 'tag:' プレフィックス入力中のみ予測変換を実行する。
-        """
-        if self.suggestion_timer:
-            self.after_cancel(self.suggestion_timer)
-            self.suggestion_timer = None
-
-        query = self.search_entry.get()
-
-        # 現在のカーソル位置までのクエリを取得
-        cursor_pos = self.search_entry.index(ctk.INSERT)
-        query_to_cursor = query[:cursor_pos]
-
-        # 正規表現: 'tag:' (または 'tags:') の後に文字を入力中か
-        # (大文字小文字を無視, ^|\s|\( は行頭/空白/括弧の意)
-        tag_value_pattern = r"(?i)(^|\s|\()tags?:([^\s\)]*)$"
-        match_value = re.search(tag_value_pattern, query_to_cursor)
-
-        # 正規表現: 'tag:' (または 'tags:') を入力した直後か
-        tag_prefix_pattern = r"(?i)(^|\s|\()tags?:\s*$"
-        match_prefix = re.search(tag_prefix_pattern, query_to_cursor)
-
-        if match_prefix or match_value:
-            # 'tag:' が入力されている場合のみ、予測変換を実行 (200ms後)
-            # update_suggestions に必要な情報を渡す
-            self.suggestion_timer = self.after(
-                200,
-                lambda q=query, c=cursor_pos, m=match_value: self.update_suggestions(
-                    q, c, m
-                ),
-            )
-        else:
-            # 'tag:' 以外が入力されている場合は、予測変換を即座に隠す
-            self.hide_autocomplete()
-            self._last_suggestion_args = None  # 引数キャッシュをクリア
 
     def show_random_note(self):
         """
@@ -1796,27 +643,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             logger.error(f"ランダムノート表示エラー: {e}")
             messagebox.showerror("エラー", f"失敗しました: {e}")
 
-    def open_canvas(self, background=False, notes_to_add=None):
-        """キャンバスウィンドウを開く"""
-        if hasattr(self, "canvas_window") and self.canvas_window.winfo_exists():
-            # 既に開いている場合
-            if not background:
-                if self.canvas_window.state() == "iconic":
-                    self.canvas_window.deiconify()
-
-                self.canvas_window.lift()
-                self.canvas_window.focus_force()
-
-            # 追加リクエストがあれば実行
-            if notes_to_add:
-                self.canvas_window.add_selected_notes(target_keys=notes_to_add)
-            return
-
-        # 新規作成
-        self.canvas_window = CanvasWindow(
-            self, background=background, initial_notes=notes_to_add
-        )
-
     def send_selection_to_canvas(self):
         """
         現在選択中のノートをCanvasに追加する。
@@ -1841,124 +667,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         # 3. フォーカスをNexusに維持
         self.focus_force()
-
-    # --- UI更新・表示メソッド ---
-    def update_results_list(self, rows):
-        """
-        検索結果リストUIを更新する。
-        """
-        # 既存ウィジェットの削除
-        for widget in self.results_list.winfo_children():
-            widget.destroy()
-
-        self.list_item_widgets = []  # 参照リストをリセット
-        self.list_cursor_index = -1  # カーソルリセット
-        self.list_anchor_index = -1  # アンカーのリセット
-
-        # ラベル表示の更新
-        if hasattr(self, "total_items") and self.total_items > 0:
-            page_str = (
-                f" (ページ {self.current_page + 1})"
-                if hasattr(self, "current_page")
-                else ""
-            )
-            label = f"検索結果: {self.total_items} 件{page_str}"
-        else:
-            label = f"検索結果 ({len(rows)}件)"
-
-        self.results_list.configure(label_text=label)
-
-        for row in rows:
-            # 行フレームの作成
-            item_frame = ctk.CTkFrame(self.results_list, fg_color="transparent")
-            item_frame.pack(fill="x", padx=5, pady=2)
-
-            # --- チェックボックス ---
-            note_key = row.get("key")
-            is_selected = note_key in self.selected_keys
-
-            # チェックボックスの状態変数
-            chk_var = ctk.StringVar(value="on" if is_selected else "off")
-
-            def on_toggle(k=note_key, v=chk_var):
-                self.toggle_note_selection(k, v)
-
-            checkbox = ctk.CTkCheckBox(
-                item_frame,
-                text="",
-                width=24,
-                variable=chk_var,
-                onvalue="on",
-                offvalue="off",
-                command=on_toggle,
-            )
-            if not note_key:
-                checkbox.configure(state="disabled")
-
-            checkbox.pack(side="left", padx=(0, 5))
-
-            cp_key = str(row.get("commonplace_key", "")).lower()
-            icon = self.key_icons.get(cp_key, "•")
-            color = self.key_colors.get(cp_key, "gray")
-
-            icon_label = ctk.CTkLabel(
-                item_frame, text=icon, text_color=color, font=("", 16), width=20
-            )
-            icon_label.pack(side="left")
-
-            display_text = f"[{row.get('date')}] {row.get('title', 'N/A')}"
-            text_label = ctk.CTkLabel(item_frame, text=display_text, anchor="w")
-            text_label.pack(side="left", fill="x", expand=True)
-
-            # --- ウィジェットリストへの保存 ---
-            # 現在のインデックスを保存（クリック時のカーソル更新用）
-            current_widget_index = len(self.list_item_widgets)
-
-            # リストに追加 (フレーム本体, データ行, チェックボックス変数)
-            self.list_item_widgets.append(
-                {"frame": item_frame, "data": row, "chk_var": chk_var, "key": note_key}
-            )
-
-            # --- イベントバインド ---
-            def create_show_details_handler(note_row=row, idx=current_widget_index):
-                def handler(event):
-                    # 1. 見た目のカーソル移動は即座に行う (レスポンス確保)
-                    self._set_list_cursor(idx)
-
-                    # 2. 連続クリックされた場合、前の予約をキャンセル
-                    if self._details_timer:
-                        self.after_cancel(self._details_timer)
-
-                    # 3. 0.25秒後に詳細表示を実行
-                    # (この待ち時間の間にダブルクリックがあれば、そちらが優先される)
-                    self._details_timer = self.after(
-                        250, lambda: self.show_details(note_row)
-                    )
-
-                return handler
-
-            def create_open_pdf_handler(note_row=row, idx=current_widget_index):
-                def handler(event):
-                    self._set_list_cursor(idx)
-                    self.open_pdf(note_row)
-
-                return handler
-
-            show_details_command = create_show_details_handler()
-            # item_frame自体へのクリックは詳細表示
-            item_frame.bind("<Button-1>", show_details_command)
-            # アイコンやテキストへのクリックも詳細表示
-            icon_label.bind("<Button-1>", show_details_command)
-            text_label.bind("<Button-1>", show_details_command)
-
-            # ダブルクリックでPDFを開く
-            open_pdf_command = create_open_pdf_handler()
-            item_frame.bind("<Double-Button-1>", open_pdf_command)
-            icon_label.bind("<Double-Button-1>", open_pdf_command)
-            text_label.bind("<Double-Button-1>", open_pdf_command)
-
-        # リスト更新後、スクロール位置を最上部にリセットする
-        self.results_list._parent_canvas.yview_moveto(0)
 
     def toggle_note_selection(self, key, var):
         """チェックボックスの切り替え時の処理"""
@@ -2207,7 +915,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def open_preview_window(self, key, default_view_mode="compact", ui_master=None):
         """
         指定されたキーのノートを新しい「簡易プレビュー」ウィンドウで開く。
-        【修正】pandas依存を排除し、DBからデータを取得する。
         """
         from utils import fetch_notes_from_db  # ローカルインポート (念のため)
 
@@ -2319,7 +1026,6 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
     def update_details_panel(self, row_data):
         """
         右パネル（詳細情報）の内容を更新する。
-        【修正】
           1. pandas依存を排除し、SQLと辞書リストを使用。
           2. PDFプレビュー生成を非同期(スレッド)で実行し、UIフリーズを回避。
         """
@@ -2496,7 +1202,7 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
 
         add_row("Index Key:", create_ikey_widget)
 
-        # 4. ファイル (ここを修正)
+        # 4. ファイル
         merged_name = current_data.get("merged_pdf_filename", "")
         file_path_str = current_data.get("filepath", "")
         display_filename = (
@@ -2867,74 +1573,12 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
             logger.error(f"ローカルグラフ生成エラー: {e}")
             messagebox.showerror("エラー", f"失敗しました: {e}")
 
-    # --- エクスポート用データ取得ヘルパー ---
-    def _get_target_dataframe(self):
-        """
-        エクスポートやPDF結合のために、現在の対象データ（選択中または検索結果全体）を
-        Pandas DataFrame 形式で取得する。
-        """
-        if not self.db_conn:
-            return None, "search_results"
-
-        target_data = []
-        mode = "search_results"
-
-        try:
-            # 1. 選択されているノートがある場合 -> DBからそのノートだけを取得
-            if self.selected_keys:
-                mode = "selected_items"
-                keys_list = list(self.selected_keys)
-                placeholders = ",".join("?" * len(keys_list))
-
-                # 必要なカラムを全て取得
-                sql = f"""
-                    SELECT date, time, title, pages, tags, key, memo,
-                           commonplace_key, filepath, merged_pdf_filename,
-                           merged_start_page, summary
-                    FROM notes
-                    WHERE key IN ({placeholders})
-                    ORDER BY date, time
-                """
-                cursor = self.db_conn.cursor()
-                cursor.execute(sql, keys_list)
-
-                # 辞書リストに変換
-                columns = [col[0] for col in cursor.description]
-                for row in cursor.fetchall():
-                    target_data.append(dict(zip(columns, row)))
-
-            # 2. 選択がない場合 -> 現在の検索条件で【全件】取得
-            else:
-                # utils.fetch_notes_from_db を利用
-                from utils import fetch_notes_from_db
-
-                # limit=-1 は SQLite で「制限なし(全件)」を意味します
-                target_data = fetch_notes_from_db(
-                    self.db_conn,
-                    where_clause=self.current_where_clause,
-                    params=list(self.current_params),
-                    limit=-1,
-                    offset=0,
-                    sort_ascending=self.sort_ascending,
-                )
-
-            if not target_data:
-                return pd.DataFrame(), mode
-
-            # 3. DataFrameに変換
-            df = pd.DataFrame(target_data)
-            return df, mode
-
-        except Exception as e:
-            logger.error(f"エクスポート用データ取得エラー: {e}")
-            return pd.DataFrame(), mode
-
-    # --- エクスポート機能 (修正) ---
+    # --- エクスポート機能 ---
     def export_search_results(self, include_pdf=False):
         """
         検索結果(または選択中)のデータをエクスポートする。
         """
-        # 【修正】ヘルパーを使ってDataFrameを取得
+        # ヘルパーを使ってDataFrameを取得
         target_df, mode = self._get_target_dataframe()
 
         if target_df is None or target_df.empty:
@@ -3221,193 +1865,136 @@ class Synapsen_Nexus(ctk.CTk, ListNavigatorMixin):
                 if conn:
                     conn.close()
 
-
-# ==============================================================================
-# 検索ヘルプウィンドウ
-# ==============================================================================
-class SearchHelpWindow(ctk.CTkToplevel):
-    """
-    検索ヘルプ専用のToplevelウィンドウ。
-    メインアイコンを強制的に継承するため、iconbitmapメソッドをオーバーライドする。
-    """
-
-    def __init__(self, parent_app):
-        super().__init__(parent_app)
-        self._custom_icon_path = None  # 強制設定するアイコンパス
-
-        if hasattr(parent_app, "icon_path") and parent_app.icon_path:
-            self._custom_icon_path = str(parent_app.icon_path)
-            # --- 初期アイコンをすぐに設定 ---
-            if self._custom_icon_path:
-                try:
-                    # 親クラス(Toplevel)の iconbitmap を直接呼び出す
-                    super().iconbitmap(self._custom_icon_path)
-                except Exception as e:
-                    logger.error(f"Initial icon set error: {e}")
-
-        self.title("ヘルプ (検索・ショートカット)")
-        self.geometry("600x700")
-        self.transient(parent_app)
-        self.grab_set()
-
-        help_text = """
-----------------------------------------------------------------------------------------------------
-■ アプリケーション ショートカット一覧
-----------------------------------------------------------------------------------------------------
-
-[リスト操作 (ページネーション)]
-← / → : 前のページ / 次のページへ移動
-Alt + Home : 最初のページ (1ページ目) へ移動
-Alt + End  : 最後のページへ移動
-
-[リスト操作 (カーソル・スクロール)]
-↑ / ↓ : リスト内をカーソル移動
-Home / End : リストの先頭 / 末尾へスクロール (ページ移動はしません)
-PageUp / PageDn : 画面スクロール
-Ctrl + J : 表示中のノートへジャンプ (ページを自動で移動)
-
-[リスト操作 (選択・実行)]
-Space : 選択切り替え (チェックボックス ON/OFF)
-Enter : 詳細を表示 (右ペイン更新)
-Shift + Enter : ノートのPDFを開く
-Shift + 移動 : 範囲選択 (標準)
-Ctrl + Shift + 移動 : 範囲選択 (追加モード)
-Ctrl + A : すべて選択 (表示ページ内)
-Ctrl + D : 選択解除
-
-[編集・アクション]
-Ctrl + E : 選択中のノートを編集
-Ctrl + Enter : 選択中のノートをCanvasへ送る
-Alt + S  : ソート順切り替え (昇順/降順)
-
-[画面表示・遷移]
-R : 閃き (ランダムノート表示)
-C : キャンバスを開く
-P : 詳細プレビューを開く
-G : 全体グラフ (Global) を表示
-L : 関連グラフ (Local) を表示
-F5 : データベース再読み込み
-Ctrl + B : 右パネル（詳細）の開閉
-Ctrl + Shift + B : 左パネル（フィルター）の開閉
-
-[検索・入力]
-Ctrl + F : 検索バーへフォーカス (全選択)
-Esc : 入力欄からフォーカスを外す
-
-----------------------------------------------------------------------------------------------------
-■ Synapsen Nexus 検索クエリ リファレンス
-----------------------------------------------------------------------------------------------------
-
-■ 基本
-- 検索語をスペースで区切ると `AND` 検索になります。
-  (例: `Type_Permanent 薬物動態学`)
-- `OR` を使用すると `OR` 検索ができます。
-  (例: `Type_Fleeting OR Question`)
-- `()` でグループ化できます。
-  (例: `(tag:Type_Fleeting OR tag:Question) AND (ikey:学習 OR ikey:タスク)`)
-- `-` (ハイフン) を検索語の前に付けると `NOT` 検索になります。
-  (例: `衛生 -memo:古い`)
-
-----------------------------------------------------------------------------------------------------
-■ プレフィックスとエイリアス
-
-`title: (キーワード)`
-- ノートのタイトルを検索します (部分一致)。
-
-`key: (ID)`
-- ノートのユニークIDを**部分一致**で検索します。
-  (例: `key:202401` や `key:0930` など)
-
-`[[Key]]` (エイリアス)
-- ノートのユニークIDを**完全一致**で検索します。
-  (例: `[[20240101090000: タイトル]]` は `20240101090000` のみヒット)
-
-`tag: (キーワード)` (エイリアス: `tags:`)
-- タグを検索します (部分一致)。入力補完 (`tag:`) が利用可能です。
-
-`ikey: (キーワード)` (エイリアス: `cpkey:`, `indexkey:`)
-- Index Key (コモンプレイスキー) を検索します (部分一致)。
-
-`memo: (キーワード)`
-- メモ欄を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
-
-`fulltext: (キーワード)` (エイリアス: `text:`)
-- PDF本文を検索します (部分一致・「本文・メモ検索」OFFでも強制検索)。
-
-`filename: (キーワード)` (エイリアス: `file:`)
-- 統合PDFのファイル名を検索します (部分一致)。
-  (例: `filename:202410` → 2024年10月の統合PDFに含まれるノートを抽出)
-
-----------------------------------------------------------------------------------------------------
-■ 特殊なプレフィックス
-
-`date: (日付指定)`
-- 日付で検索します。以下の書式に対応しています。
-
-1. 部分一致 (例: `date:202401`)
-   2024年1月のノートを検索します。
-
-2. 以降 (例: `date:>=20240101`)
-   2024年1月1日以降のノートを検索します。
-
-3. 以前 (例: `date:<=20240131`)
-   2024年1月31日以前のノートを検索します。
-
-4. 期間 (例: `date:20240101-20240131`)
-   2024年1月1日から1月31日までのノートを検索します。
-
-`time: (時刻指定)`
-- 時刻 (`hhmmss` 形式) で検索します。
-- `_` (アンダーバー) を「任意の一文字」ワイルドカードとして使えます。
-- 6桁未満の入力は、右側がワイルドカードで埋められます。
-
-  (例: `time:09` → `09____` → 9時台 (`09mmss`) にヒット)
-  (例: `time:0900` → `0900__` → 9時00分台 (`0900ss`) にヒット)
-  (例: `time:__30` → `__30__` → 毎時30分台 (`hh30mm`) にヒット)
-  (例: `time:____00` → `____00` → 毎分00秒 (`hhmm00`) にヒット)
-
-`is:orphan` (孤立ノート)
-- どのノートからもリンクされておらず、どのノートへもリンクしていない「孤立したノート」を検索します。
-- リンクのメンテナンスや、整理漏れの発見に役立ちます。
-  (例: `is:orphan tag:アイデア` → 孤立しているアイデアノートを抽出)
-
-----------------------------------------------------------------------------------------------------
-■ グローバル検索 (プレフィックスなし)
-(例: `Python`)
-
-「本文・メモ検索」チェックボックスが...
-- **OFF (デフォルト)**: `title:`, `tag:`, `key:`, `ikey:`, `date:`, `time:` \
-を対象に検索します。
-- **ON (低速)**: 上記に加え、`memo:` と `fulltext:` も対象に含めて検索します。
-"""
-
-        textbox = ctk.CTkTextbox(self, wrap="word")
-        textbox.pack(fill="both", expand=True, padx=10, pady=(10, 5))
-        textbox.insert("1.0", help_text)
-        textbox.configure(state="disabled")
-
-        close_button = ctk.CTkButton(self, text="閉じる", command=self.destroy)
-        close_button.pack(pady=(0, 10), padx=10)
-
-    def iconbitmap(self, *args, **kwargs):
+    # --- リスト関連 ---
+    def reveal_current_note_in_list(self):
         """
-        iconbitmap の呼び出しをインターセプト（横取り）する。
-        CustomTkinterが内部でアイコンをデフォルトに戻そうとしても、
-        強制的にカスタムアイコンを設定し直す。
+        詳細パネルに表示中のノートをリスト内で探し、カーソル移動する。
+        別ページにある場合はページ遷移を行う。
         """
-        if self._custom_icon_path:
-            try:
-                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
-                super().iconbitmap(self._custom_icon_path)
-            except Exception:
-                # ウィンドウが存在しない場合などのエラーを無視
-                pass
+        # ノートが選択されていない場合は何もしない
+        if self.current_selected_row is None:
+            return
+
+        target_key = self.current_selected_row.get("key")
+        if not target_key:
+            return
+
+        # 1. まず現在の表示リスト内を探す
+        target_index = -1
+        if self.list_item_widgets:
+            for i, item in enumerate(self.list_item_widgets):
+                if item["key"] == target_key:
+                    target_index = i
+                    break
+
+        if target_index != -1:
+            # 現在のページに見つかった場合
+            self._set_list_cursor(target_index)
+            self.focus_set()
         else:
-            # カスタムアイコンがない場合は、通常の動作をさせる
-            try:
-                super().iconbitmap(*args, **kwargs)
-            except Exception:
-                pass
+            # 2. 見つからない場合、別ページにあるか計算してジャンプ
+            target_page = self._calculate_page_for_key(target_key)
+
+            if target_page != -1:
+                if target_page == self.current_page:
+                    # 計算上は今のページにいるはずだが見つからない (フィルタで除外されている等)
+                    self.selection_info_label.configure(
+                        text="リスト外", text_color="orange"
+                    )
+                    self.after(1500, self.update_selection_ui_state)
+                else:
+                    # ページ遷移を実行
+                    self.selection_info_label.configure(
+                        text="ジャンプ中...", text_color="#E0a800"
+                    )
+
+                    self._pending_reveal_key = target_key  # 読み込み完了後の予約
+                    self.current_page = target_page
+                    self.perform_search(reset_page=False)  # 指定ページで再検索
+            else:
+                # 検索条件に合致しない (除外タグなど)
+                self.selection_info_label.configure(
+                    text="リスト外", text_color="orange"
+                )
+                self.after(1500, self.update_selection_ui_state)
+
+    def _calculate_page_for_key(self, target_key):
+        """
+        指定されたKeyが、現在の検索条件・ソート順で何ページ目にあるかを計算する。
+        """
+        if not self.db_conn or not target_key:
+            return -1
+
+        try:
+            # 現在の検索条件 (WHERE句)
+            where_clause = self.current_where_clause
+            params = list(self.current_params) if self.current_params else []
+
+            # 現在のソート順
+            order_dir = "ASC" if self.sort_ascending else "DESC"
+
+            # 全件のKeyをソート順通りに取得 (軽量なので全件取得しても高速)
+            sql = "SELECT key FROM notes"
+            if where_clause:
+                sql += f" WHERE {where_clause}"
+
+            # utils.fetch_notes_from_db と同じソート順にする
+            sql += f" ORDER BY date {order_dir}, time {order_dir}, key {order_dir}"
+
+            cursor = self.db_conn.cursor()
+            cursor.execute(sql, params)
+
+            # 全キーを取得してインデックスを探す
+            # (数万件程度ならメモリ展開しても一瞬です)
+            all_keys = [row[0] for row in cursor.fetchall()]
+
+            if target_key in all_keys:
+                index = all_keys.index(target_key)
+                # ページ番号 = インデックス // 1ページあたりの件数
+                return index // self.items_per_page
+
+            return -1
+
+        except Exception as e:
+            logger.error(f"ページ計算エラー: {e}")
+            return -1
+
+    # --- デバウンス関連 ---
+    def _trigger_search_now(self):
+        """
+        デバウンスタイマーをキャンセルし、検索を即座に実行する。
+        Enterキー押下時やチェックボックス変更時に使用する。
+        """
+        # 検索のタイマー
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+            self.search_timer = None
+
+        # 予測変換のタイマー
+        if self.suggestion_timer:
+            self.after_cancel(self.suggestion_timer)
+            self.suggestion_timer = None
+
+        # 本体の検索を実行
+        self.perform_search()
+
+    def schedule_search(self):
+        """
+        検索の実行を遅延させる（デバウンス）。
+        既にあるタイマーをキャンセルし、新しいタイマーを設定する。
+        """
+        # 既存のタイマーがあればキャンセル
+        if self.search_timer:
+            self.after_cancel(self.search_timer)
+
+        # 待機時間を 650ミリ秒 (0.65秒) に設定
+        self.search_timer = self.after(650, self.perform_search)
+
+    def quick_search(self, query):
+        """指定されたクエリを検索バーに入力して即座に検索を実行する"""
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, query)
+        self.perform_search()
 
 
 if __name__ == "__main__":
