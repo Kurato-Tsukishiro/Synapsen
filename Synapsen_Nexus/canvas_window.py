@@ -1567,7 +1567,9 @@ class CanvasWindow(BaseSubWindow):
             width=lw,
             tags=("note", key),
         )
-        dt = (title[:20] + "..") if len(title) > 20 else title
+
+        dt = f"[[{key}: {title}]]"
+
         tid = self.canvas.create_text(
             sx + sw / 2,
             sy + sh / 2,
