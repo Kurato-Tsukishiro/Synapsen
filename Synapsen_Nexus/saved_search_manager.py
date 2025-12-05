@@ -8,6 +8,64 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
+# 検索名入力用ダイアログ (アイコン適用のため独自実装)
+# ==============================================================================
+class SaveSearchDialog(ctk.CTkToplevel):
+    def __init__(self, parent_app, current_query):
+        super().__init__(parent_app)
+        self.title("検索を保存")
+        self.geometry("400x180")
+        self.result = None
+
+        # アイコン設定
+        if hasattr(parent_app, "icon_path") and parent_app.icon_path:
+            try:
+                self.after(
+                    200, lambda: self.iconbitmap(default=str(parent_app.icon_path))
+                )
+            except Exception:
+                pass
+
+        self.transient(parent_app)
+        self.grab_set()
+
+        ctk.CTkLabel(self, text="この検索に名前を付けてください:").pack(pady=(20, 5))
+
+        self.entry = ctk.CTkEntry(self, width=300)
+        self.entry.pack(pady=5)
+        self.entry.focus_force()
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(pady=10)
+
+        ctk.CTkButton(btn_frame, text="OK", width=100, command=self.on_ok).pack(
+            side="left", padx=10
+        )
+        ctk.CTkButton(
+            btn_frame,
+            text="キャンセル",
+            width=100,
+            command=self.destroy,
+            fg_color="gray",
+        ).pack(side="left", padx=10)
+
+        self.bind("<Return>", lambda e: self.on_ok())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def on_ok(self):
+        val = self.entry.get().strip()
+        if val:
+            self.result = val
+            self.destroy()
+        else:
+            self.entry.focus_force()
+
+    def get_input(self):
+        self.master.wait_window(self)
+        return self.result
+
+
+# ==============================================================================
 # 検索削除用ウィンドウ
 # ==============================================================================
 class ManageSearchesWindow(ctk.CTkToplevel):
@@ -25,7 +83,9 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         # アイコン設定
         if self.parent_app.icon_path:
             try:
-                self.iconbitmap(default=str(self.parent_app.icon_path))
+                self.after(
+                    200, lambda: self.iconbitmap(default=str(self.parent_app.icon_path))
+                )
             except Exception as e:
                 logger.error(f"Icon set error (ManageSearches): {e}")
 
@@ -66,7 +126,13 @@ class ManageSearchesWindow(ctk.CTkToplevel):
             delete_btn.pack(side="left", padx=(7, 5), pady=7)
 
             label_text = f"名前: {search_name}\nクエリ: {query}"
-            label = ctk.CTkLabel(row_frame, text=label_text, anchor="w", justify="left")
+            label = ctk.CTkLabel(
+                row_frame,
+                text=label_text,
+                anchor="w",
+                justify="left",
+                text_color="black",
+            )
             label.pack(side="left", fill="x", expand=True, padx=5, pady=7)
             row_frame.pack(fill="x", padx=5, pady=5)
 
@@ -169,6 +235,10 @@ class SavedSearchManager:
         """
         self.saved_searches の内容に基づき、メインアプリのComboBoxの選択肢を更新する。
         """
+        # 起動直後などUI未生成時はスキップ
+        if not hasattr(self.parent_app, "saved_search_combo"):
+            return
+
         # メインアプリのUI (parent_app) を操作
         combo_box = self.parent_app.saved_search_combo
 
@@ -227,15 +297,8 @@ class SavedSearchManager:
             )
             return
 
-        dialog = ctk.CTkInputDialog(
-            text="この検索に名前を付けてください:", title="検索を保存"
-        )
-        if self.parent_app.icon_path:
-            try:
-                dialog.iconbitmap(default=str(self.parent_app.icon_path))
-            except Exception:
-                pass
-
+        # カスタムダイアログを使用
+        dialog = SaveSearchDialog(self.parent_app, current_query)
         search_name = dialog.get_input()
 
         if not search_name:
