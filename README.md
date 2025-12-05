@@ -69,6 +69,35 @@
     * PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。
     * (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
 
+#### 自動監視・正規化ツール (Watchdog)
+
+`Normalisierer` のサイズ正規化処理をバックグラウンドで自動実行するための常駐型スクリプト `Synapsen_Watchdog.py` 及びそれを起動する `Run_Watchdog.bat` を同梱しています。
+（※ `pdf_utils.py` に依存しているため、同じ階層にこちらのファイルも存在しないと機能しません。）
+
+ScanSnapなどのスキャナ保存先フォルダを監視し、PDFファイルが保存されると即座に自動で正規化処理（サイズ統一）を行い、QUADERNO（クアデルノ）の同期フォルダ等へ移動させることができます。
+
+> **💡 QUADERNOユーザーへのメリット**
+> QUADERNOで編集（書き込み）を行う**前に**このツールでファイルを正規化しておくことを推奨します。
+> これにより、Normalisiererの設定で「インクのフラット化を無効 (`flatten_ink_annotations = false`)」にしている場合でも、QUADERNO上での編集時にインクのサイズや位置がズレる問題を回避することができます。
+
+* **機能:**
+    * 指定した「監視フォルダ」を常駐監視します。
+    * PDFファイルが追加されると、自動的に指定サイズ (A4/A5) にリサイズ・中央配置（正規化）します。
+    * 処理後のファイルは「出力フォルダ」に保存され、**元のファイルは削除**されます。
+* **使い方:**
+    1. `config.ini` の `[Watchdog]` セクションを編集し、設定を記述します。
+       ```ini
+       [Watchdog]
+       ; 監視するフォルダ
+       watch_dir = C:\Users\YourName\Downloads\Inbox
+       ; 処理済みファイルの保存先
+       output_dir = C:\Users\YourName\Documents\Normalized
+       ; 正規化するサイズ (A4 または A5)
+       target_size = A4
+       ```
+    2. `Run_Watchdog.bat` を実行します。
+    3. 起動中はフォルダが監視され、処理が自動で行われます。終了するには `Ctrl+C` を押します。
+
 ### 2. Synapsen Ersteller (統合・作成ツール)
 
 正規化されたPDFを読み込み、メタデータを編集し、月報のような形で1つのPDFにまとめ上げます。
@@ -334,6 +363,7 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップとMarkdown変換を実現するため
     * [**qrcode**](https://github.com/lincolnloop/python-qrcode) (BSD-3-Clause License) - `Normalisierer` でメタデータQRコードを生成するため
     * [**pyzbar**](https://github.com/NaturalHistoryMuseum/pyzbar) (MIT License) - `Ersteller` でメタデータQRコードを読み取るため
+    * [**watchdog**](https://github.com/gorakhargosh/watchdog) (Apache-2.0 License) - フォルダ監視による自動正規化機能を実現するため
 
 ## セットアップ
 
@@ -504,6 +534,18 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     ; 空欄の場合は何もしません。Nexus画面上の「除外タグ」チェックボックスで切り替え可能です。
     exclude_tags_by_default = 
 
+    ; ------------------------------------------------------------------------------
+    ; [Watchdog] 常駐正規化機能の設定
+    ; auto_watchdog.py で行う正規化の設定
+    ; ------------------------------------------------------------------------------
+    [Watchdog]
+    ; 監視するフォルダ
+    watch_dir = 
+    ; 正規化済みファイルの出力先
+    output_dir = 
+    ; 正規化するサイズ (A4 または A5)
+    target_size = 
+
     ```
 
     **`config.ini` の設定例 (推奨構成):**
@@ -657,6 +699,18 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     ; 複数ある場合はカンマ区切りで記述します (例: Status_Archive, Status_Done)
     ; 空欄の場合は何もしません
     exclude_tags_by_default = Status_Archive
+
+    ; ------------------------------------------------------------------------------
+    ; [Watchdog] 常駐正規化機能の設定
+    ; auto_watchdog.py で行う正規化の設定
+    ; ------------------------------------------------------------------------------
+    [Watchdog]
+    ; 監視するフォルダ
+    watch_dir = C:\Users\YourName\Downloads\Inbox
+    ; 正規化済みファイルの出力先
+    output_dir = C:\Users\YourName\Documents\Normalized
+    ; 正規化するサイズ (A4 または A5)
+    target_size = A4
 
     ```
     </details>
@@ -840,5 +894,6 @@ OCR機能を実現する **Pillow** と **pytesseract**、<br>
 知識グラフの可視化を実現する **NetworkX** と **Pyvis**、<br>
 D&D機能を実現する **tkinterdnd2**、<br>
 メタデータQRコードの生成と読み取りを実現する **qrcode** と **pyzbar**、<br>
-そしてWebクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc** の開発者コミュニティに心から感謝申し上げます。<br><br>
+Webクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc**、<br>
+そしてフォルダ監視による自動化を実現する **watchdog** の開発者コミュニティに心から感謝申し上げます。<br><br>
 また、このプロジェクトの設計、コード作成、リファクタリング、およびドキュメント整備は、GoogleのAIである **Gemini** の支援を受けて行われました。
