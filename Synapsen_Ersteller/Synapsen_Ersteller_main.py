@@ -1048,10 +1048,13 @@ class Synapsen_Ersteller(ctk.CTk):
         # 1. 日付と保存先の入力
         # ---------------------------------------------------------
         dialog = Dialogs.DateInputDialog(self)
-        date_input = dialog.get_input()
-        if not date_input:
+        input_result = dialog.get_input()
+
+        if not input_result:
             return
-        year, month = date_input
+
+        # 戻り値を3つ受け取る (年, 月, 画像パス)
+        year, month, cover_image_path = input_result
 
         base_pdf_title = f"{self.reportlab_title_prefix} ({year}年 {month}月)"
 
@@ -1125,7 +1128,11 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 # 骨格生成
                 layout_info = pdf_gen.create_skeleton_pdf(
-                    notes_in_volume, current_pdf_title, self.paper_size, draft_pdf_path
+                    notes_in_volume,
+                    current_pdf_title,
+                    self.paper_size,
+                    str(draft_pdf_path),
+                    cover_image_path=cover_image_path,
                 )
 
                 if not draft_pdf_path.is_file():

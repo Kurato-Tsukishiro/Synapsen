@@ -3,6 +3,7 @@ import math
 import datetime
 import logging
 from typing import List, Dict, Any
+from reportlab.lib.utils import ImageReader
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, A5
@@ -129,6 +130,7 @@ class ReportLabPDFGenerator:
         title: str,
         paper_size: str,
         output_path: str,
+        cover_image_path: str = None,
     ) -> Dict[str, int]:
         """
         目次、ヘッダー、フッター、索引を含む「骨格PDF」を生成する。
@@ -139,6 +141,7 @@ class ReportLabPDFGenerator:
             title (str): PDFのタイトル。
             paper_size (str): "A4" または "A5"。
             output_path (str): 生成するPDFの保存パス。
+            cover_image_path (str): 表示に設定する画像のパス
 
         Returns:
             Dict[str, int]: コンテンツ開始ページ番号などのメタデータ辞書。
@@ -201,7 +204,7 @@ class ReportLabPDFGenerator:
         pdf_canvas.setTitle(title)
 
         # (A) 表紙の描画
-        self._draw_cover(pdf_canvas, title, page_width, page_height)
+        self._draw_cover(pdf_canvas, title, page_width, page_height, cover_image_path)
         pdf_canvas.showPage()
 
         # (B) 目次の描画
@@ -371,19 +374,90 @@ class ReportLabPDFGenerator:
     # --- 描画メソッド ---
 
     def _draw_cover(
-        self, pdf_canvas: canvas.Canvas, title: str, width: float, height: float
+        self,
+        pdf_canvas: canvas.Canvas,
+        title: str,
+        width: float,
+        height: float,
+        image_path: str = None,
     ) -> None:
-        """表紙を描画する"""
+        """表紙を描画する。画像がある場合はレイアウトを調整する。"""
+
+        author = self.config.get("reportlab_author", "Synapsen Ersteller")
+        dt_now = datetime.datetime.now()
+        date_str = dt_now.strftime("%Y年%m月%d日 生成")
+
+        if image_path and os.path.exists(image_path):
+            # === 画像ありレイアウト ===
+            try:
+                # 1. タイトル (上部)
+                pdf_canvas.setFont(self.font_name, 24)
+                pdf_canvas.setFillColor(COLOR_BLACK)
+                # 上から15%の位置
+                pdf_canvas.drawCentredString(width / 2, height * 0.85, title)
+
+                # 2. 画像 (中央)
+                img = ImageReader(image_path)
+                img_w, img_h = img.getSize()
+                aspect = img_h / float(img_w)
+
+                # 描画エリアの定義 (画面中央の広い範囲)
+                # 幅: ページの80%, 高さ: ページの50%
+                max_w = width * 0.8
+                max_h = height * 0.5
+
+                # アスペクト比を維持してサイズ計算
+                if aspect > (max_h / max_w):
+                    # 縦長画像: 高さを基準に
+                    draw_h = max_h
+                    draw_w = draw_h / aspect
+                else:
+                    # 横長画像: 幅を基準に
+                    draw_w = max_w
+                    draw_h = draw_w * aspect
+
+                # 中央配置座標
+                x = (width - draw_w) / 2
+                # 上下中央より少し上寄り (タイトルと著者の間)
+                # タイトル(0.85) と 著者(0.2) の中間 = 0.525
+                y = (height * 0.525) - (draw_h / 2)
+
+                pdf_canvas.drawImage(
+                    img, x, y, width=draw_w, height=draw_h, mask="auto"
+                )
+
+                # 3. 著者名 (下部)
+                pdf_canvas.setFont(self.font_name, 12)
+                pdf_canvas.setFillColor(COLOR_BLACK)
+                pdf_canvas.drawCentredString(width / 2, height * 0.2, author)
+
+                # 4. 生成日 (最下部)
+                pdf_canvas.setFont(self.font_name, 10)
+                pdf_canvas.setFillColor(COLOR_GRAY)
+                pdf_canvas.drawCentredString(width / 2, height * 0.15, date_str)
+
+            except Exception as e:
+                logger.error(f"表紙画像の描画に失敗しました: {e}")
+                # 失敗したらフォールバックとして画像なしレイアウトを描画
+                self._draw_cover_text_only(
+                    pdf_canvas, title, author, date_str, width, height
+                )
+
+        else:
+            # === 画像なしレイアウト (既存のシンプルな中央配置) ===
+            self._draw_cover_text_only(
+                pdf_canvas, title, author, date_str, width, height
+            )
+
+    def _draw_cover_text_only(self, pdf_canvas, title, author, date_str, width, height):
+        """画像がない場合のデフォルトレイアウト"""
         pdf_canvas.setFont(self.font_name, 24)
         pdf_canvas.setFillColor(COLOR_BLACK)
         pdf_canvas.drawCentredString(width / 2, height / 2 + 20 * mm, title)
 
         pdf_canvas.setFont(self.font_name, 12)
-        author = self.config.get("reportlab_author", "Synapsen Ersteller")
         pdf_canvas.drawCentredString(width / 2, height / 2 - 20 * mm, author)
 
-        dt_now = datetime.datetime.now()
-        date_str = dt_now.strftime("%Y年%m月%d日 生成")
         pdf_canvas.setFont(self.font_name, 10)
         pdf_canvas.setFillColor(COLOR_GRAY)
         pdf_canvas.drawCentredString(width / 2, height / 2 - 30 * mm, date_str)
