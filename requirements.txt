@@ -12,3 +12,4 @@ pyzbar
 qrcode
 reportlab
 tkinterdnd2
+watchdog
