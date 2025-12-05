@@ -552,8 +552,16 @@ class CanvasWindow(BaseSubWindow):
         self._add_tool_btn("保存", 50, self.save_canvas)
         self._add_tool_btn("別名保存", 60, self.save_as_file)
         self._add_sep()
+
         self._add_tool_btn(
             "PDF出力", 60, self.export_canvas_dialog, fg="#00695C", hover="#004D40"
+        )
+        self._add_tool_btn(
+            "画像出力",
+            60,
+            self.export_canvas_image_dialog,
+            fg="#00695C",
+            hover="#004D40",
         )
 
         # ズーム系
@@ -1504,7 +1512,8 @@ class CanvasWindow(BaseSubWindow):
             placeholders = ",".join("?" * len(keys_list))
             sql = (
                 "SELECT key, title, "
-                f"commonplace_key FROM notes WHERE key IN ({placeholders})")
+                f"commonplace_key FROM notes WHERE key IN ({placeholders})"
+            )
 
             cursor = conn.cursor()
             cursor.execute(sql, keys_list)
@@ -1567,7 +1576,9 @@ class CanvasWindow(BaseSubWindow):
             width=lw,
             tags=("note", key),
         )
-        dt = (title[:20] + "..") if len(title) > 20 else title
+
+        dt = f"[[{key}: {title}]]"
+
         tid = self.canvas.create_text(
             sx + sw / 2,
             sy + sh / 2,
@@ -2905,6 +2916,7 @@ class CanvasWindow(BaseSubWindow):
         self.selected_items = set()
 
     def export_canvas_dialog(self):
+        """PDFとしてエクスポート"""
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
         dialog = ConversionDialog(
             self, "Canvas_Export", key_options, show_color_option=False
@@ -2940,12 +2952,52 @@ class CanvasWindow(BaseSubWindow):
                 messagebox.showerror("エラー", f"出力に失敗しました:\n{e}", parent=self)
                 logger.error(f"PDF Export Error: {e}")
 
+    def export_canvas_image_dialog(self):
+        """画像(PNG/JPG)としてエクスポート"""
+        # メタデータ(Title/IndexKey)は画像自体には埋め込めませんが、
+        # ファイル名や将来的な拡張のために同じダイアログを使用します
+        key_options = getattr(self.parent_app, "commonplace_keys_options", [])
+        dialog = ConversionDialog(
+            self, "Canvas_Image", key_options, show_color_option=False
+        )
+        self.wait_window(dialog)
+
+        if not dialog.result:
+            return
+
+        title_input, index_key_input = dialog.result
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title_input)
+        initial_file = f"{now_str}_{safe_title}.png"
+
+        out_dir = getattr(self.parent_app, "nexus_output_folder", None)
+        initial_dir = str(out_dir) if out_dir and out_dir.exists() else None
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG Image", "*.png"), ("JPEG Image", "*.jpg")],
+            title="画像として保存",
+            initialfile=initial_file,
+            initialdir=initial_dir,
+            parent=self,
+        )
+        if file_path:
+            try:
+                # 同じ _export_to_file を呼び出す (内部で拡張子を見て分岐)
+                self._export_to_file(Path(file_path), title_input, index_key_input)
+                messagebox.showinfo(
+                    "完了", f"出力が完了しました:\n{Path(file_path).name}", parent=self
+                )
+            except Exception as e:
+                messagebox.showerror("エラー", f"出力に失敗しました:\n{e}", parent=self)
+                logger.error(f"Image Export Error: {e}")
+
     def _hex_to_rgb(self, hex_color):
         hex_color = hex_color.lstrip("#")
         return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
     def _export_to_file(self, output_path, title, index_key):
-        # 1. コンテンツ領域の計算
+        # 1. コンテンツ領域の計算 (既存ロジック)
         min_x, min_y, max_x, max_y = (
             float("inf"),
             float("inf"),
@@ -2978,185 +3030,194 @@ class CanvasWindow(BaseSubWindow):
         content_w = max_x - min_x + margin * 2
         content_h = max_y - min_y + margin * 2
 
-        # 2. 一時PDF生成
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_raw_pdf = Path(temp_dir) / "raw_canvas_export.pdf"
-            doc = fitz.open()
-            page = doc.new_page(width=content_w, height=content_h)
-            doc.set_metadata(
-                {
-                    "keywords": "Synapsen:Whiteboard",
-                    "creator": "Synapsen Canvas",
-                    "title": title,
-                }
-            )
+        # 2. PyMuPDFで描画 (PDF/画像 共通)
+        doc = fitz.open()
+        page = doc.new_page(width=content_w, height=content_h)
 
-            font_path = self.font_path or r"C:\Windows\Fonts\msgothic.ttc"
+        # メタデータ設定 (PDF用)
+        doc.set_metadata(
+            {
+                "keywords": "Synapsen:Whiteboard",
+                "creator": "Synapsen Canvas",
+                "title": title,
+            }
+        )
+
+        font_path = self.font_path or r"C:\Windows\Fonts\msgothic.ttc"
+        try:
+            page.insert_font(fontname="embed_font", fontfile=str(font_path))
+        except Exception:
+            pass
+
+        shape = page.new_shape()
+
+        def tx(v):
+            return v - min_x + margin
+
+        def ty(v):
+            return v - min_y + margin
+
+        # ヘルパー: 中心座標取得
+        def get_center(type_, key_):
+            if type_ == "note":
+                if key_ in self.notes_on_canvas:
+                    info = self.notes_on_canvas[key_]
+                    return tx(info["x"]) + 80, ty(info["y"]) + 40
+            elif type_ == "sticky":
+                s = next((x for x in self.stickies_on_canvas if x["uid"] == key_), None)
+                if s:
+                    return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
+            return None, None
+
+        # --- 描画実行 ---
+
+        # 1. 接続線
+        for c in self.connections_on_canvas:
+            x1, y1 = get_center(c["from_type"], c["from_key"])
+            x2, y2 = get_center(c["to_type"], c["to_key"])
+
+            if x1 is not None and x2 is not None:
+                is_linked = False
+                if c["from_type"] == "note" and c["to_type"] == "note":
+                    is_linked = self._check_db_link_exists(c["from_key"], c["to_key"])
+                color = (0.15, 0.65, 0.27) if is_linked else (0, 0, 0)
+
+                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                shape.finish(color=color, width=1)
+
+        # 2. 図形
+        for s in self.shapes_on_canvas:
+            default_color = (
+                "red"
+                if s["type"] == "rect"
+                else ("white" if self.bg_color == "#2b2b2b" else "black")
+            )
+            color_val = s.get("color", default_color)
+            color_map = {"red": "#FF0000", "white": "#FFFFFF", "black": "#000000"}
+
+            if color_val in SHAPE_COLORS:
+                hex_code = SHAPE_COLORS[color_val]
+            else:
+                hex_code = color_map.get(color_val, color_val)
+
             try:
-                page.insert_font(fontname="embed_font", fontfile=str(font_path))
+                rgb_color = self._hex_to_rgb(hex_code)
             except Exception:
-                pass
+                rgb_color = (0, 0, 0)
 
-            shape = page.new_shape()
-
-            def tx(v):
-                return v - min_x + margin
-
-            def ty(v):
-                return v - min_y + margin
-
-            # ヘルパー: 中心座標取得
-            def get_center(type_, key_):
-                if type_ == "note":
-                    if key_ in self.notes_on_canvas:
-                        info = self.notes_on_canvas[key_]
-                        return tx(info["x"]) + 80, ty(info["y"]) + 40
-                elif type_ == "sticky":
-                    s = next(
-                        (x for x in self.stickies_on_canvas if x["uid"] == key_), None
-                    )
-                    if s:
-                        return tx(s["x"]) + s["w"] / 2, ty(s["y"]) + s["h"] / 2
-                return None, None
-
-            # --- 描画 (回転なし・単純描画) ---
-
-            # 1. 接続線
-            for c in self.connections_on_canvas:
-                x1, y1 = get_center(c["from_type"], c["from_key"])
-                x2, y2 = get_center(c["to_type"], c["to_key"])
-
-                if x1 is not None and x2 is not None:
-                    is_linked = False
-                    if c["from_type"] == "note" and c["to_type"] == "note":
-                        is_linked = self._check_db_link_exists(
-                            c["from_key"], c["to_key"]
-                        )
-                    color = (0.15, 0.65, 0.27) if is_linked else (0, 0, 0)
-
-                    shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
-                    shape.finish(color=color, width=1)
-
-            # 2. 図形
-            for s in self.shapes_on_canvas:
-                # 保存された色を取得 (なければデフォルト)
-                default_color = (
-                    "red"
-                    if s["type"] == "rect"
-                    else ("white" if self.bg_color == "#2b2b2b" else "black")
-                )
-                color_val = s.get("color", default_color)
-                color_map = {"red": "#FF0000", "white": "#FFFFFF", "black": "#000000"}
-
-                if color_val in SHAPE_COLORS:
-                    hex_code = SHAPE_COLORS[color_val]
-                else:
-                    hex_code = color_map.get(color_val, color_val)
-
-                try:
-                    rgb_color = self._hex_to_rgb(hex_code)
-                except Exception:
-                    rgb_color = (0, 0, 0)  # フォールバック: 黒
-
-                if s["type"] == "rect":
-                    rtx, rty = tx(s["x"]), ty(s["y"])
-                    shape.draw_rect(
-                        fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
-                    )
-                    # color に rgb_color を指定
-                    shape.finish(color=rgb_color, width=1, dashes=[4, 4])
-                elif s["type"] == "line":
-                    x1, y1 = tx(s["x1"]), ty(s["y1"])
-                    x2, y2 = tx(s["x2"]), ty(s["y2"])
-                    shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
-                    # color に rgb_color を指定
-                    shape.finish(color=rgb_color, width=1)
-
-            # 3. 付箋
-            for s in self.stickies_on_canvas:
+            if s["type"] == "rect":
                 rtx, rty = tx(s["x"]), ty(s["y"])
-                w, h = s["w"], s["h"]
-
-                # 影
-                shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
-                shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
-
-                # 本体
-                shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
-                shape.finish(
-                    fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0
+                shape.draw_rect(
+                    fitz.Rect(rtx, rty, rtx + s.get("w", 0), rty + s.get("h", 0))
                 )
+                shape.finish(color=rgb_color, width=1, dashes=[4, 4])
+            elif s["type"] == "line":
+                x1, y1 = tx(s["x1"]), ty(s["y1"])
+                x2, y2 = tx(s["x2"]), ty(s["y2"])
+                shape.draw_line(fitz.Point(x1, y1), fitz.Point(x2, y2))
+                shape.finish(color=rgb_color, width=1)
 
-                # テキスト
-                disp = self._create_sticky_display_text(
-                    s.get("title", ""), s.get("content", "")
-                )
-                shape.insert_textbox(
-                    fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
-                    disp,
-                    fontname="embed_font",
-                    fontsize=12,
-                    color=(0, 0, 0),
-                )
+        # 3. 付箋
+        for s in self.stickies_on_canvas:
+            rtx, rty = tx(s["x"]), ty(s["y"])
+            w, h = s["w"], s["h"]
 
-            # 4. ノート
-            for key, info in self.notes_on_canvas.items():
-                rtx, rty = tx(info["x"]), ty(info["y"])
-                col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
+            # 影
+            shape.draw_rect(fitz.Rect(rtx + 5, rty + 5, rtx + w + 5, rty + h + 5))
+            shape.finish(fill=(0.5, 0.5, 0.5), stroke_opacity=0)
 
-                shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
-                shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
+            # 本体
+            shape.draw_rect(fitz.Rect(rtx, rty, rtx + w, rty + h))
+            shape.finish(fill=self._hex_to_rgb(s["bg_color"]), color=(0, 0, 0), width=0)
 
-                shape.insert_textbox(
-                    fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
-                    f"[[{key}: {info['title']}]]",
-                    fontname="embed_font",
-                    fontsize=10,
-                    align=1,
-                    color=(0, 0, 0),
-                )
+            # テキスト
+            disp = self._create_sticky_display_text(
+                s.get("title", ""), s.get("content", "")
+            )
+            shape.insert_textbox(
+                fitz.Rect(rtx + 5, rty + 5, rtx + w - 5, rty + h - 5),
+                disp,
+                fontname="embed_font",
+                fontsize=12,
+                color=(0, 0, 0),
+            )
 
-            shape.commit()
-            doc.save(str(temp_raw_pdf))
+        # 4. ノート (変更点: 全文テキストの描画)
+        for key, info in self.notes_on_canvas.items():
+            rtx, rty = tx(info["x"]), ty(info["y"])
+            col = self.parent_app.key_colors.get(info["cp_key"].lower(), "#aaaaaa")
+
+            shape.draw_rect(fitz.Rect(rtx, rty, rtx + 160, rty + 80))
+            shape.finish(fill=self._hex_to_rgb(col), color=(0, 0, 0), width=1)
+
+            full_text = f"[[{key}: {info['title']}]]"
+
+            shape.insert_textbox(
+                fitz.Rect(rtx + 5, rty + 5, rtx + 155, rty + 75),
+                full_text,
+                fontname="embed_font",
+                fontsize=10,
+                align=1,  # Center
+                color=(0, 0, 0),
+            )
+
+        shape.commit()
+
+        # --- 出力処理 (拡張子による分岐) ---
+        suffix = output_path.suffix.lower()
+
+        if suffix in [".png", ".jpg", ".jpeg"]:
+            # 画像として保存 (dpi=150で十分高画質ですが、配布用なら300でも可)
+            pix = page.get_pixmap(dpi=150)
+            pix.save(str(output_path))
             doc.close()
+            return
 
-            # 5. 正規化とメタデータ埋め込み
-            normalize_pdf_to_papersize(
-                str(temp_raw_pdf), str(output_path), 595.276, 841.89, target_format="A4"
-            )
-            embed_processing_flag(str(output_path))
+        else:
+            # PDFとして保存 (正規化プロセスを経由)
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_raw_pdf = Path(temp_dir) / "raw_canvas_export.pdf"
+                doc.save(str(temp_raw_pdf))
+                doc.close()
 
-            key_rect_tuple = (0, 13, 391, 73)
-            text_color = (0, 0, 0)
-            if index_key:
-                hex_color = self.parent_app.key_colors.get(index_key.lower())
-                if hex_color:
-                    text_color = self._hex_to_rgb(hex_color)
+                # 5. 正規化とメタデータ埋め込み
+                normalize_pdf_to_papersize(
+                    str(temp_raw_pdf),
+                    str(output_path),
+                    595.276,
+                    841.89,
+                    target_format="A4",
+                )
+                embed_processing_flag(str(output_path))
 
-            # キャンバス上のノートKeyを収集
-            cited_keys = sorted(list(self.notes_on_canvas.keys()))
+                # 以下、メタデータ埋め込み処理
+                key_rect_tuple = (0, 13, 391, 73)
+                text_color = (0, 0, 0)
+                if index_key:
+                    hex_color = self.parent_app.key_colors.get(index_key.lower())
+                    if hex_color:
+                        text_color = self._hex_to_rgb(hex_color)
 
-            # config.ini から QRコードサイズを取得 (デフォルト 75)
-            # _get_config_value は文字列を返すため int に変換する
-            refs_qr_size_str = self._get_config_value(
-                "Extraction", "refs_qr_size", "75"
-            )
-            try:
-                refs_qr_size_pt = int(refs_qr_size_str)
-            except ValueError:
-                refs_qr_size_pt = 75
+                cited_keys = sorted(list(self.notes_on_canvas.keys()))
+                refs_qr_size_str = self._get_config_value(
+                    "Extraction", "refs_qr_size", "75"
+                )
+                try:
+                    refs_qr_size_pt = int(refs_qr_size_str)
+                except ValueError:
+                    refs_qr_size_pt = 75
 
-            add_metadata_to_clip(
-                pdf_path_str=str(output_path),
-                font_path=str(font_path),
-                paper_width=595.276,
-                paper_height=841.89,
-                key_rect_tuple=key_rect_tuple,
-                index_key_to_embed=index_key,
-                text_color=text_color,
-                comment_to_embed=f"Canvas Export: {title}",
-                base_name=output_path.stem,
-                cited_keys_list=cited_keys,
-                refs_qr_size_pt=refs_qr_size_pt,
-                extra_keywords=["Synapsen:Whiteboard"],
-            )
+                add_metadata_to_clip(
+                    pdf_path_str=str(output_path),
+                    font_path=str(font_path),
+                    paper_width=595.276,
+                    paper_height=841.89,
+                    key_rect_tuple=key_rect_tuple,
+                    index_key_to_embed=index_key,
+                    text_color=text_color,
+                    comment_to_embed=f"Canvas Export: {title}",
+                    base_name=output_path.stem,
+                    cited_keys_list=cited_keys,
+                    refs_qr_size_pt=refs_qr_size_pt,
+                    extra_keywords=["Synapsen:Whiteboard"],
+                )
