@@ -2,90 +2,90 @@ import sys
 import time
 import logging
 import configparser
+import threading
+import customtkinter as ctk
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# ルートディレクトリのパス解決
-current_dir = Path(__file__).parent
-root_dir = current_dir.parent
-sys.path.append(str(current_dir))
+# --- パス解決ロジック ---
+if getattr(sys, "frozen", False):
+    ROOT_DIR = Path(sys.executable).parent
+    CURRENT_DIR = Path(__file__).parent
+else:
+    CURRENT_DIR = Path(__file__).parent
+    ROOT_DIR = CURRENT_DIR.parent
+
+sys.path.append(str(CURRENT_DIR))
 
 try:
     from pdf_utils import normalize_pdf_to_papersize
 except ImportError:
-    print("Error: pdf_utils.py not found.")
-    sys.exit(1)
-
-# --------------------------------------------------------------------------
-# ロギング設定
-# --------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger("Watchdog")
+    pass  # GUI内でエラー表示するためここではパス
 
 
-# --------------------------------------------------------------------------
-# 設定読み込み
-# --------------------------------------------------------------------------
+# --- ロギング設定 (GUI出力用) ---
+class TextHandler(logging.Handler):
+    """ログをGUIのテキストボックスに出力するためのハンドラ"""
+
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+
+    def emit(self, record):
+        msg = self.format(record)
+
+        def append():
+            self.text_widget.configure(state="normal")
+            self.text_widget.insert("end", msg + "\n")
+            self.text_widget.see("end")
+            self.text_widget.configure(state="disabled")
+
+        # GUIスレッドで実行
+        self.text_widget.after(0, append)
+
+
+# --- 設定読み込み ---
 def load_watch_config():
-    config_path = root_dir / "config.ini"
+    config_path = ROOT_DIR / "config.ini"
     config = configparser.ConfigParser()
 
     if not config_path.exists():
-        logger.error(f"Config file not found: {config_path}")
-        return None, None, "A4"
+        return None, None, "A4", f"Config file not found: {config_path}"
 
     try:
         config.read(config_path, encoding="utf-8")
         if "Watchdog" not in config:
-            logger.warning(
-                "[Watchdog] section not found in config.ini. Using defaults/empty."
-            )
-            return None, None, "A4"
+            return None, None, "A4", "[Watchdog] section not found in config.ini"
 
         watch_dir = config["Watchdog"].get("watch_dir", "")
         output_dir = config["Watchdog"].get("output_dir", "")
         target_size = config["Watchdog"].get("target_size", "A4")
 
-        return watch_dir, output_dir, target_size
+        return watch_dir, output_dir, target_size, None
 
     except Exception as e:
-        logger.error(f"Config load error: {e}")
-        return None, None, "A4"
+        return None, None, "A4", f"Config load error: {e}"
 
 
-# 用紙サイズの定義
 PAPER_SIZES = {"A4": (595.276, 841.89), "A5": (419.528, 595.276)}
 
 
-# --------------------------------------------------------------------------
-# イベントハンドラ
-# --------------------------------------------------------------------------
+# --- イベントハンドラ ---
 class PDFHandler(FileSystemEventHandler):
-    def __init__(self, output_dir, target_size):
+    def __init__(self, output_dir, target_size, logger):
         self.output_dir = Path(output_dir)
         self.target_size = target_size
+        self.logger = logger
         self.processing_files = set()
 
     def on_created(self, event):
-        self._process_event(event)
+        if not event.is_directory:
+            self.process_file(Path(event.src_path))
 
     def on_moved(self, event):
-        class MockEvent:
-            src_path = event.dest_path
-            is_directory = event.is_directory
-
-        self._process_event(MockEvent)
-
-    def _process_event(self, event):
-        """Watchdogイベントからのエントリポイント"""
-        if event.is_directory:
-            return
-
-        filepath = Path(event.src_path)
-        self.process_file(filepath)
+        if not event.is_directory:
+            self.process_file(Path(event.dest_path))
 
     def process_file(self, filepath: Path):
         """
@@ -111,41 +111,51 @@ class PDFHandler(FileSystemEventHandler):
             return
 
         self.processing_files.add(filepath)
+        threading.Thread(
+            target=self._run_conversion, args=(filepath, output_path), daemon=True
+        ).start()
+
+    def _run_conversion(self, filepath, output_path):
         try:
-            logger.info(f"検知: {filepath.name}")
+            self.logger.info(f"検知: {filepath.name}")
 
-            # 書き込み完了待機
-            if self._wait_for_file_ready(filepath):
-                logger.info(f"変換開始 ({self.target_size}): {filepath.name}")
+            # ファイル書き込み完了待ち
+            if not self._wait_for_file_ready(filepath):
+                self.logger.warning(f"タイムアウト (アクセス不可): {filepath.name}")
+                return
 
-                paper_width, paper_height = PAPER_SIZES.get(
-                    self.target_size, PAPER_SIZES["A4"]
+            self.logger.info(f"変換開始 ({self.target_size}): {filepath.name}")
+            paper_width, paper_height = PAPER_SIZES.get(
+                self.target_size, PAPER_SIZES["A4"]
+            )
+
+            try:
+                normalize_pdf_to_papersize(
+                    str(filepath),
+                    str(output_path),
+                    paper_width,
+                    paper_height,
+                    target_format=self.target_size,
                 )
+                self.logger.info(f"完了 -> {output_path.name}")
 
                 try:
-                    # 正規化処理
-                    normalize_pdf_to_papersize(
-                        str(filepath),
-                        str(output_path),
-                        paper_width,
-                        paper_height,
-                        target_format=self.target_size,
-                    )
-                    logger.info(f"完了 -> {output_path}")
-
-                    # 処理成功後に元ファイルを削除
-                    try:
-                        filepath.unlink()
-                        logger.info(f"元ファイルを削除しました: {filepath.name}")
-                    except Exception as e:
-                        logger.error(f"元ファイルの削除に失敗: {e}")
-
+                    filepath.unlink()
+                    self.logger.info("元ファイルを削除しました。")
+                except FileNotFoundError:
+                    # ファイルが既にない場合は「削除済み」とみなしてエラーにしない
+                    self.logger.info("元ファイルは既に削除されています。")
+                except PermissionError:
+                    # 使用中で消せない場合はログだけ出してスルー（次回の手動削除に委ねる）
+                    self.logger.warning("削除失敗: ファイルが使用中です。")
                 except Exception as e:
-                    logger.error(f"変換失敗: {filepath.name}, Error: {e}")
+                    self.logger.error(f"削除失敗: {e}")
 
-            else:
-                logger.warning(f"ファイルアクセス不可 (タイムアウト): {filepath.name}")
+            except Exception as e:
+                self.logger.error(f"変換失敗: {e}")
 
+        except Exception as e:
+            self.logger.error(f"予期せぬエラー: {e}")
         finally:
             self.processing_files.discard(filepath)
 
@@ -162,88 +172,154 @@ class PDFHandler(FileSystemEventHandler):
                 if not filepath.exists():
                     return False
 
-                current_size = filepath.stat().st_size
+                size = filepath.stat().st_size
 
-                if current_size == last_size and current_size > 0:
+                if size == last_size and size > 0:
                     if stable_start is None:
                         stable_start = time.time()
                     elif time.time() - stable_start >= stable_duration:
                         return True
                 else:
-                    last_size = current_size
+                    last_size = size
                     stable_start = None
-
-            except PermissionError:
-                stable_start = None
+            except Exception:
                 pass
-            except Exception as e:
-                logger.debug(f"Wait error: {e}")
-
             time.sleep(1)
 
 
-# --------------------------------------------------------------------------
-# メイン処理
-# --------------------------------------------------------------------------
-def main():
-    watch_dir, output_dir, target_size = load_watch_config()
+# --- GUI アプリケーション ---
+class WatchdogApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("Synapsen Watchdog")
+        self.geometry("500x400")
 
-    if not watch_dir or not output_dir:
-        logger.error("config.ini 設定エラー")
-        return
+        # アイコン設定
+        icon_path = ROOT_DIR / "assets" / "synapsen.ico"
+        if icon_path.exists():
+            try:
+                self.iconbitmap(default=str(icon_path))
+            except Exception:
+                pass
 
-    watch_path = Path(watch_dir)
-    output_path = Path(output_dir)
+        # テーマカラー (蘇芳色)
+        self.theme_color = "#9E3D3F"
 
-    if not watch_path.exists():
-        logger.error(f"監視フォルダ不在: {watch_path}")
-        return
+        self.observer = None
+        self._setup_ui()
+        self._start_watchdog()
 
-    if not output_path.exists():
-        try:
-            output_path.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            logger.error(f"出力フォルダ作成不可: {e}")
+    def _setup_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # ヘッダー
+        header_frame = ctk.CTkFrame(self, fg_color=self.theme_color, corner_radius=0)
+        header_frame.grid(row=0, column=0, sticky="ew")
+
+        title_label = ctk.CTkLabel(
+            header_frame,
+            text="自動正規化 監視中",
+            font=("Arial", 18, "bold"),
+            text_color="white",
+        )
+        title_label.pack(pady=10)
+
+        # ログ表示エリア
+        self.log_textbox = ctk.CTkTextbox(self, font=("Consolas", 12))
+        self.log_textbox.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        self.log_textbox.configure(state="disabled")
+
+        # ログハンドラの設定
+        self.logger = logging.getLogger("WatchdogGUI")
+        self.logger.setLevel(logging.INFO)
+        # 既存ハンドラ削除
+        if self.logger.handlers:
+            self.logger.handlers = []
+
+        handler = TextHandler(self.log_textbox)
+        formatter = logging.Formatter("%(asctime)s - %(message)s", datefmt="%H:%M:%S")
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
+        # フッター
+        footer_frame = ctk.CTkFrame(self, fg_color="transparent")
+        footer_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
+
+        self.info_label = ctk.CTkLabel(
+            footer_frame, text="初期化中...", text_color="gray"
+        )
+        self.info_label.pack(side="left")
+
+        stop_btn = ctk.CTkButton(
+            footer_frame,
+            text="停止して終了",
+            fg_color="#555",
+            hover_color="#333",
+            width=100,
+            command=self.on_closing,
+        )
+        stop_btn.pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def _start_watchdog(self):
+        watch_dir, output_dir, target_size, error_msg = load_watch_config()
+
+        if error_msg:
+            self.logger.error(error_msg)
+            self.info_label.configure(text="設定エラー")
             return
 
-    if watch_path.resolve() == output_path.resolve():
-        logger.error("監視フォルダと出力フォルダを別にしてください。")
-        return
+        w_path = Path(watch_dir)
+        o_path = Path(output_dir)
 
-    event_handler = PDFHandler(output_path, target_size)
+        if not w_path.exists():
+            self.logger.error(f"監視フォルダが見つかりません: {w_path}")
+            return
 
-    # --- 初期スキャン (起動時に既存ファイルを処理) ---
-    logger.info("初期スキャンを実行中...")
-    existing_files = list(watch_path.glob("*.pdf"))
-    if existing_files:
-        logger.info(f"{len(existing_files)} 件のファイルを検出しました。")
-        for f in existing_files:
-            event_handler.process_file(f)
-    else:
-        logger.info("処理対象ファイルはありません。")
-    # ----------------------------------------------------
+        if not o_path.exists():
+            try:
+                o_path.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                self.logger.error(f"出力フォルダ作成エラー: {e}")
+                return
 
-    observer = Observer()
-    observer.schedule(event_handler, str(watch_path), recursive=False)
+        self.logger.info(f"監視開始: {w_path}")
+        self.logger.info(f"出力先: {o_path} ({target_size})")
+        self.info_label.configure(text=f"監視中: {w_path.name}")
 
-    observer.start()
+        event_handler = PDFHandler(o_path, target_size, self.logger)
+        self.observer = Observer()
+        self.observer.schedule(event_handler, str(w_path), recursive=False)
+        self.observer.start()
 
-    print("=" * 60)
-    print(" Synapsen Auto-Normalizer Watchdog Running")
-    print(f" 監視元: {watch_path}")
-    print(f" 出力先: {output_path}")
-    print(f" サイズ: {target_size} (縦)")
-    print(" Ctrl+C で停止")
-    print("=" * 60)
+        # 初期スキャン (別スレッド)
+        threading.Thread(
+            target=self._initial_scan, args=(w_path, event_handler), daemon=True
+        ).start()
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-        logger.info("監視を停止しました。")
+    def _initial_scan(self, watch_path, handler):
+        time.sleep(1)  # GUI表示待ち
+        files = list(watch_path.glob("*.pdf"))
+        if files:
+            self.logger.info(f"既存ファイル {len(files)} 件を検出。処理を開始します...")
+            for f in files:
+                handler.process_file(f)
 
-    observer.join()
+    def on_closing(self):
+        if self.observer:
+            self.logger.info("監視を停止しています...")
+            self.observer.stop()
+            # joinは時間がかかる場合があるため、UIを先に閉じる
+        self.destroy()
+        sys.exit(0)
+
+
+def main():
+    ctk.set_appearance_mode("System")
+    app = WatchdogApp()
+    app.mainloop()
 
 
 if __name__ == "__main__":
