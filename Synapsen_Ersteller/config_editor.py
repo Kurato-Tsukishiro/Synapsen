@@ -1,8 +1,15 @@
+import sys
 import customtkinter as ctk
 import configparser
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import os
+
+
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
 
 
 class ConfigEditorWindow(ctk.CTkToplevel):
