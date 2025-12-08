@@ -107,17 +107,21 @@ class Synapsen_Nexus(
         self.grid_columnconfigure(1, weight=2)  # 右パネル
         self.grid_rowconfigure(1, weight=1)
 
-        # --- ページネーション管理 ---
-        self.current_page = 0
-        self.items_per_page = 50
-        self.total_items = 0
-        self.current_where_clause = ""
-        self.current_params = []
-        self._pending_reveal_key = None  # ページジャンプ後のカーソル移動予約
-
         # --- アプリケーションの状態変数 ---
+        # 変数の初期化 (エラー回避のため先に定義)
         self.pdf_root_folder = None  # 統合PDFが存在する(メイン)フォルダのルートパス
         self.pdf_archive_folder = None  # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス
+        self.nexus_output_folder = Path("Nexus_Output")
+        self.browser_path = None
+
+        # 空のデフォルト値をセット
+        self.key_icons = {}
+        self.key_colors = {}
+        self.commonplace_keys_options = []
+        self.predefined_tags = []
+        self.include_all_tags_for_autocomplete = True
+        self.exclude_tags_by_default = []
+
         self.config_data = {}  # Canvas等から参照される設定辞書
         self.filter_checkboxes = {}  # IndexKeyフィルターのチェックボックス変数
         self.filter_panel_expanded = False  # 左フィルターパネルが開いているか
@@ -134,7 +138,15 @@ class Synapsen_Nexus(
         # CTkImageオブジェクトへの参照を保持 (ガベージコレクション対策)
         self.preview_image_object = None
 
-        # --- Mixinの初期化メソッド呼び出し ---
+        # --- ページネーション管理 ---
+        self.current_page = 0
+        self.items_per_page = 50
+        self.total_items = 0
+        self.current_where_clause = ""
+        self.current_params = []
+        self._pending_reveal_key = None  # ページジャンプ後のカーソル移動予約
+
+        # --- Mixinの初期化 ---
         self.setup_database_variables()  # DatabaseMixin
         self.setup_search_variables()  # SearchMixin
         self.setup_navigation_variables()  # ListNavigatorMixin
@@ -142,7 +154,7 @@ class Synapsen_Nexus(
         # --- マネージャクラスの初期化 ---
         self.search_manager = SavedSearchManager(self)
 
-        # --- 設定読み込み (UI構築前に必要な変数をセット) ---
+        # --- 設定読み込み ---
         self.load_config()
 
         # --- UI構築 ---
@@ -150,9 +162,7 @@ class Synapsen_Nexus(
 
         # 検索マネージャの読み込み
         root_path = (
-            self.base_path
-            if getattr(sys, "frozen", False)
-            else self.base_path.parent
+            self.base_path if getattr(sys, "frozen", False) else self.base_path.parent
         )
         self.search_manager.load_saved_searches(root_path)
 
@@ -227,10 +237,10 @@ class Synapsen_Nexus(
                 # self.base_path は main.py と同じ場所
                 self.base_path = Path(__file__).parent
 
-            # utilsから設定を辞書として読み込む
+            # 設定読み込み試行
             self.config_data = load_app_config(self.base_path)
 
-            # 読み込んだ設定をクラス属性にセット
+            # 読み込み成功時のみ上書き
             self.pdf_root_folder = self.config_data.get("pdf_root_folder", Path(""))
             self.pdf_archive_folder = self.config_data.get("pdf_archive_folder", None)
             self.nexus_output_folder = self.config_data.get(
@@ -252,8 +262,14 @@ class Synapsen_Nexus(
                 "exclude_tags_by_default", []
             )
 
+        except FileNotFoundError:
+            # configがない場合は警告を出すが、デフォルト値で続行する
+            messagebox.showwarning(
+                "設定ファイルなし",
+                "config.ini が見つかりませんでした。\nデフォルト設定で起動します。",
+            )
         except Exception as e:
-            messagebox.showerror("設定エラー", str(e))
+            messagebox.showerror("設定エラー", f"設定の読み込みに失敗しました:\n{e}")
 
     def on_closing(self):
         """終了処理: バックアップとクリーンアップ"""
@@ -428,7 +444,13 @@ class Synapsen_Nexus(
             row.pack(anchor="w", padx=10, pady=2, fill="x")
 
             icon = self.key_icons.get(key.lower(), "•")
-            color = self.key_colors.get(key.lower(), "gray")
+
+            raw_color = self.key_colors.get(key.lower(), "gray")
+            if raw_color != "gray" and not raw_color.startswith("#"):
+                color = f"#{raw_color}"
+            else:
+                color = raw_color
+
             ctk.CTkLabel(
                 row, text=icon, text_color=color, font=("", 16), width=20
             ).pack(side="left")
@@ -463,7 +485,14 @@ class Synapsen_Nexus(
             else:
                 for k in selected:
                     icon = self.key_icons.get(k.lower(), "•")
-                    col = self.key_colors.get(k.lower(), "gray")
+
+                    raw_col = self.key_colors.get(k.lower(), "gray")
+                    col = (
+                        f"#{raw_col}"
+                        if (raw_col != "gray" and not raw_col.startswith("#"))
+                        else raw_col
+                    )
+
                     ctk.CTkLabel(
                         self.collapsed_icons_frame,
                         text=icon,
