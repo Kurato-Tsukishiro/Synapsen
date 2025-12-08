@@ -45,12 +45,19 @@ Status_WIP
 Status_Review
 
 Status_Done
-Status_Archive
 
 ## Task: 期日付きタスク / ToDo: タスク
 Status_Task
 Status_ToDo
 
+# --- アーカイブ化 ---
+Status_Archive
+
+## Outdated: 情報が古い
+Status_Archive_Outdated
+
+## Resolved: 解決済み
+Status_Archive_Resolved
 
 # --- Concepts (概念・種別) ---
 
