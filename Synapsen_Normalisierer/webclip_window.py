@@ -1,14 +1,15 @@
 import re
 import io
+import os
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import datetime
 import tempfile
 import shutil
-import fitz  # PyMuPDF (情報埋め込み用)
-from urllib.parse import urlparse, unquote  # サイト名取得 / URLデコード用
-import urllib.request  # Content-Type取得 / ダウンロード用
+import fitz
+from urllib.parse import urlparse, unquote
+import urllib.request
 from PIL import Image, ImageTk
 
 from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
@@ -17,7 +18,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# --- Playwright インポート ---
+# --- Playwright パス設定 (EXE化対策) ---
+# PyInstallerでバンドルされた環境でも、システムにインストールされたブラウザを見に行くように強制する
+if "LOCALAPPDATA" in os.environ:
+    # Windowsの標準パス: C:\Users\User\AppData\Local\ms-playwright
+    playwright_browsers_path = Path(os.environ["LOCALAPPDATA"]) / "ms-playwright"
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(playwright_browsers_path)
+else:
+    # フォールバック (macOS/Linux等は 0 で標準パスを見る)
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
 sync_playwright = None
 PlaywrightError = Exception
 PlaywrightTimeoutError = Exception
@@ -153,9 +163,9 @@ class WebClipWindow(ctk.CTkToplevel):
             messagebox.showerror(
                 "ライブラリ不足エラー",
                 "Webクリップ機能に必要な 'playwright' ライブラリが見つかりません。\n\n"
-                + "コマンドプロンプトで以下のコマンドを実行してください:\n"
-                + "1. pip install playwright\n"
-                + "2. playwright install",
+                "この機能を使用する場合は、`install_option.bat` 又は `install.bat`を使用して、"
+                " 'playwright' ライブラリをインストールして下さい\n"
+                "詳細は READMEの「実行方法」の項目をご参照ください。",
                 parent=parent_app,
             )
             # ウィンドウの表示シーケンスから抜け、即座に閉じる
@@ -285,11 +295,11 @@ class WebClipWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             self, text="引用元Key (カンマ区切り または 改行区切り)", anchor="w"
         ).pack(pady=(10, 0), padx=10, fill="x")
-        key_frame = ctk.CTkFrame(self)
+        key_frame2 = ctk.CTkFrame(self)
 
-        self.cited_keys_entry = ctk.CTkTextbox(key_frame, height=60)
+        self.cited_keys_entry = ctk.CTkTextbox(key_frame2, height=60)
         self.cited_keys_entry.pack(fill="both", expand=True, padx=5, pady=5)
-        key_frame.pack(pady=(0, 10), padx=10, fill="x")
+        key_frame2.pack(pady=(0, 10), padx=10, fill="x")
 
         # --- 8. 実行ボタン ---
         self.run_button = ctk.CTkButton(
@@ -371,7 +381,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.run_button.configure(state="disabled")
         self.update_idletasks()
 
-        self.fetched_content_type = None
+        self.fetched_content_type = "text/html"
         try:
             # ユーザーエージェントを偽装して403エラーを回避
             headers = {"User-Agent": "Mozilla/5.0"}
@@ -380,18 +390,12 @@ class WebClipWindow(ctk.CTkToplevel):
                 self.fetched_content_type = response.getheader(
                     "Content-Type", "text/html"
                 ).lower()
-        except Exception as http_err:
-            logger.error(f"Content-Typeの取得リクエストに失敗: {http_err}")
-            # 失敗したらHTMLとして続行を試みる
-            self.fetched_content_type = "text/html"
+        except Exception:
+            pass
 
         try:
-            # --- HTMLでない (PDFや画像) 場合の分岐 ---
             if "text/html" not in self.fetched_content_type:
-                self.status_label.configure(
-                    text=f"HTML以外のリンクを検出: {self.fetched_content_type}",
-                    text_color="gray",
-                )
+                # PDF/画像等の場合
                 parsed_url = urlparse(url)
                 # URLデコード (例: %E3%81... -> 日本語)
                 filename_from_url = unquote(Path(parsed_url.path).name)
@@ -402,16 +406,14 @@ class WebClipWindow(ctk.CTkToplevel):
                 )
                 self.sist_site_entry.delete(0, "end")
                 self.sist_site_entry.insert(0, parsed_url.netloc)
-                self.sist_author_entry.delete(0, "end")
-                self.sist_date_entry.delete(0, "end")
-
                 self.status_label.configure(
-                    text="PDF/画像リンクを検出。ファイル名を確認してください。",
-                    text_color="gray",
+                    text="PDF/画像リンクを検出。", text_color="gray"
                 )
-                return  # Playwrightの処理をスキップ-
+                self.fetch_button.configure(state="normal")
+                self.run_button.configure(state="normal")
+                return
 
-            # --- HTML の場合の Playwright 処理 ---
+            # HTMLの場合
             self.status_label.configure(
                 text="ページ情報を取得中 (最大1分)...", text_color="gray"
             )
@@ -419,32 +421,19 @@ class WebClipWindow(ctk.CTkToplevel):
 
             # 1. Playwrightセッションがなければ開始する
             if self.playwright_context is None:
-                self.status_label.configure(text="Playwrightを起動中...")
-                self.update_idletasks()
                 self.playwright_context = sync_playwright().start()
                 self.browser = self.playwright_context.chromium.launch()
                 self.page = self.browser.new_page()
 
             # 2. ページに移動 (タイムアウト1分)
-            self.status_label.configure(text=f"ページに移動中:\n{url[:60]}...")
-            self.update_idletasks()
             self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
-
             self.preview_button.configure(state="normal")  # Previewの有効化
-
-            # --- 3. 成功時のロジック (詳細取得) ---
-            self.status_label.configure(
-                text="ページ情報(詳細)を取得中...", text_color="gray"
-            )
-            self.update_idletasks()
 
             self.page_title_cache = self.page.title()
 
-            # メタデータ抽出 (複数のセレクタ候補を試行)
+            # メタデータ抽出
             author = self.page.locator(
-                'meta[name="author"], '
-                'meta[property="og:author"], '
-                'meta[property="article:author"]'
+                'meta[name="author"], meta[property="og:author"]'
             ).first.get_attribute("content")
 
             site_name = self.page.locator(
@@ -452,22 +441,15 @@ class WebClipWindow(ctk.CTkToplevel):
             ).first.get_attribute("content")
 
             if not site_name:
-                self.site_name_cache = urlparse(url).netloc  # フォールバック
-            else:
-                self.site_name_cache = site_name
+                site_name = urlparse(url).netloc
+            self.site_name_cache = site_name
 
             date_str = self.page.locator(
-                'meta[property="article:published_time"], '
-                'meta[property="og:updated_time"], '
-                "time[datetime]"
+                'meta[property="article:published_time"], time[datetime]'
             ).first.get_attribute("datetime")
 
-            iso_date = ""
-            if date_str:
-                try:
-                    iso_date = date_str.split("T")[0]  # 'YYYY-MM-DD' の部分のみ取得
-                except Exception:
-                    iso_date = ""
+            # 'YYYY-MM-DD' の部分のみ取得
+            iso_date = date_str.split("T")[0] if date_str else ""
 
             # 4. UIのEntryに取得した情報をセット
             self.sist_title_entry.delete(0, "end")
@@ -482,20 +464,18 @@ class WebClipWindow(ctk.CTkToplevel):
                 self.sist_date_entry.delete(0, "end")
                 self.sist_date_entry.insert(0, iso_date)
 
-            self.status_label.configure(
-                text="ページ情報を取得しました。内容を確認・編集してください。"
-            )
+            self.status_label.configure(text="情報を取得しました。")
 
-        except (PlaywrightTimeoutError, PlaywrightError) as e:
-            # 5. タイムアウト時のロジック (page.title と urlparse のみ取得)
-            logger.warning(f"ページ読み込みがタイムアウトしました: {e}")
+        except PlaywrightTimeoutError as e:
+            # --- タイムアウトの場合 (フォールバック準備) ---
+            logger.warning(f"ページ読み込みタイムアウト: {e}")
             self.status_label.configure(
                 text="タイムアウト。簡易情報(タイトル/ドメイン)を取得します...",
                 text_color="orange",
             )
-            self.update_idletasks()
 
             try:
+                # タイムアウトしてもタイトル等が取れる場合がある
                 self.page_title_cache = self.page.title()
                 parsed_url = urlparse(url)
                 self.site_name_cache = parsed_url.netloc
@@ -504,8 +484,6 @@ class WebClipWindow(ctk.CTkToplevel):
                 self.sist_title_entry.insert(0, self.page_title_cache)
                 self.sist_site_entry.delete(0, "end")
                 self.sist_site_entry.insert(0, self.site_name_cache)
-                self.sist_author_entry.delete(0, "end")
-                self.sist_date_entry.delete(0, "end")
 
                 messagebox.showwarning(
                     "情報取得タイムアウト",
@@ -514,10 +492,10 @@ class WebClipWindow(ctk.CTkToplevel):
                     "著者名や更新日は手動で入力してください。",
                     parent=self,
                 )
-            except Exception as simple_e:
+            except Exception:
                 messagebox.showerror(
                     "情報取得エラー",
-                    "タイムアウト後の簡易情報取得にも失敗しました:\n" f"{simple_e}",
+                    "タイムアウト後の簡易情報取得にも失敗しました:\n",
                     parent=self,
                 )
                 self.status_label.configure(
@@ -528,15 +506,30 @@ class WebClipWindow(ctk.CTkToplevel):
                 self.site_name_cache = ""
 
         except Exception as e:
+            # --- その他のエラー (ブラウザ無し等) ---
+            logger.error(f"ページ読み込みエラー: {e}")
             messagebox.showerror(
-                "情報取得エラー", f"予期せぬエラーが発生しました:\n{e}", parent=self
+                "情報取得エラー",
+                f"エラーが発生しました:\n{e}\n\nURLやブラウザのインストール状況を確認してください。",
+                parent=self,
             )
-            self.status_label.configure(text="情報取得エラー。", text_color="orange")
+            # オブジェクト破棄
+            if self.page:
+                try:
+                    self.page.close()
+                except Exception:
+                    pass
+                self.page = None
+            if self.browser:
+                try:
+                    self.browser.close()
+                except Exception:
+                    pass
+                self.browser = None
 
         finally:
             self.fetch_button.configure(state="normal")
             self.run_button.configure(state="normal")  # 実行ボタンを有効化
-            self.bell()
 
     def show_page_preview(self):
         """現在のPlaywrightページのスクリーンショットを表示する"""
@@ -569,14 +562,13 @@ class WebClipWindow(ctk.CTkToplevel):
         # --- 1. 入力バリデーション ---
         # base_name の取得とサニタイズ
         base_name_raw = self.filename_var.get().strip()
-        invalid_chars_pattern = re.compile(r'[\\/:\*\?"<>\|]')
-        base_name = invalid_chars_pattern.sub("_", base_name_raw)
+        base_name = re.sub(r'[\\/:\*\?"<>\|]', "_", base_name_raw)
 
         # もし置換が発生したら、UI (StringVar) にも反映する
         if base_name != base_name_raw:
             self.filename_var.set(base_name)
 
-        if not url.startswith("http://") and not url.startswith("https://"):
+        if not url:
             messagebox.showerror(
                 "入力エラー",
                 "有効なURL (https://...) を入力してください。",
@@ -592,21 +584,7 @@ class WebClipWindow(ctk.CTkToplevel):
         font_path = self.parent_app.font_path
         if not font_path or not Path(font_path).is_file():
             self.parent_app.status_label.configure(
-                text="エラー: config.iniで有効なフォントパスが指定されていません。",
-                text_color="orange",
-            )
-            return
-
-        # HTMLでない場合は self.page が None でも許可する
-        if (
-            self.fetched_content_type
-            and "text/html" in self.fetched_content_type
-            and self.page is None
-        ):
-            messagebox.showerror(
-                "エラー",
-                "先に「1. ページ情報取得」ボタンを押して、ページを読み込んでください。",
-                parent=self,
+                text="configエラー: フォント設定", text_color="orange"
             )
             return
 
@@ -627,30 +605,17 @@ class WebClipWindow(ctk.CTkToplevel):
         # 引用Keyリストを取得 ([[Key: Title]]形式に対応)
         cited_keys_str = self.cited_keys_entry.get("1.0", "end-1c").strip()
         cited_keys_list = []
-        refs_qr_size_pt = self.parent_app.config_data.get(
-            "refs_qr_size", 75  # configからQRサイズを取得
-        )
-
-        # Key (14桁以上の数字) を抽出するための正規表現
-        key_regex = re.compile(r"(\d{14,})")
-
         if cited_keys_str:
-            # 1. カンマで分割 (複数のKey/リンクが入力された場合に対応)
+            # 1. Key (14桁以上の数字) を抽出するための正規表現
+            key_regex = re.compile(r"(\d{14,})")
+            # 2. カンマで分割 (複数のKey/リンクが入力された場合に対応)
             parts = re.split(r"[,\n]+", cited_keys_str)
-
             for part in parts:
-                part_cleaned = part.strip()
-                if not part_cleaned:
-                    continue
-
-                # 2. 各部分から Key (14桁以上の数字) を検索
-                match = key_regex.search(part_cleaned)
-
-                if match:
-                    # 3. 見つかったKeyのみをリストに追加
-                    extracted_key = match.group(1)
-                    if extracted_key not in cited_keys_list:  # 重複防止
-                        cited_keys_list.append(extracted_key)
+                # 3. 各部分から Key (14桁以上の数字) を検索
+                match = key_regex.search(part.strip())
+                # 4. 見つかったKeyのみをリストに追加
+                if match and match.group(1) not in cited_keys_list:
+                    cited_keys_list.append(match.group(1))
 
         # SIST 02 書誌情報の構築
         # 1. UIから生のテキストを取得
@@ -684,9 +649,7 @@ class WebClipWindow(ctk.CTkToplevel):
             )
 
         # --- 3. 出力先フォルダを選択 ---
-        dest_folder = filedialog.askdirectory(
-            title="出力先フォルダを選択してください", parent=self
-        )
+        dest_folder = filedialog.askdirectory(title="出力先フォルダを選択", parent=self)
         if not dest_folder:
             return
         dest_path = Path(dest_folder)
@@ -699,156 +662,133 @@ class WebClipWindow(ctk.CTkToplevel):
         # 一時ファイルの「ベース」パスのみ定義
         temp_raw_item_path = self.temp_dir / f"{base_name}_raw_download"
 
-        self.status_label.configure(text="WebページをPDFに変換中...", text_color="gray")
+        self.status_label.configure(text="PDF変換中...", text_color="gray")
         self.run_button.configure(state="disabled")
         self.fetch_button.configure(state="disabled")
         self.update_idletasks()
 
-        # --- 5. Playwright PDF化 / ファイルダウンロード の分岐 ---
+        conversion_success = False
         try:
             if (
                 self.fetched_content_type
                 and "text/html" not in self.fetched_content_type
             ):
-                # --- [分岐 A] PDF/画像 ダウンロード処理 ---
-                self.status_label.configure(
-                    text=f"ファイルをダウンロード中: {self.fetched_content_type}"
-                )
-                self.update_idletasks()
-
-                # URLからファイル名を類推し、一時パスを決定
+                # ダウンロード処理
                 parsed_url = urlparse(url)
-                original_filename = unquote(Path(parsed_url.path).name)
-
-                # 拡張子がない場合は、Content-Typeから類推
-                if not Path(original_filename).suffix:
+                fname = unquote(Path(parsed_url.path).name)
+                if not Path(fname).suffix:
                     if "pdf" in self.fetched_content_type:
-                        ext = ".pdf"
-                    elif "jpeg" in self.fetched_content_type:
-                        ext = ".jpg"
-                    elif "png" in self.fetched_content_type:
-                        ext = ".png"
+                        fname += ".pdf"
+                    elif "image" in self.fetched_content_type:
+                        fname += ".jpg"
                     else:
-                        ext = ".dat"  # 不明
+                        fname += ".dat"
+                temp_raw_item_path = temp_raw_item_path.with_name(fname)
 
-                    original_filename += ext
-
-                if original_filename:
-                    # _raw_download を 実際のファイル名で置き換える
-                    temp_raw_item_path = temp_raw_item_path.with_name(original_filename)
-
-                # ユーザーエージェントを偽装してダウンロード
                 headers = {"User-Agent": "Mozilla/5.0"}
                 req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=60) as response:
                     with open(temp_raw_item_path, "wb") as out_file:
                         shutil.copyfileobj(response, out_file)
-
+                conversion_success = True
             else:
-                # --- [分岐 B] 既存のPlaywright (HTML) 処理 ---
+                # Playwright PDF化
+                # HTMLなのにページがロードされていない場合 (エラー後など)
+                if self.page is None:
+                    raise Exception("ブラウザセッションがありません。")
+
                 temp_raw_item_path = self.temp_dir / f"{base_name}_raw.pdf"
-
-                # Playwrightの用紙サイズは親アプリ(A4/A5)に合わせる
                 paper_size_format = self.parent_app.config_data.get("paper_size", "A4")
-
-                # Normalisierer側でヘッダー/フッター用の余白(約2cm以上)が確保されるため、
-                # ここでは素材を最大サイズで取得。
                 self.page.pdf(
                     path=str(temp_raw_item_path),
                     format=paper_size_format,
                     print_background=True,
-                    margin={
-                        "top": "0",
-                        "bottom": "0",
-                        "left": "0",
-                        "right": "0",
-                    },
+                    margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
                 )
-        except (PlaywrightError, PlaywrightTimeoutError, urllib.error.URLError) as e:
-            logger.error(f"PDFの印刷またはダウンロードに失敗: {e}")
-            self.status_label.configure(text="印刷失敗。最小限の簡易PDFを生成します...")
+                conversion_success = True
+
+        except (
+            PlaywrightError,
+            PlaywrightTimeoutError,
+            urllib.error.URLError,
+            Exception,
+        ) as e:
+            # --- フォールバック: 簡易PDF生成 ---
+            logger.error(f"Webクリップ変換失敗 (フォールバック実行): {e}")
+            self.status_label.configure(
+                text="取得失敗。書誌情報のみのPDFを生成します...", text_color="orange"
+            )
             self.update_idletasks()
+
             try:
-                temp_raw_item_path = temp_raw_item_path.with_suffix(".pdf")
+                temp_raw_item_path = self.temp_dir / f"{base_name}_fallback.pdf"
 
                 doc = fitz.open()
-                paper_width = self.parent_app.paper_width
-                paper_height = self.parent_app.paper_height
-                pdf_page = doc.new_page(width=paper_width, height=paper_height)
+                pw = self.parent_app.paper_width
+                ph = self.parent_app.paper_height
+                page = doc.new_page(width=pw, height=ph)
 
-                text_to_insert = (
-                    f"簡易Webクリップ (タイムアウト・印刷失敗)\n\n"
-                    f"書誌情報(SIST 02):\n{sist_string_formal}\n\n"
-                    f"コメント:\n{comment_to_embed}\n\n"
+                font_name = "embed_font"
+                if font_path and Path(font_path).is_file():
+                    try:
+                        page.insert_font(fontname=font_name, fontfile=font_path)
+                    except Exception:
+                        font_name = "helv"
+                else:
+                    font_name = "helv"
+
+                fallback_text = (
+                    f"【Webクリップ取得失敗】\n\n"
+                    f"以下のURLからの取得に失敗しました (タイムアウトまたはエラー)。\n"
+                    f"URL: {url}\n\n"
+                    f"エラー内容: {str(e)}\n\n"
+                    f"--------------------------------------------------\n"
+                    f"■ 書誌情報 (手動入力/自動取得分)\n"
+                    f"{sist_string_readable if sist_string_readable else '（情報なし）'}\n\n"
+                    f"■ コメント\n"
+                    f"{comment_to_embed}\n"
                 )
-                rect = fitz.Rect(
-                    50, 100, pdf_page.rect.width - 50, pdf_page.rect.height - 50
+
+                rect = fitz.Rect(50, 50, pw - 50, ph - 50)
+                page.insert_textbox(
+                    rect, fallback_text, fontsize=10, fontname=font_name
                 )
-                pdf_page.insert_textbox(
-                    rect, text_to_insert, fontsize=10, fontname="helv", align=0
-                )
+
                 doc.save(str(temp_raw_item_path))
                 doc.close()
+                conversion_success = True
+
             except Exception as e_fallback:
+                logger.error(f"フォールバックPDF生成も失敗: {e_fallback}")
                 messagebox.showerror(
-                    "Webクリップエラー",
-                    f"簡易PDFの生成にも失敗しました:\n{e_fallback}",
+                    "エラー",
+                    f"PDF作成に完全に失敗しました:\n{e}\n\n(簡易PDF生成エラー: {e_fallback})",
                     parent=self,
-                )
-                self.status_label.configure(
-                    text="エラーが発生しました。", text_color="orange"
                 )
                 self.run_button.configure(state="normal")
                 self.fetch_button.configure(state="normal")
                 return
-        except Exception as e:
-            messagebox.showerror(
-                "Webクリップエラー", f"予期せぬエラーが発生しました:\n{e}", parent=self
-            )
-            self.status_label.configure(
-                text="エラーが発生しました。", text_color="orange"
-            )
-            self.run_button.configure(state="normal")
-            self.fetch_button.configure(state="normal")
+
+        if not conversion_success:
             return
 
-        # --- 6. 親アプリの正規化処理を先に呼び出す ---
-        self.status_label.configure(text="PDF正規化処理を実行中...")
+        self.status_label.configure(text="正規化処理中...")
         self.update_idletasks()
 
-        # execute_normalization_process は (Path/Image, base_name) のタプルリストを期待
-        items_to_process = [(temp_raw_item_path, base_name)]
-        final_output_pdf = dest_path / f"{base_name}.pdf"
-
         try:
-            # (画像はPDF化され、PDFはフラット化・サイズ正規化・OCR処理される)
+            items_to_process = [(temp_raw_item_path, base_name)]
             self.parent_app.execute_normalization_process(items_to_process, dest_path)
-        except Exception as e:
-            messagebox.showerror(
-                "正規化処理エラー", f"処理中にエラーが発生しました:\n{e}", parent=self
-            )
-            self.status_label.configure(
-                text="エラーが発生しました。", text_color="orange"
-            )
-            self.run_button.configure(state="normal")
-            self.fetch_button.configure(state="normal")
-            return  # メタデータ付与に進まず終了
 
-        # --- 7. PDFへの情報埋め込み (正規化 *後* に実行) ---
-        self.status_label.configure(text="PDFに情報を埋め込み中...")
-        self.update_idletasks()
-        try:
-            # 親アプリから設定を取得
+            final_output_pdf = dest_path / f"{base_name}.pdf"
             config_data = self.parent_app.config_data
             key_rect_tuple = config_data.get("key_rect", (0, 0, 0, 0))
-            paper_width = self.parent_app.paper_width
-            paper_height = self.parent_app.paper_height
+            refs_qr_size = config_data.get("refs_qr_size", 75)
 
             add_metadata_to_clip(
                 pdf_path_str=str(final_output_pdf),
                 font_path=font_path,
-                paper_width=paper_width,
-                paper_height=paper_height,
+                paper_width=self.parent_app.paper_width,
+                paper_height=self.parent_app.paper_height,
                 key_rect_tuple=key_rect_tuple,
                 index_key_to_embed=index_key_to_embed,
                 text_color=text_color,
@@ -857,16 +797,14 @@ class WebClipWindow(ctk.CTkToplevel):
                 sist_string_readable=sist_string_readable,
                 base_name=base_name,
                 cited_keys_list=cited_keys_list,
-                refs_qr_size_pt=refs_qr_size_pt,
-                extra_keywords=["Synapsen:WebClip"]
+                refs_qr_size_pt=refs_qr_size,
+                extra_keywords=["Synapsen:WebClip"],
             )
+            self.on_close()
 
         except Exception as e:
             messagebox.showerror(
-                "情報埋め込みエラー",
-                f"PDFへの情報埋め込みに失敗しました(正規化は完了しています):\n{e}",
-                parent=self,
+                "エラー", f"処理中にエラーが発生しました:\n{e}", parent=self
             )
-            # エラーが起きても、PDF化自体は成功しているので処理は続行
-
-        self.on_close()  # 成功したらウィンドウを閉じる
+            self.run_button.configure(state="normal")
+            self.fetch_button.configure(state="normal")
