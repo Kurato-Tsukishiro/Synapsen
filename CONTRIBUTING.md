@@ -56,3 +56,35 @@ AIアシスタントや開発者が陥りやすい、避けるべき実装パタ
 ---
 
 このアーキテクチャを守ることで、Synapsen は「ファイルベースの堅牢性」と「デジタルの検索性」を両立させています。 機能追加の提案やプルリクエストの際は、この原則に沿っているかをご確認ください。
+
+---
+
+## 🏗 EXEのビルド方法
+
+ソースコードを変更した場合など、自分で `Synapsen.exe` をビルドし直す手順です。
+
+1.  **準備:** `Install.bat` の実行に加え、PyInstallerをインストールします。
+    ```bash
+    pip install pyinstaller
+    ```
+2.  **ビルド:** 以下のコマンドをルートディレクトリで実行してください。
+    ```bash
+    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+    ```
+3.  **配置:** `dist` フォルダに生成された `Synapsen.exe` をルートディレクトリに移動して使用します。
+
+### Tips: 起動速度の改善 (--onedir ビルド)
+配布用の `Synapsen.exe` は、利便性を優先して1つのファイルにまとめる `--onefile` 形式でビルドされていますが、これは起動時に一時フォルダへファイルを展開するため、起動に数秒の時間を要します。
+
+ご自身の環境で使用する場合、以下のように **`--onedir`** オプションを使用してビルドすることで、展開処理を省略し、**スクリプト実行並みの高速起動**を実現できます。
+
+```bash
+# --onefile を --onedir に変更して実行
+pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+```
+
+**注意点:**
+- 生成物は `Synapsen.exe` 単体ではなく、`dist/Synapsen/` というフォルダになります。
+- フォルダ構造を維持したまま配置・移動する必要があります。
+- `config.ini` や `assets` フォルダは、`Synapsen.exe` があるフォルダ（dist/Synapsen/ の中）に配置してください。
+  - `assets` フォルダの中身は、`synapsen.ico` と `synapsen_banner.png` のみで動作します。

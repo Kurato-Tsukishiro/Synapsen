@@ -373,11 +373,20 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 * **EXE版:** `Synapsen_vxxx.zip` (Synapsen.exe が含まれるパッケージ)
 * **ソースコード版:** `Source code (zip)`
 
-### 2. PDFテンプレートの入手 (推奨)
-`Synapsen` をより便利に使うため、**専用のPDFテンプレート**の使用を推奨します。
-これを使用すると、ノート作成時にIndex Keyを選ぶだけで、後で `Ersteller` が自動で読み取るため、**手動でIndex Keyを登録する手間が省けます**。
+### 2. 配布パッケージの構成
+#### マニュアル
+* 本パッケージ（ZIP解凍後）には、マニュアルとして以下の2つのファイルが含まれています。用途に合わせてご利用ください。
+  * **`README.md`** (ルートフォルダ)
+      * このファイルです。インストール方法やコマンドを確認するためのテキスト版マニュアルです。
+  * **`samples/Synapsen_Manual.pdf`**
+      * この `README.md` を **Normalisierer** で実際に処理（PDF化・正規化・メタデータ埋め込み）したサンプルファイルです。
+      * **Ersteller** の「統合」機能をすぐに試すための素材として、あるいは **Nexus** でタグやリンク機能を確認するためのデモデータとしてご利用ください。
 
-[Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、以下のPDFファイルをダウンロードしてください。
+#### PDFテンプレート
+* 本パッケージには、 `templates` フォルダ内に Synapsen 専用のPDFテンプレートが含まれています。
+  * `Synapsen` をより便利に使うため、**専用のPDFテンプレート**の使用を推奨します。
+  * これを使用すると、ノート作成時にIndex Keyを選ぶだけで、後で `Ersteller` が自動で読み取るため、**手動でIndex Keyを登録する手間が省けます**。<br><br>
+  * テンプレートのIndex Keyを自分好みに変更する事も出来ます。詳しくは[PDFテンプレートのカスタマイズ (上級者向け)](#pdfテンプレートのカスタマイズ-上級者向け)を参照してください。
 
 1.  **フォーム付き (`..._Form.pdf`):**
     * Index Keyを選択するプルダウンが付いたPDFです。
@@ -560,6 +569,7 @@ target_size =
 </details>
 
 #### **`config.ini` の設定例 (推奨構成):**
+
 <details>
 <summary><b>▼ クリックして設定ファイルの内容を表示</b></summary>
 
@@ -765,35 +775,8 @@ EXEファイルの展開プロセスがないため、**最も高速に起動し
 
 ---
 
-## 開発者・上級者向け: EXEのビルド方法
-
-ソースコードを変更した場合など、自分で `Synapsen.exe` をビルドし直す手順です。
-
-1.  **準備:** `Install.bat` の実行に加え、PyInstallerをインストールします。
-    ```bash
-    pip install pyinstaller
-    ```
-2.  **ビルド:** 以下のコマンドをルートディレクトリで実行してください。
-    ```bash
-    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
-    ```
-3.  **配置:** `dist` フォルダに生成された `Synapsen.exe` をルートディレクトリに移動して使用します。
-
-### Tips: 起動速度の改善 (--onedir ビルド)
-配布用の `Synapsen.exe` は、利便性を優先して1つのファイルにまとめる `--onefile` 形式でビルドされていますが、これは起動時に一時フォルダへファイルを展開するため、起動に数秒の時間を要します。
-
-ご自身の環境で使用する場合、以下のように **`--onedir`** オプションを使用してビルドすることで、展開処理を省略し、**スクリプト実行並みの高速起動**を実現できます。
-
-```bash
-# --onefile を --onedir に変更して実行
-pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
-```
-
-**注意点:**
-- 生成物は `Synapsen.exe` 単体ではなく、`dist/Synapsen/` というフォルダになります。
-- フォルダ構造を維持したまま配置・移動する必要があります。
-- `config.ini` や `assets` フォルダは、`Synapsen.exe` があるフォルダ（dist/Synapsen/ の中）に配置してください。
-  - `assets` フォルダの中身は、`synapsen.ico` と `synapsen_banner.png` のみで動作します。
+## 開発者向け情報
+ソースコードからのビルド方法や、開発に参加するためのガイドラインについては、[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
 
 ## 使い方
 
@@ -936,19 +919,25 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
 このプロジェクトの**ソースコード**（(`PDF_Templates` 内の生成スクリプトも含む)`.py` ファイル）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。<br><br>
 これは、`Synapsen` の中核機能において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリ を使用しているためです。<br>
 AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体も同じライセンスに従います。<br><br>
-詳細は、同梱されている `LICENSE` ファイルを参照してください。
+詳細は、同梱されている [`LICENSE` ファイル](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE) 及び [動作環境・依存関係](#動作環境依存関係)の**Pythonライブラリ**の項目を参照してください。
 
 ---
 
-### アイコンおよびグラフィックアセット (CC BY-SA 4.0)
-このリポジトリの **`assets/` フォルダ** に含まれるすべてのファイル（ロゴ、アイコン、`.png` 画像、および `.gvdesign` ソースファイル）は、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。<br><br>
-詳細は、[動作環境・依存関係](#動作環境依存関係)の**Pythonライブラリ**の項目を参照してください。
+### ドキュメントおよびグラフィックアセット (CC BY-SA 4.0)
+このリポジトリに含まれる以下のコンテンツは、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
+
+* **`assets/` フォルダ**: すべてのアイコン、ロゴ、画像ファイル、および `.gvdesign` ソースファイル。
+* **`README.md` および `docs/`**: ドキュメント、マニュアル。
+* **`samples/`**: 上記ドキュメントから生成されたサンプルPDFファイル。
+
+詳細は、同梱されている [`LICENSE-ASSETS.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE-ASSETS.md) ファイルを参照してください。
 
 ---
 
 ### PDFテンプレート (CC0 - パブリックドメイン)
 [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) や `PDF_Templates/PDF/` フォルダで配布されている **`.pdf` テンプレートファイル**（`DotLegalPad_Template-A4_Form.pdf` など）は、**CC0 (パブリックドメイン)** です。<br>
-これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。
+これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。<br><br>
+詳細は、同梱されている [`LISENSE-PDF.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LISENSE-PDF.md) ファイルを参照してください。
 
 ---
 
