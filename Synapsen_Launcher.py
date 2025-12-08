@@ -1,10 +1,40 @@
 import customtkinter as ctk
 import sys
 import subprocess
+import traceback
 from pathlib import Path
-from PIL import Image  # 【追加】画像処理用
+from PIL import Image
+from tkinter import messagebox
 
-# ログ設定の読み込み
+# --- パス設定 (exe/script両対応) ---
+
+# 1. 実行環境のルートディレクトリを特定
+if getattr(sys, "frozen", False):
+    # 【EXE実行時】
+    # 物理的なexeの場所 (config.ini, assetsの読み込み用)
+    BASE_DIR = Path(sys.executable).parent
+    # 内部ファイルが展開されている一時フォルダ (モジュールのインポート用)
+    INTERNAL_DIR = Path(sys._MEIPASS)
+else:
+    # 【スクリプト実行時】
+    BASE_DIR = Path(__file__).parent
+    INTERNAL_DIR = BASE_DIR
+
+# パスを通す
+if str(INTERNAL_DIR) not in sys.path:
+    sys.path.insert(0, str(INTERNAL_DIR))
+
+# 3. 各ツールのサブフォルダも sys.path に追加
+# これにより、各ツール内の "import dnd_window" 等のローカルインポートが解決されます
+tool_subdirs = ["Synapsen_Normalisierer", "Synapsen_Ersteller", "Synapsen_Nexus"]
+
+for subdir in tool_subdirs:
+    # EXE内では INTERNAL_DIR 配下にフォルダが存在します
+    target_path = INTERNAL_DIR / subdir
+    # パスに追加 (存在チェックは緩める: PyInstallerのバンドル構造によってはフォルダとして見えない場合もあるため)
+    sys.path.insert(0, str(target_path))
+
+# ログ設定 (共通)
 try:
     from logging_setup import setup_logging
 
@@ -16,6 +46,13 @@ except ImportError:
     import logging
 
     logger = logging.getLogger()
+
+# --- PyInstaller スプラッシュスクリーン制御 ---
+# ビルド環境以外(スクリプト実行時)ではインポートエラーになるためtryで囲む
+try:
+    import pyi_splash
+except ImportError:
+    pyi_splash = None
 
 # --- Synapsen Theme Colors ---
 COLOR_HISUI = "#38b48b"  # 翡翠色 (Main: Ersteller)
@@ -30,14 +67,13 @@ class SynapsenLauncher(ctk.CTk):
         super().__init__()
 
         self.title("Synapsen Launcher")
-        self.geometry("600x500")  # 画像が入る分、少し高さを広げました
+        self.geometry("600x550")
 
-        if getattr(sys, "frozen", False):
-            self.base_path = Path(sys.executable).parent
-        else:
-            self.base_path = Path(__file__).parent
+        # 物理パスを使用 (assets等はexeの隣にある前提)
+        self.base_path = BASE_DIR
 
-        self.icon_path = self.base_path / "assets" / "synapsen.ico"
+        # アイコン設定
+        self.icon_path = (self.base_path / "assets" / "synapsen.ico").resolve()
         if self.icon_path.exists():
             try:
                 self.iconbitmap(default=str(self.icon_path))
@@ -47,6 +83,7 @@ class SynapsenLauncher(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
+        # UI構築
         self._create_ui()
 
     def _create_ui(self):
@@ -54,32 +91,23 @@ class SynapsenLauncher(ctk.CTk):
         main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
         main_frame.grid_columnconfigure((0, 1), weight=1)
 
-        # --- タイトルバナー画像の表示 ---
-        # 1. 画像パスの設定 (PNG形式を使用)
-        banner_path = self.base_path / "assets" / "synapsen_banner.png"
-
+        # バナー画像 (メインUI用)
+        banner_path = (self.base_path / "assets" / "synapsen_banner.png").resolve()
         title_widget = None
-
         if banner_path.exists():
             try:
-                # 2. 画像の読み込み
                 pil_image = Image.open(banner_path)
-
-                # 3. 表示サイズの設定 (アスペクト比を維持しつつ幅400pxに合わせる例)
                 target_width = 400
                 w_percent = target_width / float(pil_image.size[0])
                 target_height = int((float(pil_image.size[1]) * float(w_percent)))
-
                 banner_image = ctk.CTkImage(
                     light_image=pil_image,
                     dark_image=pil_image,
                     size=(target_width, target_height),
                 )
-
-                # 4. 画像ラベルの作成 (textは空にする)
                 title_widget = ctk.CTkLabel(main_frame, text="", image=banner_image)
-            except Exception as e:
-                logger.error(f"Failed to load banner image: {e}")
+            except Exception:
+                pass
 
         # 画像がない、または読み込み失敗時はテキストで表示
         if title_widget is None:
@@ -89,40 +117,39 @@ class SynapsenLauncher(ctk.CTk):
 
         title_widget.grid(row=0, column=0, columnspan=2, pady=(30, 20))
 
-        # --- ボタンの定義 ---
-        # (ボタン名, 説明, スクリプトパス, 色, コンソール表示有無)
+        # ツール定義
         tools = [
             (
                 "Normalisierer",
                 "正規化: PDFの整形・OCR・Webクリップ",
-                "Synapsen_Normalisierer/Synapsen_Normalisierer_main.py",
+                "--normalisierer",
                 COLOR_KIKYO,  # 桔梗色
                 False,
             ),
             (
                 "Ersteller",
                 "統合: メタデータ編集・月次PDF作成",
-                "Synapsen_Ersteller/Synapsen_Ersteller_main.py",
+                "--ersteller",
                 COLOR_HISUI,  # 翡翠色
                 False,
             ),
             (
                 "Nexus",
-                "閲覧: データベース検索・ネットワーク思考",
-                "Synapsen_Nexus/Synapsen_Nexus_main.py",
+                "閲覧: 検索・ネットワーク思考",
+                "--nexus",
                 COLOR_TETSU,  # 鉄色 (基盤)
                 False,
             ),
             (
                 "Watchdog",
-                "監視: フォルダ監視による自動正規化",
-                "Synapsen_Normalisierer/Synapsen_Watchdog.py",
+                "監視: 自動正規化(常駐)",
+                "--watchdog",
                 COLOR_SUOU,  # 蘇芳色 (警告/監視)
-                True,
+                False,
             ),
         ]
 
-        for i, (name, desc, script_rel_path, color, use_console) in enumerate(tools):
+        for i, (name, desc, arg_flag, color, use_console) in enumerate(tools):
             row = i // 2 + 1
             col = i % 2
 
@@ -136,21 +163,18 @@ class SynapsenLauncher(ctk.CTk):
                 height=50,
                 fg_color=color,
                 hover_color=self._adjust_brightness(color, 0.8),
-                command=lambda p=script_rel_path, c=use_console: self.launch_tool(p, c),
+                command=lambda f=arg_flag, c=use_console: self.launch_self(f, c),
             )
             btn.pack(fill="x", pady=(0, 5))
 
-            desc_label = ctk.CTkLabel(
+            ctk.CTkLabel(
                 btn_frame, text=desc, font=("Arial", 11), text_color="gray"
-            )
-            desc_label.pack()
+            ).pack()
 
         exit_btn = ctk.CTkButton(
             self, text="終了", fg_color="gray", width=100, command=self.destroy
         )
-        # 行番号を動的に調整 (ツール行数 + 1)
-        exit_row = (len(tools) + 1) // 2 + 1
-        exit_btn.grid(row=exit_row, column=0, columnspan=2, pady=20)
+        exit_btn.grid(row=(len(tools) + 1) // 2 + 1, column=0, columnspan=2, pady=20)
 
     def _adjust_brightness(self, hex_color, factor=0.8):
         """
@@ -160,53 +184,141 @@ class SynapsenLauncher(ctk.CTk):
         hex_color = hex_color.lstrip("#")
 
         # RGBに分解
-        r = int(hex_color[0:2], 16)
-        g = int(hex_color[2:4], 16)
-        b = int(hex_color[4:6], 16)
+        r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
 
         # 明度調整 (最大255)
-        r = max(0, min(255, int(r * factor)))
-        g = max(0, min(255, int(g * factor)))
-        b = max(0, min(255, int(b * factor)))
-
+        r, g, b = [max(0, min(255, int(c * factor))) for c in (r, g, b)]
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    def launch_tool(self, script_relative_path, use_console=False):
-        """
-        指定されたスクリプトを別プロセスで起動する。
-        """
-        script_path = self.base_path / script_relative_path
-
-        if not script_path.exists():
-            print(f"Error: Script not found at {script_path}")
-            return
-
+    def launch_self(self, flag, use_console=False):
+        """自分自身を別プロセスとして起動"""
         try:
-            if sys.platform == "win32":
-                creation_flags = 0
-                if use_console:
-                    creation_flags = subprocess.CREATE_NEW_CONSOLE
-                else:
-                    # CREATE_NO_WINDOW
-                    creation_flags = 0x08000000
-
-                subprocess.Popen(
-                    [sys.executable, str(script_path)],
-                    cwd=str(self.base_path),
-                    creationflags=creation_flags,
-                )
+            # 実行パスの解決
+            if getattr(sys, "frozen", False):
+                # EXE実行時: Synapsen.exe --flag
+                executable = sys.executable
+                cmd = [executable, flag]
             else:
-                subprocess.Popen(
-                    [sys.executable, str(script_path)], cwd=str(self.base_path)
+                # スクリプト実行時: python Synapsen_Launcher.py --flag
+                executable = sys.executable
+                script_path = str(Path(__file__).resolve())
+                cmd = [executable, script_path, flag]
+
+            # cwdは物理的なベースパスを指定
+            cwd_path = str(self.base_path.resolve())
+
+            if sys.platform == "win32":
+                creation_flags = (
+                    subprocess.CREATE_NEW_CONSOLE if use_console else 0x08000000
                 )
+                subprocess.Popen(cmd, cwd=cwd_path, creationflags=creation_flags)
+            else:
+                subprocess.Popen(cmd, cwd=cwd_path)
 
-            logger.info(f"Launched: {script_relative_path} (Console: {use_console})")
-
+            logger.info(f"Launched sub-process: {cmd}")
         except Exception as e:
-            logger.error(f"Failed to launch {script_relative_path}: {e}")
+            logger.error(f"Launch failed: {e}")
+            messagebox.showerror("起動エラー", f"ツールの起動に失敗しました:\n{e}")
 
 
+# --- スプラッシュを閉じるヘルパー関数 ---
+def close_splash():
+    if pyi_splash and pyi_splash.is_alive():
+        try:
+            pyi_splash.close()
+        except Exception:
+            pass
+
+
+# --- メインエントリーポイント ---
 if __name__ == "__main__":
     ctk.set_appearance_mode("System")
-    app = SynapsenLauncher()
-    app.mainloop()
+
+    # 引数チェックによる分岐
+    # ※ 各ツールのインポートはここで初めて行う (遅延インポートによる高速化)
+    if len(sys.argv) > 1:
+        mode = sys.argv[1]
+
+        # モジュール変数が定義されているか確認してから起動
+        try:
+            if mode == "--normalisierer":
+                # 各ツール起動時も、準備ができたらスプラッシュを閉じる
+                # (サブプロセス起動時にもスプラッシュが出る場合があるため念のため)
+                close_splash()
+                from Synapsen_Normalisierer.Synapsen_Normalisierer_main import (
+                    Synapsen_Normalisierer,
+                )
+
+                app = Synapsen_Normalisierer()
+                if (
+                    hasattr(app, "iconbitmap")
+                    and (BASE_DIR / "assets" / "synapsen.ico").exists()
+                ):
+                    try:
+                        app.iconbitmap(
+                            default=str(BASE_DIR / "assets" / "synapsen.ico")
+                        )
+                    except Exception:
+                        pass
+                app.mainloop()
+
+            elif mode == "--ersteller":
+                close_splash()
+                from Synapsen_Ersteller.Synapsen_Ersteller_main import (
+                    Synapsen_Ersteller,
+                )
+
+                app = Synapsen_Ersteller()
+                if (
+                    hasattr(app, "iconbitmap")
+                    and (BASE_DIR / "assets" / "synapsen.ico").exists()
+                ):
+                    try:
+                        app.iconbitmap(
+                            default=str(BASE_DIR / "assets" / "synapsen.ico")
+                        )
+                    except Exception:
+                        pass
+                app.mainloop()
+
+            elif mode == "--nexus":
+                close_splash()
+                from Synapsen_Nexus.Synapsen_Nexus_main import Synapsen_Nexus
+
+                app = Synapsen_Nexus()
+                if (
+                    hasattr(app, "iconbitmap")
+                    and (BASE_DIR / "assets" / "synapsen.ico").exists()
+                ):
+                    try:
+                        app.iconbitmap(
+                            default=str(BASE_DIR / "assets" / "synapsen.ico")
+                        )
+                    except Exception:
+                        pass
+                app.mainloop()
+
+            elif mode == "--watchdog":
+                close_splash()
+                from Synapsen_Normalisierer import Synapsen_Watchdog
+
+                Synapsen_Watchdog.main()
+
+            else:
+                # 不明な引数の場合はランチャー
+                app = SynapsenLauncher()
+                # ランチャーの準備が整ったらスプラッシュを閉じる
+                close_splash()
+                app.mainloop()
+
+        except Exception as e:
+            close_splash()  # エラー時も閉じる
+            messagebox.showerror(
+                "実行エラー",
+                f"アプリの実行中にエラーが発生しました:\n{e}\n\n{traceback.format_exc()}",
+            )
+    else:
+        # 引数なし -> ランチャー起動
+        app = SynapsenLauncher()
+        close_splash()
+        app.mainloop()

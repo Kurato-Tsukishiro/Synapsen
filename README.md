@@ -368,353 +368,432 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 
 ## セットアップ
 
-1.  **Synapsenのダウンロード:**
-    * リポジトリの [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、最新のリリース（`.zip` (ソースコード 又は `.exe` が含まれるパッケージ)）をダウンロードします。
+### 1. Synapsenのダウンロード
+リポジトリの [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、最新のリリースをダウンロードします。
+* **EXE版:** `Synapsen_vxxx.zip` (Synapsen.exe が含まれるパッケージ)
+* **ソースコード版:** `Source code (zip)`
 
-2.  **PDFテンプレートの入手 (推奨):**
-    * `Synapsen` をより便利に使うため、**専用のPDFテンプレート**（`DotLegalPad_Template-A4_Form.pdf` など）の使用を推奨します。
-    * これを使うと、ノート作成時にIndex Keyを選ぶだけで、後で `Ersteller` が自動で読み取ってくれるため、**手動でIndex Keyを登録する手間が省けます**。
-    * [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、以下のPDFテンプレートファイル（`.pdf`）をダウンロードしてください。
-        1.  **フォーム付き (`..._Form.pdf`):** Index Keyを選択するプルダウンが付いたPDF。QUADERNOでは「ドキュメント」として扱われ、**ページ追加ができません**。
-        2.  **フォーム無し (`...Template.pdf`):** ページ追加が可能な、通常の「ノート」テンプレート。
-    * ※ これらのテンプレートは `CC0 (パブリックドメイン)` です。 自由にコピー、改変、再配布して構いません。
+### 2. PDFテンプレートの入手 (推奨)
+`Synapsen` をより便利に使うため、**専用のPDFテンプレート**の使用を推奨します。
+これを使用すると、ノート作成時にIndex Keyを選ぶだけで、後で `Ersteller` が自動で読み取るため、**手動でIndex Keyを登録する手間が省けます**。
 
-3.  **ライブラリのインストール:**
-    * ダウンロードしたフォルダにある `Install.bat` をダブルクリックして実行し、必要なPythonライブラリ、Webクリップ用ブラウザ、およびMarkdown変換用のPandocをインストールします。
-    * （または、コマンドプロンプトで `pip install -r requirements.txt` と `playwright install chromium` を実行し、`Pandoc`を手動でインストールします）
+[Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から、以下のPDFファイルをダウンロードしてください。
 
-4.  **`config.ini` の設定:**
-    * フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス**を、ご自身の環境に合わせて編集します。
-    * ※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[CommonplaceKeys]` などの設定はデフォルトのままで動作します。
+1.  **フォーム付き (`..._Form.pdf`):**
+    * Index Keyを選択するプルダウンが付いたPDFです。
+    * QUADERNOでは「ドキュメント」として扱われ、**ページ追加ができません**。複製して使用して下さい。
+    * サイドノートと組み合わせる事でノートの1ページ目としてみなします。
+2.  **フォーム無し (`...Template.pdf`):**
+    * ページ追加が可能な、通常の「ノート」テンプレートです。サイドノート（2ページ目以降）として使用します。
 
-    **【重要】パスの指定方法について:**
-    `config.ini` 内のパス指定には、以下の3種類の記述方法が使用できます。環境に合わせて柔軟に設定してください。
+※ これらのテンプレートは `CC0 (パブリックドメイン)` です。自由にコピー、改変、再配布して構いません。
 
-    * **絶対パス (Absolute Path)**
-        * 例: `C:\Users\Username\Documents\Synapsen\Tags.txt`
-        * ドライブレターから始まる完全なパスです。場所が固定されているファイル（フォントファイルなど）の指定に適しています。
-    * **相対パス (Relative Path)**
-        * 例: `./PDF_Files` または `Resources\Tags.txt`
-        * `config.ini` があるフォルダを基準としたパスです。ツール一式をUSBメモリに入れて持ち運ぶ場合や、フォルダごと移動させる場合に便利です。
-    * **環境変数 (Environment Variables)**
-        * 例: `%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP.otf`
-        * Windowsの環境変数（`%USERPROFILE%`, `%APPDATA%` など）を使用できます。ユーザーごとにパスが異なる場合でも、設定ファイルを共有しやすくなります。
+### 3. `config.ini` の設定
+フォルダ内にある `config.ini` を開き、**最低限 `[Paths]` セクションのパス** を、ご自身の環境に合わせて編集します。
+※ 推奨テンプレート (`DotLegalPad`) を使用する場合、`[CommonplaceKeys]` などの設定はデフォルトのままで動作します。
 
-    **`config.ini` の設定項目 (空のテンプレート):**
-    ```ini
-    
-    ; ==============================================================================
-    ; Synapsen Configuration File
-    ; ==============================================================================
+又、``Ersteller`` を使用して、編集をする事も可能です。
 
-    ; ------------------------------------------------------------------------------
-    ; [Paths] ファイル・フォルダパス設定
-    ; ------------------------------------------------------------------------------
-    [Paths]
-    ; --- データベースとフォルダ構成 ---
-    ; Nexusでの情報表示に使用するマスターDBのパス
-    database_path = 
+**【重要】パスの指定方法について:**
+`config.ini` 内のパス指定には、以下の3種類の記述方法が使用できます。
 
-    ; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
-    pdf_root_folder = 
+* **絶対パス (Absolute Path)**
+    * 例: `C:\Users\Username\Documents\Synapsen\Tags.txt`
+* **相対パス (Relative Path)**
+    * 例: `./PDF_Files` または `Resources\Tags.txt`
+    * `config.ini` があるフォルダを基準としたパスです。フォルダごと移動させる運用（USBメモリ等）に便利です。
+* **環境変数 (Environment Variables)**
+    * 例: `%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP.otf`
 
-    ; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
-    ; 空欄の場合は検索がスキップされます
-    pdf_archive_folder =
+#### **`config.ini` の設定項目 (空のテンプレート):**
 
-    ; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
-    nexus_output_folder = 
+<details>
+<summary><b>▼ クリックして設定ファイルの内容を表示</b></summary>
 
-    ; --- リソースファイル ---
-    ; 事前定義タグを保存しているテキストファイルのパス
-    tags_data_path = 
+```ini
 
-    ; アプリケーション全体(正規化・PDF生成)で使用する日本語フォントファイルの絶対パス
-    ; ※ 重要: 必ず ".ttf" (TrueType) または ".ttc" (TrueType Collection) 形式を指定してください。
-    ;   ".otf" (OpenType) や Variable Font は、PDF生成時にエラーになるため非推奨です。
-    ; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
-    ; (例: "C:\Windows\Fonts\msgothic.ttc")
-    font_path = 
+; ==============================================================================
+; Synapsen Configuration File
+; ==============================================================================
 
-    ; --- 外部アプリケーション ---
-    ; PDFを開くブラウザの絶対パス
-    ; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
-    ; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
-    browser_path = 
+; ------------------------------------------------------------------------------
+; [Paths] ファイル・フォルダパス設定
+; ------------------------------------------------------------------------------
+[Paths]
+; --- データベースとフォルダ構成 ---
+; Nexusでの情報表示に使用するマスターDBのパス
+database_path = 
 
+; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
+pdf_root_folder = 
 
-    ; ------------------------------------------------------------------------------
-    ; [CommonplaceKeys] & Visuals
-    ; ノートの分類（Index Key）とその見た目の定義
-    ; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
-    ; ------------------------------------------------------------------------------
-    [CommonplaceKeys]
-    ; 使用する Index Key のリスト
-    options = 
+; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
+; 空欄の場合は検索がスキップされます
+pdf_archive_folder =
 
-    [KeyIcons]
-    ; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
-    
+; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
+nexus_output_folder = 
+; --- リソースファイル ---
+; 事前定義タグを保存しているテキストファイルのパス
+tags_data_path = 
 
-    [KeyColors]
-    ; アイコンや枠線の色 (16進数カラーコード)
-    
+; アプリケーション全体(正規化・PDF生成)で使用する日本語フォントファイルの絶対パス
+; ※ 重要: 必ず ".ttf" (TrueType) または ".ttc" (TrueType Collection) 形式を指定してください。
+;   ".otf" (OpenType) や Variable Font は、PDF生成時にエラーになるため非推奨です。
+; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
+; (例: "C:\Windows\Fonts\msgothic.ttc")
+font_path = 
+
+; --- 外部アプリケーション ---
+; PDFを開くブラウザの絶対パス
+; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
+; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
+browser_path = 
 
 
-    ; ------------------------------------------------------------------------------
-    ; [Automation] 自動処理設定
-    ; Normalisierer (正規化) および Ersteller (統合) の挙動制御
-    ; ------------------------------------------------------------------------------
-    [Automation]
-    ; --- Normalisierer (正規化) 設定 ---
+; ------------------------------------------------------------------------------
+; [CommonplaceKeys] & Visuals
+; ノートの分類（Index Key）とその見た目の定義
+; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
+; ------------------------------------------------------------------------------
+[CommonplaceKeys]
+; 使用する Index Key のリスト
+options = 
 
-    ; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
-    ; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-    ; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
-    enable_tesseract_ocr = 
-
-    ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
-    ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
-    ; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
-    flatten_ink_annotations = 
-
-    ; --- Ersteller (統合) 設定 ---
-
-    ; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
-    auto_append_to_default_db = 
-
-    ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
-    create_individual_csv = 
+[KeyIcons]
+; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
 
 
-    ; ------------------------------------------------------------------------------
-    ; [Extraction] 読み取り設定
-    ; PDFからのメタデータ抽出パラメータ
-    ; ------------------------------------------------------------------------------
-    [Extraction]
-    ; Erstrller で「座標読み取り」によって Index Key を取得する範囲
-    ; (左, 上, 右, 下) のポイント座標
-    key_rect = 
-
-    ; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
-    ; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
-    refs_qr_size = 
+[KeyColors]
+; アイコンや枠線の色 (16進数カラーコード)
 
 
-    ; ------------------------------------------------------------------------------
-    ; [ReportLab] PDF生成設定
-    ; Ersteller が統合PDFを作成する際のスタイル設定
-    ; ------------------------------------------------------------------------------
-    [ReportLab]
-    ; 正規化及び統合の用紙サイズの指定 (A4/A5)
-    paper_size = 
 
-    ; PDFのプロパティ及び表紙に表示される著者名
-    author = 
+; ------------------------------------------------------------------------------
+; [Automation] 自動処理設定
+; Normalisierer (正規化) および Ersteller (統合) の挙動制御
+; ------------------------------------------------------------------------------
+[Automation]
+; --- Normalisierer (正規化) 設定 ---
 
-    ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
-    title_prefix = 
+; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
+; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
+enable_tesseract_ocr = 
 
-    ; 1冊のPDFに含める最大ページ数 (ノート本文の合計ページ数)
-    ; 0 を指定すると無制限（分割なし）になります。
-    max_pages = 
+; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
+; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
+; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
+flatten_ink_annotations = 
+
+; --- Ersteller (統合) 設定 ---
+
+; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
+auto_append_to_default_db = 
+
+; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
+create_individual_csv = 
 
 
-    ; ------------------------------------------------------------------------------
-    ; [Search] 検索設定
-    ; Nexus での検索・入力補完の挙動
-    ; ------------------------------------------------------------------------------
-    [Search]
-    ; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
-    ; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
-    ; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
-    include_all_tags_for_autocomplete = 
+; ------------------------------------------------------------------------------
+; [Extraction] 読み取り設定
+; PDFからのメタデータ抽出パラメータ
+; ------------------------------------------------------------------------------
+[Extraction]
+; Erstrller で「座標読み取り」によって Index Key を取得する範囲
+; (左, 上, 右, 下) のポイント座標
+key_rect = 
 
-    ; アプリ起動時に、デフォルトで除外検索 (-tag:Tag) を適用するタグ
-    ; 複数ある場合はカンマ区切りで記述します (例: Archive, Done)
-    ; 空欄の場合は何もしません。Nexus画面上の「除外タグ」チェックボックスで切り替え可能です。
-    exclude_tags_by_default = 
+; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
+; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
+refs_qr_size = 
 
-    ; ------------------------------------------------------------------------------
-    ; [Watchdog] 常駐正規化機能の設定
-    ; auto_watchdog.py で行う正規化の設定
-    ; ------------------------------------------------------------------------------
-    [Watchdog]
-    ; 監視するフォルダ
-    watch_dir = 
-    ; 正規化済みファイルの出力先
-    output_dir = 
-    ; 正規化するサイズ (A4 または A5)
-    target_size = 
 
+; ------------------------------------------------------------------------------
+; [ReportLab] PDF生成設定
+; Ersteller が統合PDFを作成する際のスタイル設定
+; ------------------------------------------------------------------------------
+[ReportLab]
+; 正規化及び統合の用紙サイズの指定 (A4/A5)
+paper_size = 
+
+; PDFのプロパティ及び表紙に表示される著者名
+author = 
+
+; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
+title_prefix = 
+
+; 1冊のPDFに含める最大ページ数 (ノート本文の合計ページ数)
+; 0 を指定すると無制限（分割なし）になります。
+max_pages = 
+
+
+; ------------------------------------------------------------------------------
+; [Search] 検索設定
+; Nexus での検索・入力補完の挙動
+; ------------------------------------------------------------------------------
+[Search]
+; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
+; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
+; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
+include_all_tags_for_autocomplete = 
+
+; アプリ起動時に、デフォルトで除外検索 (-tag:Tag) を適用するタグ
+; 複数ある場合はカンマ区切りで記述します (例: Archive, Done)
+; 空欄の場合は何もしません。Nexus画面上の「除外タグ」チェックボックスで切り替え可能です。
+exclude_tags_by_default = 
+
+; ------------------------------------------------------------------------------
+; [Watchdog] 常駐正規化機能の設定
+; auto_watchdog.py で行う正規化の設定
+; ------------------------------------------------------------------------------
+[Watchdog]
+; 監視するフォルダ
+watch_dir = 
+; 正規化済みファイルの出力先
+output_dir = 
+; 正規化するサイズ (A4 または A5)
+target_size = 
+
+```
+
+</details>
+
+#### **`config.ini` の設定例 (推奨構成):**
+<details>
+<summary><b>▼ クリックして設定ファイルの内容を表示</b></summary>
+
+```ini
+; ==============================================================================
+; Synapsen Configuration File
+; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; [Paths] ファイル・フォルダパス設定
+; ------------------------------------------------------------------------------
+[Paths]
+; --- データベースとフォルダ構成 ---
+; Nexusでの情報表示に使用するマスターDBのパス
+database_path = Synapsen_Master.db
+
+; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
+pdf_root_folder = ./
+
+; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
+; 空欄の場合 検索がスキップされます
+pdf_archive_folder =
+
+; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
+nexus_output_folder = Nexus_Output
+
+; --- リソースファイル ---
+; 事前定義タグを保存しているテキストファイルのパス
+tags_data_path = PDFTags.txt
+
+; アプリケーション全体(正規化・PDF生成)で使用する日本語フォントファイルの絶対パス
+; ※ 重要: 必ず ".ttf" (TrueType) または ".ttc" (TrueType Collection) 形式を指定してください。
+;   ".otf" (OpenType) や Variable Font は、PDF生成時にエラーになるため非推奨です。
+; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
+; (例: "C:\Windows\Fonts\msgothic.ttc")
+font_path = C:\windows\fonts\msgothic.ttc
+
+; --- 外部アプリケーション ---
+; PDFを開くブラウザの絶対パス
+; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
+; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
+browser_path = C:\Program Files\Google\Chrome\Application\chrome.exe
+
+
+; ------------------------------------------------------------------------------
+; [CommonplaceKeys] & Visuals
+; ノートの分類（Index Key）とその見た目の定義
+; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
+; ------------------------------------------------------------------------------
+[CommonplaceKeys]
+; 使用する Index Key のリスト
+options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
+
+[KeyIcons]
+; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
+タスク = ♥
+アイデア = ♥
+思考・考察 = ♥
+コミュニケーション = ♥
+学習・情報収集 = ♥
+日常・その他 = ♥
+
+[KeyColors]
+; アイコンや枠線の色 (16進数カラーコード)
+タスク = #FE0000
+アイデア = #FFFF02
+思考・考察 = #8802FF
+コミュニケーション = #02FF01
+学習・情報収集 = #02FFFF
+日常・その他 = #F2F2F2
+
+
+; ------------------------------------------------------------------------------
+; [Automation] 自動処理設定
+; Normalisierer (正規化) および Ersteller (統合) の挙動制御
+; ------------------------------------------------------------------------------
+[Automation]
+; --- Normalisierer (正規化) 設定 ---
+
+; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
+; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
+enable_tesseract_ocr = false
+
+; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
+; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
+; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
+flatten_ink_annotations = false
+
+; --- Ersteller (統合) 設定 ---
+
+; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
+auto_append_to_default_db = true
+
+; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
+create_individual_csv = false
+
+
+; ------------------------------------------------------------------------------
+; [Extraction] 読み取り設定
+; PDFからのメタデータ抽出パラメータ
+; ------------------------------------------------------------------------------
+[Extraction]
+; Ersteller で「座標読み取り」によって Index Key を取得する範囲
+; (左, 上, 右, 下) のポイント座標
+key_rect = 0, 13, 391, 73
+
+; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
+; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
+refs_qr_size = 75
+
+
+; ------------------------------------------------------------------------------
+; [ReportLab] PDF生成設定
+; Ersteller が統合PDFを作成する際のスタイル設定
+; ------------------------------------------------------------------------------
+[ReportLab]
+; 正規化及び統合の用紙サイズの指定 (A4/A5)
+paper_size = A4
+
+; PDF生成時に使用するフォントファイルの絶対パス (.ttf または .ttc)
+; 空欄の場合は [Paths] セクションの font_path で指定したフォントが使用されます。
+; ※ .otf (OpenType) や Variable Font は正常に動作しないため、必ず静的フォント(.ttf/.ttc)を指定してください。
+; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
+font = 
+
+; PDFのプロパティ及び表紙に表示される著者名
+author = Synapsen Ersteller
+
+; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
+title_prefix = 月刊 統合ノート
+
+; 1冊のPDFに含める最大ページ数 (ノート本文の合計ページ数)
+; 0 を指定すると無制限（分割なし）になります。
+max_pages = 400
+
+; ------------------------------------------------------------------------------
+; [Search] 検索設定
+; Nexus での検索・入力補完の挙動
+; ------------------------------------------------------------------------------
+[Search]
+; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
+; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
+; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
+include_all_tags_for_autocomplete = true
+
+; アプリ起動時に、デフォルトで除外検索 (-tag:Tag) を適用するタグ
+; 複数ある場合はカンマ区切りで記述します (例: Status_Archive, Status_Done)
+; 空欄の場合は何もしません
+exclude_tags_by_default = Status_Archive
+
+; ------------------------------------------------------------------------------
+; [Watchdog] 常駐正規化機能の設定
+; auto_watchdog.py で行う正規化の設定
+; ------------------------------------------------------------------------------
+[Watchdog]
+; 監視するフォルダ
+watch_dir = C:\Users\YourName\Downloads\Inbox
+; 正規化済みファイルの出力先
+output_dir = C:\Users\YourName\Documents\Normalized
+; 正規化するサイズ (A4 または A5)
+target_size = A4
+
+```
+
+</details>
+
+
+## 実行方法
+
+利用スタイルに合わせて、以下の2通りの方法から選択できます。
+
+### A. 実行ファイル (EXE) を使用する場合 (手軽)
+Python環境を構築せず、配布された `Synapsen.exe` を使用する方法です。
+
+1.  **ダウンロード:** [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から最新の `Synapsen.exe` をダウンロードします。
+2.  **準備:**
+    * [動作環境・依存関係](#動作環境依存関係)で、オプションと記載しているMarkdown変換とWebクリップ機能を使用したい場合は、同梱している `install_option.bat` を実行しライブラリとブラウザをインストールしてください。
+    * ただし、OCR機能を使用したい場合は[動作環境・依存関係](#動作環境依存関係)の項を読み、`Tesseract OCR` を手動でインストールしてください。
+3.  **起動:** `Synapsen.exe` をダブルクリックして起動します。
+    * **注意**: `Synapsen.exe` と同階層に `config.ini` と `assets` フォルダが置かれているか確認してください。
+    * 統合ランチャーが立ち上がり、そこから各ツールへアクセスできます。
+    * ※ 初回起動時はセキュリティソフトのスキャン等により時間がかかる場合があります。
+
+#### コマンドライン引数による直接起動
+`Synapsen.exe` に以下の引数を渡すことで、ランチャーを経由せずにツールを直接起動できます。
+ショートカットを作成し、「リンク先」の末尾に追記することで、よく使うツールを素早く起動できます。
+
+* `Synapsen.exe --nexus` : Nexus (閲覧・検索) を起動
+* `Synapsen.exe --normalisierer` : Normalisierer (正規化) を起動
+* `Synapsen.exe --ersteller` : Ersteller (統合・編集) を起動
+* `Synapsen.exe --watchdog` : Watchdog (フォルダ監視) を起動
+
+### B. ソースコード (スクリプト) から実行する場合 (高速起動)
+Python環境を構築し、スクリプトを直接実行する方法です。
+EXEファイルの展開プロセスがないため、**最も高速に起動します。** 開発やカスタマイズを行う方にも適しています。
+
+1.  **ダウンロード:** [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から最新の `Source code (zip)` をダウンロードします。
+2.  **準備:** 同梱されている **`Install.bat`** を実行し、必要なライブラリとブラウザをインストールしてください。
+3.  **起動:** 以下のいずれかの方法で起動します。
+    * **`Run_Launcher.bat`** から実行 (推奨)
+    * コマンドプロンプトで `python Synapsen_Launcher.py` を実行。
+
+---
+
+## 開発者・上級者向け: EXEのビルド方法
+
+ソースコードを変更した場合など、自分で `Synapsen.exe` をビルドし直す手順です。
+
+1.  **準備:** `Install.bat` の実行に加え、PyInstallerをインストールします。
+    ```bash
+    pip install pyinstaller
     ```
-
-    **`config.ini` の設定例 (推奨構成):**
-    <details>
-    <summary><b>▼ クリックして表示</b></summary>
-
-    ```ini
-    ; ==============================================================================
-    ; Synapsen Configuration File
-    ; ==============================================================================
-
-    ; ------------------------------------------------------------------------------
-    ; [Paths] ファイル・フォルダパス設定
-    ; ------------------------------------------------------------------------------
-    [Paths]
-    ; --- データベースとフォルダ構成 ---
-    ; Nexusでの情報表示に使用するマスターDBのパス
-    database_path = Synapsen_Master.db
-
-    ; Erstellerで統合したPDFが存在するメインのフォルダ (ここを起点にサブフォルダも検索します)
-    pdf_root_folder = ./
-
-    ; サブのフォルダ (アーカイブ用など。メインで見つからない場合に検索されます)
-    ; 空欄の場合 検索がスキップされます
-    pdf_archive_folder =
-
-    ; Nexus (Canvas付箋など) が生成する一時ファイル/Markdownの保存先
-    nexus_output_folder = Nexus_Output
-
-    ; --- リソースファイル ---
-    ; 事前定義タグを保存しているテキストファイルのパス
-    tags_data_path = PDFTags.txt
-
-    ; アプリケーション全体(正規化・PDF生成)で使用する日本語フォントファイルの絶対パス
-    ; ※ 重要: 必ず ".ttf" (TrueType) または ".ttc" (TrueType Collection) 形式を指定してください。
-    ;   ".otf" (OpenType) や Variable Font は、PDF生成時にエラーになるため非推奨です。
-    ; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
-    ; (例: "C:\Windows\Fonts\msgothic.ttc")
-    font_path = C:\windows\fonts\msgothic.ttc
-
-    ; --- 外部アプリケーション ---
-    ; PDFを開くブラウザの絶対パス
-    ; (例: C:\Program Files\Google\Chrome\Application\chrome.exe)
-    ; (未設定, または "Default" の場合はOSのデフォルトブラウザを使用します)
-    browser_path = C:\Program Files\Google\Chrome\Application\chrome.exe
-
-
-    ; ------------------------------------------------------------------------------
-    ; [CommonplaceKeys] & Visuals
-    ; ノートの分類（Index Key）とその見た目の定義
-    ; ※ テンプレート(DotLegalPad_Config.py)の設定と一致させてください
-    ; ------------------------------------------------------------------------------
-    [CommonplaceKeys]
-    ; 使用する Index Key のリスト
-    options = タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他
-
-    [KeyIcons]
-    ; Nexusのリストやグラフ、統合PDFのヘッダーに表示するアイコン
-    タスク = ♥
-    アイデア = ♥
-    思考・考察 = ♥
-    コミュニケーション = ♥
-    学習・情報収集 = ♥
-    日常・その他 = ♥
-
-    [KeyColors]
-    ; アイコンや枠線の色 (16進数カラーコード)
-    タスク = #FE0000
-    アイデア = #FFFF02
-    思考・考察 = #8802FF
-    コミュニケーション = #02FF01
-    学習・情報収集 = #02FFFF
-    日常・その他 = #F2F2F2
-
-
-    ; ------------------------------------------------------------------------------
-    ; [Automation] 自動処理設定
-    ; Normalisierer (正規化) および Ersteller (統合) の挙動制御
-    ; ------------------------------------------------------------------------------
-    [Automation]
-    ; --- Normalisierer (正規化) 設定 ---
-
-    ; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
-    ; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-    ; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
-    enable_tesseract_ocr = false
-
-    ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
-    ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
-    ; false (デフォルト): インクを注釈のまま維持します。QUADERNO等での筆圧表示は保たれますが、大量の書き込みがある場合に動作が重くなる可能性があります。
-    flatten_ink_annotations = false
-
-    ; --- Ersteller (統合) 設定 ---
-
-    ; 統合PDFを生成した際、[Paths]のdatabase_pathで指定されたマスターDBに、目次情報を自動で「追記」するか (true/false)
-    auto_append_to_default_db = true
-
-    ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
-    create_individual_csv = false
-
-
-    ; ------------------------------------------------------------------------------
-    ; [Extraction] 読み取り設定
-    ; PDFからのメタデータ抽出パラメータ
-    ; ------------------------------------------------------------------------------
-    [Extraction]
-    ; Erstrller で「座標読み取り」によって Index Key を取得する範囲
-    ; (左, 上, 右, 下) のポイント座標
-    key_rect = 0, 13, 391, 73
-
-    ; Normalisierer が埋め込む「引用Key専用QRコード」のサイズ (pt単位)
-    ; (デフォルト値 = 75。読み取り精度が悪い場合は 100 や 150 に増やしてください)
-    refs_qr_size = 75
-
-
-    ; ------------------------------------------------------------------------------
-    ; [ReportLab] PDF生成設定
-    ; Ersteller が統合PDFを作成する際のスタイル設定
-    ; ------------------------------------------------------------------------------
-    [ReportLab]
-    ; 正規化及び統合の用紙サイズの指定 (A4/A5)
-    paper_size = A4
-
-    ; PDF生成時に使用するフォントファイルの絶対パス (.ttf または .ttc)
-    ; 空欄の場合は [Paths] セクションの font_path で指定したフォントが使用されます。
-    ; ※ .otf (OpenType) や Variable Font は正常に動作しないため、必ず静的フォント(.ttf/.ttc)を指定してください。
-    ; (例: "%LOCALAPPDATA%\Microsoft\Windows\Fonts\NotoSansJP-Regular.ttf")
-    font = 
-
-    ; PDFのプロパティ及び表紙に表示される著者名
-    author = Synapsen Ersteller
-
-    ; PDFのタイトル接頭辞（この後ろに「(YYYY年 M月)」が付きます）
-    title_prefix = 月刊 統合ノート
-
-    ; 1冊のPDFに含める最大ページ数 (ノート本文の合計ページ数)
-    ; 0 を指定すると無制限（分割なし）になります。
-    max_pages = 400
-
-    ; ------------------------------------------------------------------------------
-    ; [Search] 検索設定
-    ; Nexus での検索・入力補完の挙動
-    ; ------------------------------------------------------------------------------
-    [Search]
-    ; オートコンプリートの候補に、全ノートで使用されているタグを含めるか (true/false)
-    ; true: 全ノートのタグ + 事前定義タグ (「野良タグ」も再利用可能になります)
-    ; false: 事前定義タグ(PDFTags.txt)のみ (ロードが高速で、候補が整理されます)
-    include_all_tags_for_autocomplete = true
-
-    ; アプリ起動時に、デフォルトで除外検索 (-tag:Tag) を適用するタグ
-    ; 複数ある場合はカンマ区切りで記述します (例: Status_Archive, Status_Done)
-    ; 空欄の場合は何もしません
-    exclude_tags_by_default = Status_Archive
-
-    ; ------------------------------------------------------------------------------
-    ; [Watchdog] 常駐正規化機能の設定
-    ; auto_watchdog.py で行う正規化の設定
-    ; ------------------------------------------------------------------------------
-    [Watchdog]
-    ; 監視するフォルダ
-    watch_dir = C:\Users\YourName\Downloads\Inbox
-    ; 正規化済みファイルの出力先
-    output_dir = C:\Users\YourName\Documents\Normalized
-    ; 正規化するサイズ (A4 または A5)
-    target_size = A4
-
+2.  **ビルド:** 以下のコマンドをルートディレクトリで実行してください。
+    ```bash
+    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
     ```
-    </details>
+3.  **配置:** `dist` フォルダに生成された `Synapsen.exe` をルートディレクトリに移動して使用します。
+
+### Tips: 起動速度の改善 (--onedir ビルド)
+配布用の `Synapsen.exe` は、利便性を優先して1つのファイルにまとめる `--onefile` 形式でビルドされていますが、これは起動時に一時フォルダへファイルを展開するため、起動に数秒の時間を要します。
+
+ご自身の環境で使用する場合、以下のように **`--onedir`** オプションを使用してビルドすることで、展開処理を省略し、**スクリプト実行並みの高速起動**を実現できます。
+
+```bash
+# --onefile を --onedir に変更して実行
+pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+```
+
+**注意点:**
+- 生成物は `Synapsen.exe` 単体ではなく、`dist/Synapsen/` というフォルダになります。
+- フォルダ構造を維持したまま配置・移動する必要があります。
+- `config.ini` や `assets` フォルダは、`Synapsen.exe` があるフォルダ（dist/Synapsen/ の中）に配置してください。
+  - `assets` フォルダの中身は、`synapsen.ico` と `synapsen_banner.png` のみで動作します。
 
 ## 使い方
 
