@@ -919,19 +919,25 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
 このプロジェクトの**ソースコード**（(`PDF_Templates` 内の生成スクリプトも含む)`.py` ファイル）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。<br><br>
 これは、`Synapsen` の中核機能において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリ を使用しているためです。<br>
 AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体も同じライセンスに従います。<br><br>
-詳細は、同梱されている `LICENSE` ファイルを参照してください。
+詳細は、同梱されている [`LICENSE` ファイル](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE) 及び [動作環境・依存関係](#動作環境依存関係)の**Pythonライブラリ**の項目を参照してください。
 
 ---
 
-### アイコンおよびグラフィックアセット (CC BY-SA 4.0)
-このリポジトリの **`assets/` フォルダ** に含まれるすべてのファイル（ロゴ、アイコン、`.png` 画像、および `.gvdesign` ソースファイル）は、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。<br><br>
-詳細は、[動作環境・依存関係](#動作環境依存関係)の**Pythonライブラリ**の項目を参照してください。
+### ドキュメントおよびグラフィックアセット (CC BY-SA 4.0)
+このリポジトリに含まれる以下のコンテンツは、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
+
+* **`assets/` フォルダ**: すべてのアイコン、ロゴ、画像ファイル、および `.gvdesign` ソースファイル。
+* **`README.md` および `docs/`**: ドキュメント、マニュアル。
+* **`samples/`**: 上記ドキュメントから生成されたサンプルPDFファイル。
+
+詳細は、同梱されている [`LICENSE-ASSETS.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE-ASSETS.md) ファイルを参照してください。
 
 ---
 
 ### PDFテンプレート (CC0 - パブリックドメイン)
 [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) や `PDF_Templates/PDF/` フォルダで配布されている **`.pdf` テンプレートファイル**（`DotLegalPad_Template-A4_Form.pdf` など）は、**CC0 (パブリックドメイン)** です。<br>
-これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。
+これらのテンプレート（およびそれに書き込んだあなたのノート）は、ライセンスを一切気にすることなく、自由にコピー、改変、共有、再配布が可能です。<br><br>
+詳細は、同梱されている [`LISENSE-PDF.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LISENSE-PDF.md) ファイルを参照してください。
 
 ---
 
