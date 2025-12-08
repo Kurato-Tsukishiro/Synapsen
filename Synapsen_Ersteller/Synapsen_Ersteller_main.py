@@ -240,19 +240,20 @@ class Synapsen_Ersteller(ctk.CTk):
         # 3. configファイルが存在しない場合の処理
         if not os.path.exists(config_path):
             config["Paths"] = {
-                "tags_data_path": "tags.txt",
+                "tags_data_path": "PDFTags.txt",
                 "font_path": r"C:\windows\fonts\msgothic.ttc",
             }
             config["ReportLab"] = {
                 "paper_size": "A4",
-                "font": "MS UI Gothic",
-                "author": "Your Name",
+                "font": "",
+                "author": "Synapsen Ersteller",
                 "title_prefix": "月刊 統合ノート",
+                "max_pages": "400",
             }
             config["CommonplaceKeys"] = {
                 "options": "タスク,アイデア,思考・考察,コミュニケーション,学習・情報収集,日常・その他"
             }
-            config["Extraction"] = {"key_rect": "26, 13, 400, 73"}
+            config["Extraction"] = {"key_rect": "0, 13, 391, 73", "refs_qr_size": "75"}
             config["KeyIcons"] = {
                 "タスク": "♥",
                 "アイデア": "♥",
@@ -262,13 +263,29 @@ class Synapsen_Ersteller(ctk.CTk):
                 "日常・その他": "♥",
             }
             config["KeyColors"] = {
-                "タスク": "FE0000",
-                "アイデア": "FFFF02",
-                "思考・考察": "8802FF",
-                "コミュニケーション": "02FF01",
-                "学習・情報収集": "02FFFF",
-                "日常・その他": "F2F2F2",
+                "タスク": "#FE0000",
+                "アイデア": "#FFFF02",
+                "思考・考察": "#8802FF",
+                "コミュニケーション": "#02FF01",
+                "学習・情報収集": "#02FFFF",
+                "日常・その他": "#F2F2F2",
             }
+            config["Automation"] = {
+                "enable_tesseract_ocr": "false",
+                "flatten_ink_annotations": "false",
+                "auto_append_to_default_db": "true",
+                "create_individual_csv": "false",
+            }
+            config["Search"] = {
+                "include_all_tags_for_autocomplete": "true",
+                "exclude_tags_by_default": "Status_Archive",
+            }
+            config["Watchdog"] = {
+                "watch_dir": "",
+                "output_dir": "",
+                "target_size": "A4",
+            }
+
             with open(config_path, "w", encoding="utf-8") as f:
                 config.write(f)
 
