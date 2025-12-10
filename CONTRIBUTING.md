@@ -88,3 +88,74 @@ pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --sp
 - フォルダ構造を維持したまま配置・移動する必要があります。
 - `config.ini` や `assets` フォルダは、`Synapsen.exe` があるフォルダ（dist/Synapsen/ の中）に配置してください。
   - `assets` フォルダの中身は、`synapsen.ico` と `synapsen_banner.png` のみで動作します。
+
+
+## 📏 開発ルール・規約
+
+### 🐙 Git運用ルール
+開発のスムーズな進行と履歴の透明性を保つため、以下のルールに従ってください。
+
+#### 🌳 ブランチ名
+開発を行う際は、以下のプレフィックスを使用したブランチ名を作成してください。
+区切り文字にはアンダースコア（`_`）を使用することを推奨します。
+
+| Prefix | 対応する内容 | 例 |
+| :--: | -- | -- |
+| `fix/` | バグ修正 | `fix/ocr_error_handling` |
+| `feature/` | 新機能の追加 | `feature/canvas_undo_redo` |
+| `change/` | 仕様の変更、リファクタリング | `change/update_ui_theme` |
+| `doc/` | ドキュメントの編集 | `doc/update_readme` |
+
+#### 💬 コミットメッセージ
+コミットメッセージは `prefix: 内容` の形式で記述してください。
+プレフィックスは以下の基準に従ってください。
+
+* `feat: ` 新機能の追加
+* `fix: ` バグ修正
+* `refa: ` リファクタリング（機能追加やバグ修正を含まないコードの変更）
+* `change: ` 仕様変更
+* `doc: ` ドキュメントのみの変更
+
+例: `feat: CanvasにUndo機能を追加`
+
+### 🐍 コーディング規約
+コードの品質と一貫性を保つため、以下の基準を設けています。
+
+#### 🛠 ツール・環境 (Python)
+* **フォーマッター**: [Black](https://github.com/psf/black)
+* **リンター**: [Flake8](https://github.com/PyCQA/flake8)
+
+**💻 VS Codeをご利用の方へ（推奨）**
+VS Codeを使用する場合は、以下のMicrosoft公式拡張機能の導入を推奨します。これらを使用することで、保存時に自動フォーマットやリントが行われます。
+* [Black Formatter](https://github.com/microsoft/vscode-black-formatter)
+* [Flake8](https://github.com/microsoft/vscode-flake8)
+
+#### 📏 命名規則 (Naming Convention)
+基本的に [PEP 8](https://peps.python.org/pep-0008/#naming-conventions) の命名規則に従ってください。
+
+| 種類 | 形式 | 例 |
+| :-- | :-- | :-- |
+| **定数** | アッパースネークケース (UPPER_CASE) | `MAX_PAGES`, `DEFAULT_COLOR` |
+| **変数・関数・メソッド** | ローワースネークケース (snake_case) | `user_name`, `calculate_total()` |
+| **クラス** | キャメルケース (CapWords) | `NoteManager`, `PDFProcessor` |
+| **モジュール (ファイル名)** | ローワースネークケース (snake_case) | `pdf_utils.py`, `main_window.py` |
+
+#### 📝 ドキュメンテーション (Docstring)
+関数やクラスには、**Google Style** のDocstringを記述することを推奨します。
+型ヒント (Type Hints) も積極的に活用してください。
+
+例:
+```python
+def normalize_pdf(input_path: str, output_path: str) -> bool:
+    """
+    PDFを指定されたサイズに正規化します。
+
+    Args:
+        input_path (str): 入力ファイルのパス
+        output_path (str): 出力ファイルのパス
+
+    Returns:
+        bool: 成功した場合はTrue、失敗した場合はFalse
+    """
+    ...
+
