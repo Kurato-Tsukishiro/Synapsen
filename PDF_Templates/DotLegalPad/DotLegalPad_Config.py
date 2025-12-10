@@ -43,17 +43,17 @@ FILE_NAME = "DotLegalPad_Template"
 # --- 3. テンプレートのレイアウト設定 (単位: cm) ---
 
 # ページ上部の余白 (この範囲には罫線やドットが引かれません)
-HEADER_POSITION = 1       # [cm]
+HEADER_POSITION = 0.5       # [cm]
 # ページ下部の余白
-FOOTER_POSITION = 0.5     # [cm]
+FOOTER_POSITION = 0         # [cm]
 # 左側の赤い縦線までの余白
-LEFT_MARGIN_LINE = 4      # [cm]
+LEFT_MARGIN_LINE = 4        # [cm]
 
 
 # --- 4. その他のデザイン設定 ---
 
 # ドット方眼の「点」の半径（大きさ）
-DOT_READIUS = 1.5
+DOT_READIUS = 0.8
 
 # 「Index Key」を選ぶプルダウンメニューの横幅です
 # (単位: ポイント。通常はこのままでOK)

@@ -1,37 +1,46 @@
 import fitz
-import sys  # ← Pythonのバージョンを取得するためにインポート
+import sys
 import DotLegalPad_Config as config
 
-# フォームフィールドを有するは、テンプレートに設定できない
+# フォームフィールドを有するPDFは、テンプレートに設定できない
 # 又、``DPDocType:notebook`` に設定してもページを追加できない
 # その為このテンプレートはドキュメントとして使用し、「サイドノート」をページ追加として扱う
 
-# --- 設定項目 ---
+# --- Synapsen 標準定義 ---
+CM = 72 / 2.54
+LAYOUT_MARGINS = {
+    "A4": {"top": 2.2, "bottom": 2.8, "left": 1.0, "right": 1.0},
+    "A5": {"top": 2.0, "bottom": 2.5, "left": 0.8, "right": 0.8},
+}
 
-# Config.py からサイズ関連の設定を読み込み反映する
+# --- 設定反映 ---
 page_size = config.PAGE_SIZE
 
 if page_size == "A4":
-    PAGE_WIDTH = 1650
-    PAGE_HEIGHT = 2200
-    PAGE_DPI = 200
+    PAGE_WIDTH = 595.276
+    PAGE_HEIGHT = 841.89
+    margins = LAYOUT_MARGINS["A4"]
 elif page_size == "A5":
-    PAGE_WIDTH = 1404
-    PAGE_HEIGHT = 1872
-    PAGE_DPI = 226
+    PAGE_WIDTH = 419.528
+    PAGE_HEIGHT = 595.276
+    margins = LAYOUT_MARGINS["A5"]
 else:
-    # デフォルトはA4
-    PAGE_WIDTH = 1650
-    PAGE_HEIGHT = 2200
-    PAGE_DPI = 200
+    PAGE_WIDTH = 595.276
+    PAGE_HEIGHT = 841.89
+    margins = LAYOUT_MARGINS["A4"]
 
-# config.py から設定を読み込む
+m_top = margins["top"] * CM
+m_bottom = margins["bottom"] * CM
+m_left = margins["left"] * CM
+m_right = margins["right"] * CM
+
 file_name = f"{config.FILE_NAME}-{page_size}_Form.pdf"
 font_path = config.FONT_PATH
 font_name = config.FONT_NAME
 
 # --- 1. PDFドキュメントの準備 ---
 doc = fitz.open()
+page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
 
 # バージョン情報を文字列として作成
 producer_text = (
@@ -39,61 +48,65 @@ producer_text = (
 )
 
 # メタデータを定義
-metadata = {"producer": producer_text}  # 作成者情報としてバージョンを記録
-
-# ドキュメントにメタデータを設定
+# SkipNormalization フラグを付与
+metadata = {
+    "keywords": "Synapsen:SkipNormalization",
+    "producer": producer_text,
+    "creator": "Synapsen Template Generator",
+}
 doc.set_metadata(metadata)
 
-# A4サイズのページを追加
-page = doc.new_page(width=PAGE_WIDTH, height=PAGE_HEIGHT)
-
-
 # --- 2. 背景デザインの描画 ---
-# 単位の準備 (QUADERNOの解像度(DPI)に基づいてcmを計算する)
-cm = PAGE_DPI / 2.54
+cfg_header = config.HEADER_POSITION * CM
+cfg_footer = config.FOOTER_POSITION * CM
+cfg_left_margin = config.LEFT_MARGIN_LINE * CM
 
-# 色の準備
-color_gray = config.COLOR_LINE
-color_red = (1, 0.7, 0.7)
+extend_bottom = 1.0 * CM
 
-# マージンの設定
-header = config.HEADER_POSITION * cm
-footer = config.FOOTER_POSITION * cm
-left_margin_line = config.LEFT_MARGIN_LINE * cm
+start_y = m_top + cfg_header
+end_y = PAGE_HEIGHT - (m_bottom - extend_bottom) - cfg_footer
 
-# 左側の縦線（リーガルパッド風）を描画
+line_x = m_left + cfg_left_margin
+
 print("  - 縦線を描画中...")
+color_red = (1, 0.7, 0.7)
 page.draw_line(
-    fitz.Point(left_margin_line, 0),
-    fitz.Point(left_margin_line, PAGE_HEIGHT),
+    fitz.Point(line_x, m_top),
+    fitz.Point(line_x, end_y),
     color=color_red,
     width=1,
 )
 
 # 1cm単位の横罫線を描画 (ヘッダー・フッター内は描画しない)
 print("  - 横罫線を描画中...")
-y = header
-while y < PAGE_HEIGHT - footer:
+color_gray = config.COLOR_LINE
+step_y = 1.0 * CM
+current_y = start_y
+while current_y < end_y:
     page.draw_line(
-        fitz.Point(0, y), fitz.Point(PAGE_WIDTH, y), color=color_gray, width=0.5
+        fitz.Point(m_left, current_y),
+        fitz.Point(PAGE_WIDTH - m_right, current_y),
+        color=color_gray,
+        width=0.5,
     )
-    y += 1 * cm
+    current_y += step_y
 
-# 5mm単位のドットを描画 (ヘッダー・フッター内は描画しない)
-print("  - ドットを描画中 (時間がかかります)...")
+print("  - ドットを描画中...")
+dot_step = 0.5 * CM
+dot_radius = config.DOT_READIUS * (72 / 200)
 
-dot_radius = config.DOT_READIUS
-x = 0
-while x < PAGE_WIDTH:
-    print(f"    ドットX座標: {int(x)} / {PAGE_WIDTH}", end="\r", flush=True)
-
-    y = header
-    while y < PAGE_HEIGHT - footer:
+current_x = m_left
+while current_x < PAGE_WIDTH - m_right:
+    current_y = start_y
+    while current_y < end_y:
         page.draw_circle(
-            fitz.Point(x, y), dot_radius, color=color_gray, fill=color_gray
+            fitz.Point(current_x, current_y),
+            dot_radius,
+            color=color_gray,
+            fill=color_gray,
         )
-        y += 0.5 * cm
-    x += 0.5 * cm
+        current_y += dot_step
+    current_x += dot_step
 
 print("\n背景描画が完了しました。")
 
@@ -105,12 +118,12 @@ page.insert_font(fontfile=font_path, fontname=font_name)
 options = config.OPTIONS
 
 # config.pyからフォームの設定を読み込む
-form_width = config.FORM_WIDTH
-form_height = 60
+form_width = config.FORM_WIDTH * (72 / 200)
+form_height = 60 * (72 / 200)
 
-# 読み込んだ設定に基づいて座標を計算
-x0 = 26
-y0 = 13
+# フォーム位置の計算
+x0 = m_left
+y0 = m_top * 0.3
 x1 = x0 + form_width
 y1 = y0 + form_height
 
@@ -124,14 +137,12 @@ widget.field_flags = fitz.PDF_CH_FIELD_IS_COMBO
 widget.field_name = "category_choice"
 widget.choice_values = options
 widget.text_font = font_name
-widget.text_fontsize = 28
+widget.text_fontsize = 12
 widget.field_value = ""
 
 page.add_widget(widget)
 
-# --- 4. PDFを保存 ---
-print("PDFを保存します...")
+# --- 4. 保存 ---
 doc.save(file_name)
 doc.close()
-
-print(f"リーガルパッド風 フォーム付きテンプレート '{file_name}' を作成しました。")
+print(f"作成完了: {file_name}")
