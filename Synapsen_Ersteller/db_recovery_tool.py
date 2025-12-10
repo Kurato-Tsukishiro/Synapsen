@@ -6,7 +6,7 @@ import unicodedata
 from textwrap import dedent
 import logging
 
-# === 2. プロジェクトルートをパスに追加 (ここからE402の原因) ===
+# === 2. プロジェクトルートをパスに追加 ===
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
@@ -189,6 +189,9 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 # 'summary' キーがない場合、空文字列で初期化
                 if "summary" not in note:
                     note["summary"] = ""
+                # 'updated_at' キーがない場合、空文字列で初期化
+                if "updated_at" not in note:
+                    note["updated_at"] = ""
 
             count = len(self.extracted_data)
             self.log(f"[成功] {count} 件のノートデータが見つかりました。")
@@ -238,7 +241,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
         # 統合PDFから本文テキスト(full_text)を再抽出するためのPDFドキュメントを開く
         doc = None
-        conn = None  # 1. conn を None で初期化
+        conn = None
 
         try:
             doc = fitz.open(pdf_path)
@@ -247,7 +250,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             return  # doc が None のまま finally に進み、安全に終了
 
         try:
-            # DataFrameに変換
+            # DataFrameに変換 (self.extracted_data は scan_pdf で生成済み)
             df = pd.DataFrame(self.extracted_data)
 
             # 統合PDFファイル名の上書き
@@ -312,9 +315,15 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
             # 復元データ (JSON) が 'memo' を持っていることを確認
             if "memo" not in df.columns:
-                df["memo"] = ""  # 万が一ない場合は空文字で埋める
+                df["memo"] = ""
 
-            conn = sqlite3.connect(db_path)  # 2. conn に代入
+            # updated_at のケア
+            if "updated_at" not in df.columns:
+                df["updated_at"] = ""
+            else:
+                df["updated_at"] = df["updated_at"].fillna("")
+
+            conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
             # 1. 'notes' テーブル
@@ -325,13 +334,12 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
                 "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
                 "merged_pdf_filename" TEXT, "merged_start_page" TEXT,
-                "summary" TEXT
+                "summary" TEXT, "updated_at" TEXT
             )
             """
             cursor.execute(create_table_sql)
 
-            # 2. 'notes_fts' FTS5 仮想テーブル (新規)
-            #    'key' を content_rowid として 'notes' テーブルと紐付け
+            # 2. 'notes_fts' FTS5 仮想テーブル
             create_fts_sql = """
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 key,
@@ -346,8 +354,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             """
             cursor.execute(create_fts_sql)
 
-            # 3. 自動同期トリガー (新規)
-            #    'notes' に変更があったら 'notes_fts' も自動更新する
+            # 3. 自動同期トリガー
             trigger_sql = dedent(
                 """
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_insert
@@ -383,6 +390,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
         """
             )
             cursor.executescript(trigger_sql)
+
+            # 4. リンクテーブル
             cursor.execute(
                 """
             CREATE TABLE IF NOT EXISTS note_links (
@@ -415,7 +424,33 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             insert_count = len(df_to_insert)
 
             if insert_count > 0:
-                df_to_insert.to_sql("notes", conn, if_exists="append", index=False)
+                # ターゲットカラムを明示 (updated_at 含む)
+                target_columns = [
+                    "date",
+                    "time",
+                    "title",
+                    "pages",
+                    "tags",
+                    "key",
+                    "memo",
+                    "commonplace_key",
+                    "filepath",
+                    "full_text",
+                    "merged_pdf_filename",
+                    "merged_start_page",
+                    "summary",
+                    "updated_at",
+                ]
+
+                # 必要なカラムだけに絞り込み、足りないものは空文字で埋める
+                df_final = pd.DataFrame(columns=target_columns)
+                for col in target_columns:
+                    if col in df_to_insert.columns:
+                        df_final[col] = df_to_insert[col]
+                    else:
+                        df_final[col] = ""
+
+                df_final.to_sql("notes", conn, if_exists="append", index=False)
 
                 # リンクテーブル書き込み
                 logger.info(
@@ -423,11 +458,11 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 )
                 for _, row in df_to_insert.iterrows():
                     source_key = row.get("key")
-                    memo_text = row.get("memo", "")  # 復元データ(JSON)のmemoを使用
+                    memo_text = row.get("memo", "")
                     if source_key and memo_text:
                         NexusUtils._update_note_links(cursor, source_key, memo_text)
 
-                conn.commit()  # リンクテーブルの変更をコミット
+                conn.commit()
                 self.log(f"[完了] {insert_count} 件を追記しました。")
             else:
                 self.log("[完了] 新規データはありませんでした (すべて重複)。")

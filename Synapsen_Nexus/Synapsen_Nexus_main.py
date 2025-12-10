@@ -110,7 +110,9 @@ class Synapsen_Nexus(
         # --- アプリケーションの状態変数 ---
         # 変数の初期化 (エラー回避のため先に定義)
         self.pdf_root_folder = None  # 統合PDFが存在する(メイン)フォルダのルートパス
-        self.pdf_archive_folder = None  # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス
+        self.pdf_archive_folder = (
+            None  # 統合PDFが存在する(アーカイブフォルダ等)サブフォルダのルートパス
+        )
         self.nexus_output_folder = Path("Nexus_Output")
         self.browser_path = None
 
@@ -127,7 +129,9 @@ class Synapsen_Nexus(
         self.filter_panel_expanded = False  # 左フィルターパネルが開いているか
         self.details_panel_expanded = True  # 右詳細パネルが開いているか (初期表示)
 
-        self.sort_ascending = True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        self.sort_ascending = (
+            True  # ソート順を保持する変数 (デフォルトは (昇順/古い順))
+        )
         self.selected_keys = set()  # 選択されたノートのKeyを保持するセット
         self.current_selected_row = None
 
@@ -840,8 +844,7 @@ class Synapsen_Nexus(
 
     def append_link_to_selected_notes(self, key_to_link, title_to_link):
         """
-        メイン画面で選択中の全ノートに対し、
-        指定されたKeyとTitleのリンクをメモ欄の末尾に追記する。
+        メイン画面で選択中の全ノートに対し、リンクを追記する。
         """
         selected_keys_to_update = self.selected_keys
 
@@ -865,7 +868,10 @@ class Synapsen_Nexus(
         conn = None
         updated_keys = []
         try:
-            # 1. 書き込み用のDB接続を開始
+            from datetime import datetime
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
             conn = sqlite3.connect(self.loaded_db_path)
             cursor = conn.cursor()
 
@@ -884,10 +890,11 @@ class Synapsen_Nexus(
 
                 # 5. DBを更新 (notes テーブル)
                 cursor.execute(
-                    "UPDATE notes SET memo = ? WHERE key = ?", (new_memo, key)
+                    "UPDATE notes SET memo = ?, updated_at = ? WHERE key = ?",
+                    (new_memo, now_str, key),
                 )
 
-                # 6. リンクテーブルも更新 (utils._update_note_links を使用)
+                # 6. リンクテーブルも更新
                 _update_note_links(cursor, key, new_memo)
 
                 updated_keys.append(key)

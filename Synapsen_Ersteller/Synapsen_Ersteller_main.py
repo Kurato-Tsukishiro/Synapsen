@@ -35,7 +35,7 @@ from logging_setup import setup_logging  # noqa: E402
 # 定数定義
 # ==============================================================================
 # 現在のDBのスキーマバージョン
-CURRET_SCHEMA_VERSION = 1.1
+CURRET_SCHEMA_VERSION = 1.2
 
 # ==============================================================================
 # ロギング設定の初期化
@@ -133,7 +133,17 @@ class Synapsen_Ersteller(ctk.CTk):
             hover_color="darkgreen",
         ).pack(side="right", padx=10)
 
-        # [2] DB復旧ツール (その左)
+        # [2] メタデータ同期ボタン (その左)
+        ctk.CTkButton(
+            top_button_frame,
+            text="メタデータ同期 (DB→PDF)",
+            command=self.sync_metadata_db_to_pdf,
+            fg_color="#E0a800",  # 黄色系 (注意喚起/更新)
+            hover_color="#c69500",
+            width=140,
+        ).pack(side="right", padx=10)
+
+        # [3] DB復旧ツール
         ctk.CTkButton(
             top_button_frame,
             text="DB復旧ツール",
@@ -143,7 +153,7 @@ class Synapsen_Ersteller(ctk.CTk):
             width=100,
         ).pack(side="right", padx=5)
 
-        # [3] 設定ボタン
+        # [4] 設定ボタン
         ctk.CTkButton(
             top_button_frame,
             text="設定 (Config)",
@@ -326,6 +336,17 @@ class Synapsen_Ersteller(ctk.CTk):
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.default_db_path = os.path.join(config_dir, expanded_path)
+
+        # メタデータ同期 (DB→PDF)用に、統合PDFが存在するルートフォルダを取得
+        pdf_root_str = config.get("Paths", "pdf_root_folder", fallback="")
+        self.pdf_root_folder = (
+            os.path.expandvars(pdf_root_str) if pdf_root_str else None
+        )
+
+        pdf_archive_str = config.get("Paths", "pdf_archive_folder", fallback="")
+        self.pdf_archive_folder = (
+            os.path.expandvars(pdf_archive_str) if pdf_archive_str else None
+        )
 
         # 7. Automation設定の読み込み
         # 自動結合設定の読み込み
@@ -534,7 +555,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 "tags" TEXT, "key" TEXT PRIMARY KEY, "memo" TEXT,
                 "commonplace_key" TEXT, "filepath" TEXT, "full_text" TEXT,
                 "merged_pdf_filename" TEXT, "merged_start_page" TEXT,
-                "summary" TEXT
+                "summary" TEXT, "updated_at" TEXT
             )
             """
             cursor.execute(create_table_sql)
@@ -640,7 +661,18 @@ class Synapsen_Ersteller(ctk.CTk):
                 "merged_pdf_filename",
                 "merged_start_page",
                 "summary",
+                "updated_at",
             ]
+
+            from datetime import datetime
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # NaN (NULL) を現在時刻で埋める
+            df_to_append["updated_at"] = df_to_append["updated_at"].fillna(now_str)
+
+            # 空文字が入っている場合も現在時刻で上書きする (PDF生成直後なので「今」が正しい)
+            df_to_append.loc[df_to_append["updated_at"] == "", "updated_at"] = now_str
 
             # 追記用DataFrameのカラムをマスターリストに合わせて整える
             df_final_append = pd.DataFrame(columns=all_columns)
@@ -1180,6 +1212,10 @@ class Synapsen_Ersteller(ctk.CTk):
                     # マージ後の情報を記録 (DB登録用)
                     note["merged_start_page"] = note_page_cursor + 1
                     note["merged_pdf_filename"] = current_save_path.name
+
+                    # PDF生成のタイミングを「更新日時」として記録
+                    note["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
                     updated_notes_info.append(note)
 
                     try:
@@ -1241,12 +1277,14 @@ class Synapsen_Ersteller(ctk.CTk):
                             "merged_start_page": note.get("merged_start_page"),
                             "merged_pdf_filename": note.get("merged_pdf_filename"),
                             "summary": note.get("summary"),
+                            "updated_at": note.get("updated_at"),
                         }
                         metadata_to_embed.append(clean_note)
 
                     data_to_save = {
                         "schema_version": CURRET_SCHEMA_VERSION,
                         "volume_info": f"{current_vol_num}/{total_volumes}",
+                        "synced_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "notes_data": metadata_to_embed,
                     }
 
@@ -1585,6 +1623,185 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # ウィンドウを開く
         ConfigEditorWindow(self, config_path)
+
+    # --------------------------------------------------------------------------
+    # メタデータ同期機能 (DB -> PDF)
+    # --------------------------------------------------------------------------
+    def sync_metadata_db_to_pdf(self):
+        """
+        マスターDBの情報を正とし、統合PDF内のメタデータ(JSON)を更新・同期する。
+        DB上の 'updated_at' を確認し、PDF内の情報より新しい場合のみ書き込みを行う。
+        """
+        if not self.default_db_path or not os.path.exists(self.default_db_path):
+            messagebox.showerror("エラー", "マスターDBが見つかりません。")
+            return
+
+        # 1. DBからデータを取得し、PDFファイル名ごとにグルーピング
+        pdf_groups = {}  # { filename: [note_record, ...] }
+
+        try:
+            conn = sqlite3.connect(self.default_db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # 必要なカラムを全取得
+            cursor.execute("SELECT * FROM notes")
+            rows = cursor.fetchall()
+
+            for row in rows:
+                row_dict = dict(row)
+                merged_filename = row_dict.get("merged_pdf_filename")
+
+                # 統合PDFに所属しているノートのみ対象
+                if merged_filename and merged_filename != "nan":
+                    if merged_filename not in pdf_groups:
+                        pdf_groups[merged_filename] = []
+                    pdf_groups[merged_filename].append(row_dict)
+
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"DB読み込みエラー: {e}")
+            messagebox.showerror("エラー", f"DB読み込みに失敗しました: {e}")
+            return
+
+        if not pdf_groups:
+            messagebox.showinfo("情報", "同期対象となる統合PDFの記録がDBにありません。")
+            return
+
+        # 2. 各PDFファイルに対して処理実行
+        updated_count = 0
+        skipped_count = 0
+        not_found_count = 0
+
+        # 検索パスリスト (root + archive + DB folder)
+        search_paths = []
+
+        if hasattr(self, "pdf_root_folder") and self.pdf_root_folder:
+            search_paths.append(Path(self.pdf_root_folder))
+
+        if hasattr(self, "pdf_archive_folder") and self.pdf_archive_folder:
+            search_paths.append(Path(self.pdf_archive_folder))
+
+        # DBと同じフォルダも念のため検索対象に追加
+        if self.default_db_path:
+            search_paths.append(Path(self.default_db_path).parent)
+
+        from Synapsen_Nexus.utils import find_file_in_paths
+        import fitz
+        from datetime import datetime
+
+        logger.info("メタデータ同期を開始します...")
+        self.label.configure(text="メタデータ同期中...")
+        self.update_idletasks()
+
+        target_filename = "synapsen_metadata_backup.json"
+
+        for filename, notes in pdf_groups.items():
+            # PDFファイルの実体を探す
+            pdf_path_obj = find_file_in_paths(filename, search_paths)
+
+            if not pdf_path_obj:
+                logger.warning(f"PDFが見つかりません: {filename}")
+                not_found_count += 1
+                continue
+
+            # Pathオブジェクトを文字列に変換 (PyMuPDF互換性のため)
+            pdf_path = str(pdf_path_obj)
+
+            try:
+                # A. DB上の最新更新日時を取得
+                db_last_updated = ""
+                for n in notes:
+                    u_at = n.get("updated_at")
+                    if u_at and u_at > db_last_updated:
+                        db_last_updated = u_at
+
+                # B. PDFを開き、既存の埋め込みJSONを確認
+                doc = fitz.open(pdf_path)
+                need_update = False
+                current_embedded_json = None
+
+                # 添付ファイルを取得
+                try:
+                    json_bytes = doc.embfile_get(target_filename)
+                    current_embedded_json = json.loads(json_bytes.decode("utf-8"))
+
+                    # JSON内の最終同期日時を取得
+                    json_synced_at = current_embedded_json.get("synced_at", "")
+
+                    # 比較: DBの方が新しい、あるいはJSONに日時がないなら更新
+                    if not json_synced_at or db_last_updated > json_synced_at:
+                        need_update = True
+                    else:
+                        # 日時が同じでも、ノート数が変わっている場合は更新 (削除/追加対応)
+                        if len(notes) != len(
+                            current_embedded_json.get("notes_data", [])
+                        ):
+                            need_update = True
+
+                except Exception:
+                    # 添付がない、または壊れている場合は強制更新
+                    need_update = True
+
+                if need_update:
+                    # C. 更新処理
+                    logger.info(f"更新対象: {filename} (DB: {db_last_updated})")
+
+                    # 新しいメタデータを作成
+                    metadata_to_embed = []
+                    for note in notes:
+                        # 不要なNoneを空文字に変換等のクリーンアップ
+                        clean_note = {
+                            k: (v if v is not None else "") for k, v in note.items()
+                        }
+                        metadata_to_embed.append(clean_note)
+
+                    new_data_structure = {
+                        "schema_version": CURRET_SCHEMA_VERSION,
+                        "synced_at": datetime.now().strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),  # 同期時刻
+                        "db_updated_at_max": db_last_updated,
+                        "notes_data": metadata_to_embed,
+                    }
+
+                    new_json_bytes = json.dumps(
+                        new_data_structure, ensure_ascii=False, indent=2
+                    ).encode("utf-8")
+
+                    # ★修正ポイント: bytearrayに変換し、削除→追加の手順をとる
+                    # 既存があれば削除
+                    if doc.embfile_info(target_filename):
+                        doc.embfile_del(target_filename)
+
+                    # 新規追加 (bytearray型で渡すことでエラーを回避)
+                    doc.embfile_add(target_filename, bytearray(new_json_bytes))
+
+                    # 増分保存
+                    doc.saveIncr()
+                    updated_count += 1
+                else:
+                    skipped_count += 1
+
+                doc.close()
+
+            except Exception as e:
+                logger.error(f"PDF処理エラー ({filename}): {e}")
+                # docが開かれていたら閉じる
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+
+        result_msg = (
+            f"同期完了\n\n"
+            f"更新: {updated_count} ファイル\n"
+            f"スキップ (最新): {skipped_count} ファイル\n"
+            f"不明 (ファイルなし): {not_found_count} ファイル"
+        )
+        self.label.configure(text="同期処理が完了しました。")
+        messagebox.showinfo("完了", result_msg)
 
 
 if __name__ == "__main__":
