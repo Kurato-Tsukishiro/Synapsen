@@ -1,30 +1,39 @@
 import fitz
-import sys  # ← Pythonのバージョンを取得するためにインポート
+import sys
 import DotLegalPad_Config as config
 
-# --- 設定項目 ---
+# --- Synapsen 標準定義 ---
+CM = 72 / 2.54
 
-# Config.py からサイズ関連の設定を読み込み反映する
+# Synapsenの安全マージン定義 (下端は通常 2.8cm / 2.5cm)
+LAYOUT_MARGINS = {
+    "A4": {"top": 2.2, "bottom": 2.8, "left": 1.0, "right": 1.0},
+    "A5": {"top": 2.0, "bottom": 2.5, "left": 0.8, "right": 0.8},
+}
+
+# --- 設定反映 ---
 page_size = config.PAGE_SIZE
 
 if page_size == "A4":
-    PAGE_WIDTH = 1650
-    PAGE_HEIGHT = 2200
-    PAGE_DPI = 200
+    PAGE_WIDTH = 595.276
+    PAGE_HEIGHT = 841.89
+    margins = LAYOUT_MARGINS["A4"]
 elif page_size == "A5":
-    PAGE_WIDTH = 1404
-    PAGE_HEIGHT = 1872
-    PAGE_DPI = 226
+    PAGE_WIDTH = 419.528
+    PAGE_HEIGHT = 595.276
+    margins = LAYOUT_MARGINS["A5"]
 else:
-    # デフォルトはA4
-    PAGE_WIDTH = 1650
-    PAGE_HEIGHT = 2200
-    PAGE_DPI = 200
+    # デフォルト A4
+    PAGE_WIDTH = 595.276
+    PAGE_HEIGHT = 841.89
+    margins = LAYOUT_MARGINS["A4"]
 
-# config.py から設定を読み込む
+m_top = margins["top"] * CM
+m_bottom = margins["bottom"] * CM
+m_left = margins["left"] * CM
+m_right = margins["right"] * CM
+
 file_name = f"{config.FILE_NAME}-{page_size}.pdf"
-font_path = config.FONT_PATH
-font_name = config.FONT_NAME
 
 # --- 1. PDFドキュメントの準備 ---
 doc = fitz.open()
@@ -39,62 +48,73 @@ producer_text = (
 
 # メタデータ設定 (ページ追加可能なノートとして認識させる)
 metadata = {
-    "keywords": "DPDocType:notebook",
-    "producer": producer_text,  # 作成者情報としてバージョンを記録
+    "keywords": "DPDocType:notebook; Synapsen:SkipNormalization",
+    "producer": producer_text,
+    "creator": "Synapsen Template Generator",
 }
 doc.set_metadata(metadata)
 
 
 # --- 2. 背景デザインの描画 ---
-# 単位の準備 (QUADERNOの解像度(DPI)に基づいてcmを計算する)
-cm = PAGE_DPI / 2.54
+cfg_header = config.HEADER_POSITION * CM
+cfg_footer = config.FOOTER_POSITION * CM
+cfg_left_margin = config.LEFT_MARGIN_LINE * CM
 
-# 色の準備
-color_gray = config.COLOR_LINE
-color_red = (1, 0.7, 0.7)
+extend_bottom = 1.0 * CM
 
-# マージンの設定
-header = config.HEADER_POSITION * cm
-footer = config.FOOTER_POSITION * cm
-left_margin_line = config.LEFT_MARGIN_LINE * cm
+start_y = m_top + cfg_header
+# 安全マージン(m_bottom)から1cm分を引いて、終了位置を下へずらします
+end_y = PAGE_HEIGHT - (m_bottom - extend_bottom) - cfg_footer
 
-# 左側の縦線（リーガルパッド風）を描画
+# 左側の縦線
+line_x = m_left + cfg_left_margin
+
 print("  - 縦線を描画中...")
+color_red = (1, 0.7, 0.7)
 page.draw_line(
-    fitz.Point(left_margin_line, 0),
-    fitz.Point(left_margin_line, PAGE_HEIGHT),
+    fitz.Point(line_x, m_top),
+    fitz.Point(line_x, end_y),  # 縦線も下まで伸ばす
     color=color_red,
     width=1,
 )
 
-# 1cm単位の横罫線を描画 (ヘッダー・フッター内は描画しない)
+# 横罫線
 print("  - 横罫線を描画中...")
-y = header
-while y < PAGE_HEIGHT - footer:
-    page.draw_line(
-        fitz.Point(0, y), fitz.Point(PAGE_WIDTH, y), color=color_gray, width=0.5
-    )
-    y += 1 * cm
+color_gray = config.COLOR_LINE
+step_y = 1.0 * CM
 
-# 5mm単位のドットを描画 (ヘッダー・フッター内は描画しない)
-print("  - ドットを描画中 (時間がかかります)...")
-dot_radius = config.DOT_READIUS
-x = 0
-while x < PAGE_WIDTH:
-    print(f"    ドットX座標: {int(x)} / {PAGE_WIDTH}", end="\r", flush=True)
-    y = header
-    while y < PAGE_HEIGHT - footer:
+current_y = start_y
+while current_y < end_y:
+    page.draw_line(
+        fitz.Point(m_left, current_y),
+        fitz.Point(PAGE_WIDTH - m_right, current_y),
+        color=color_gray,
+        width=0.5,
+    )
+    current_y += step_y
+
+# ドット
+print("  - ドットを描画中...")
+dot_step = 0.5 * CM
+# ドットサイズ (Configの値を調整: 200DPI基準だったものを72DPI基準へ微調整)
+dot_radius = config.DOT_READIUS * (72 / 200)
+
+current_x = m_left
+while current_x < PAGE_WIDTH - m_right:
+    current_y = start_y
+    while current_y < end_y:
         page.draw_circle(
-            fitz.Point(x, y), dot_radius, color=color_gray, fill=color_gray
+            fitz.Point(current_x, current_y),
+            dot_radius,
+            color=color_gray,
+            fill=color_gray,
         )
-        y += 0.5 * cm
-    x += 0.5 * cm
+        current_y += dot_step
+    current_x += dot_step
+
 print("\n背景描画が完了しました。")
 
-
-# --- 2. PDFを保存 ---
-print("PDFを保存します...")
+# --- 3. 保存 ---
 doc.save(file_name)
 doc.close()
-
-print(f"リーガルパッド風 通常テンプレート '{file_name}' を作成しました。")
+print(f"作成完了: {file_name}")
