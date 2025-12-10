@@ -567,6 +567,13 @@ class CanvasWindow(BaseSubWindow):
             fg="#00695C",
             hover="#004D40",
         )
+        self._add_tool_btn(
+            "Mermaid出力",
+            80,
+            self.export_canvas_mermaid_dialog,
+            fg="#00695C",
+            hover="#004D40",
+        )
 
         # ズーム系
         self._add_sep(" ズーム:")
@@ -2686,6 +2693,127 @@ class CanvasWindow(BaseSubWindow):
             messagebox.showerror("エラー", f"処理に失敗しました:\n{e}", parent=self)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    # -------------------------------------------------------------------------
+    # Mermaid Export Implementation
+    # -------------------------------------------------------------------------
+    def export_canvas_mermaid_dialog(self):
+        """Canvasの状態をMermaid記法としてクリップボードにコピー"""
+        try:
+            mermaid_text = self._generate_mermaid_text()
+
+            # クリップボードへコピー
+            self.clipboard_clear()
+            self.clipboard_append(mermaid_text)
+            self.update()
+
+            messagebox.showinfo(
+                "Mermaid出力",
+                "Mermaid記法をクリップボードにコピーしました。\n"
+                "NotionなどのMarkdown対応ツールに貼り付けて利用できます。\n\n"
+                "(Notionの場合: /mermaid と入力してコードブロックを作成し、貼り付けてください)",
+                parent=self,
+            )
+        except Exception as e:
+            logger.error(f"Mermaid export error: {e}")
+            messagebox.showerror("エラー", f"出力に失敗しました:\n{e}", parent=self)
+
+    def _generate_mermaid_text(self):
+        """現在のCanvasデータからMermaid構文を生成する"""
+        lines = ["%% Synapsen Canvas Export", "graph TD"]
+
+        # クラス定義 (色分け用)
+        lines.append("    classDef note fill:#ffffff,stroke:#333,stroke-width:2px;")
+        lines.append(
+            "    classDef sticky_yellow fill:#FFFFA5,stroke:#e0e0e0,stroke-width:1px;"
+        )
+        lines.append(
+            "    classDef sticky_blue fill:#D1EAFF,stroke:#e0e0e0,stroke-width:1px;"
+        )
+        lines.append(
+            "    classDef sticky_red fill:#FFD1D1,stroke:#e0e0e0,stroke-width:1px;"
+        )
+        lines.append(
+            "    classDef sticky_green fill:#D1FFD1,stroke:#e0e0e0,stroke-width:1px;"
+        )
+        lines.append(
+            "    classDef sticky_gray fill:#E0E0E0,stroke:#e0e0e0,stroke-width:1px;"
+        )
+
+        # IDのサニタイズ用ヘルパー
+        def clean_id(raw_id):
+            # MermaidのIDに使用できない文字を除去
+            return "ID_" + re.sub(r"[^a-zA-Z0-9_]", "", str(raw_id))
+
+        def escape_text(text):
+            # ラベル内の特殊文字をエスケープ
+            return text.replace('"', "'").replace("\n", "<br>")
+
+        # 1. ノート (Nodes)
+        for key, info in self.notes_on_canvas.items():
+            nid = clean_id(key)
+            title = escape_text(info["title"])
+            lines.append(f'    {nid}("{title}<br><small>{key}</small>"):::note')
+
+        # 2. 付箋 (Stickies)
+        color_map = {
+            "#FFFFA5": "sticky_yellow",
+            "#D1EAFF": "sticky_blue",
+            "#FFD1D1": "sticky_red",
+            "#D1FFD1": "sticky_green",
+            "#E0E0E0": "sticky_gray",
+            "#FFFFF0": "note",
+        }
+
+        for s in self.stickies_on_canvas:
+            sid = clean_id(s["uid"])
+            title = escape_text(s.get("title", ""))
+            content = escape_text(s.get("content", ""))
+
+            # 長文の切り詰め
+            if len(content) > 50:
+                content = content[:50] + "..."
+
+            display_text = f"<b>{title}</b>"
+            if content:
+                display_text += f"<br>{content}"
+
+            bg_color = s.get("bg_color", "#FFFFA5")
+            style_class = color_map.get(bg_color, "sticky_yellow")
+
+            lines.append(f'    {sid}["{display_text}"]:::{style_class}')
+
+        # 3. 接続 (Connections)
+        for c in self.connections_on_canvas:
+            from_id = None
+            to_id = None
+
+            # ID解決
+            if c["from_type"] == "note":
+                from_id = clean_id(c["from_key"])
+            elif c["from_type"] == "sticky":
+                from_id = clean_id(c["from_key"])
+
+            if c["to_type"] == "note":
+                to_id = clean_id(c["to_key"])
+            elif c["to_type"] == "sticky":
+                to_id = clean_id(c["to_key"])
+
+            if from_id and to_id:
+                # DBリンク確認
+                is_linked = False
+                # 両端がノートの場合のみDBリンクの可能性があるためチェック
+                if c["from_type"] == "note" and c["to_type"] == "note":
+                    is_linked = self._check_db_link_exists(c["from_key"], c["to_key"])
+
+                # 矢印のスタイル決定
+                # 実線 (-->) : DBリンク済み（強い結合）
+                # 点線 (-.->): DBリンクなし、または付箋との接続（弱い結合・一時的）
+                arrow = "-->" if is_linked else "-.->"
+
+                lines.append(f"    {from_id} {arrow} {to_id}")
+
+        return "\n".join(lines)
 
     def _get_obj_from_key(self, type_, key):
         if type_ == "note":
