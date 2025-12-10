@@ -30,7 +30,11 @@ if str(normalisierer_dir) not in sys.path:
 
 # --- プロジェクト内モジュールのインポート ---
 from logging_setup import setup_logging  # noqa: E402
-from Synapsen_Nexus.utils import _update_note_links, _extract_links  # noqa: E402
+from Synapsen_Nexus.utils import (  # noqa: E402
+    _update_note_links,
+    _extract_links,
+    touch_note_timestamp,
+)
 
 try:
     from pdf_utils import (  # type: ignore
@@ -2386,12 +2390,18 @@ class CanvasWindow(BaseSubWindow):
         try:
             conn = sqlite3.connect(self.parent_app.loaded_db_path)
             cursor = conn.cursor()
+
+            # リンクテキストの追記
             self._append_link_text(
                 cursor, key_a, key_b, self.notes_on_canvas[key_b]["title"]
             )
             self._append_link_text(
                 cursor, key_b, key_a, self.notes_on_canvas[key_a]["title"]
             )
+
+            touch_note_timestamp(cursor, key_a)
+            touch_note_timestamp(cursor, key_b)
+
             conn.commit()
             self.canvas.itemconfigure(item_id, fill="#28a745")
             messagebox.showinfo("完了", "リンクを作成しました。", parent=self)
@@ -2411,8 +2421,15 @@ class CanvasWindow(BaseSubWindow):
         try:
             conn = sqlite3.connect(self.parent_app.loaded_db_path)
             cursor = conn.cursor()
+
+            # リンクテキストの削除
             self._remove_link_text_from_db(cursor, key_a, key_b)
             self._remove_link_text_from_db(cursor, key_b, key_a)
+
+            # 両方のノートの更新日時を更新
+            touch_note_timestamp(cursor, key_a)
+            touch_note_timestamp(cursor, key_b)
+
             conn.commit()
             base_color = "white" if self.bg_color == "#2b2b2b" else "black"
             self.canvas.itemconfigure(item_id, fill=base_color)

@@ -5,6 +5,7 @@ import pandas as pd
 import configparser
 import webbrowser
 import re
+import datetime
 from pathlib import Path
 from tkinter import messagebox
 import sqlite3
@@ -197,6 +198,21 @@ def load_app_config(base_path):
     except Exception as e:
         # エラーをラップして再度発生させ、呼び出し元 (main.py) で処理する
         raise Exception(f"config.iniの読み込みに失敗しました: {e}")
+
+
+def touch_note_timestamp(conn: sqlite3.Connection, key: str):
+    """
+    指定されたノートの updated_at を現在時刻に更新する。
+    リンク追加・削除時など、メインの保存処理を通らない変更時に使用。
+    """
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        cursor = conn.cursor()
+        # 更新対象が存在するか確認してから更新
+        cursor.execute("UPDATE notes SET updated_at = ? WHERE key = ?", (now_str, key))
+        conn.commit()
+    except Exception as e:
+        print(f"Timestamp update failed for {key}: {e}")
 
 
 def fetch_notes_from_db(
@@ -736,6 +752,9 @@ def update_note_in_db(conn: sqlite3.Connection, key: str, new_data: dict):
 
     new_memo = new_data.get("memo", "")
 
+    # 現在時刻を取得 (ISO 8601形式推奨)
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     try:
         cursor = conn.cursor()
 
@@ -743,7 +762,7 @@ def update_note_in_db(conn: sqlite3.Connection, key: str, new_data: dict):
         cursor.execute(
             """
             UPDATE notes
-            SET memo = ?, tags = ?, commonplace_key = ?, summary = ?
+            SET memo = ?, tags = ?, commonplace_key = ?, summary = ?, updated_at = ?
             WHERE key = ?
             """,
             (
@@ -751,6 +770,7 @@ def update_note_in_db(conn: sqlite3.Connection, key: str, new_data: dict):
                 tags_str,
                 new_data.get("commonplace_key", ""),
                 new_data.get("summary", ""),
+                now_str,
                 key,
             ),
         )
