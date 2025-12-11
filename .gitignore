@@ -212,3 +212,7 @@ __marimo__/
 *.html
 saved_searches.json
 Synapsen_Nexus/canvas_data.json
+
+# PDFテンプレートはリリースのみ含む
+PDF_Templates/PDF/**/*.pdf
+samples/*.pdf
