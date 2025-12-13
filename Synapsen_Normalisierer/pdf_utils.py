@@ -292,16 +292,29 @@ def add_metadata_to_clip(
 
             shape_last = page_last.new_shape()
 
-            # --- 描画座標の計算 (embed_metadata_as_cover_page と同様) ---
+            # --- マージンと座標の計算 ---
+            # 用紙サイズから A4/A5 を簡易判定し、適切なマージンを選択
+            target_format = "A4"
+            # A5幅は約420pt。500pt未満ならA5とみなす
+            if paper_width < 500:
+                target_format = "A5"
+
+            margins = LAYOUT_MARGINS.get(target_format, LAYOUT_MARGINS["A4"])
+            margin_left_pt = margins["left"] * CM_TO_PT
+            margin_right_pt = margins["right"] * CM_TO_PT
+
+            # 描画開始Y位置は、ヘッダー領域(key_rect)の下から + 余白
             info_rect_y_start = key_rect.y1 + 10
             info_rect_y_end = page_last.rect.height - 30
             current_y_pos = info_rect_y_start
-            x0 = key_rect.x0
+
+            # X座標: 左マージン ～ 右端から右マージン分引いた位置
+            x0 = margin_left_pt
+            x1 = paper_width - margin_right_pt
 
             if sist_string_formal:
-                sist_rect = fitz.Rect(
-                    x0, current_y_pos, page_last.rect.width - 50, current_y_pos + 60
-                )
+                # 書誌情報 (SIST 02)
+                sist_rect = fitz.Rect(x0, current_y_pos, x1, current_y_pos + 60)
                 rc_sist = shape_last.insert_textbox(
                     sist_rect,
                     f"書誌情報 (SIST 02):\n{sist_string_formal}",
@@ -317,9 +330,8 @@ def add_metadata_to_clip(
                 current_y_pos = actual_sist_y1 + 10
 
             if sist_string_readable:
-                readable_rect = fitz.Rect(
-                    x0, current_y_pos, page_last.rect.width - 50, info_rect_y_end
-                )
+                # 書誌情報 (可読形式)
+                readable_rect = fitz.Rect(x0, current_y_pos, x1, info_rect_y_end)
                 rc_readable = shape_last.insert_textbox(
                     readable_rect,
                     f"書誌情報:\n{sist_string_readable}",
@@ -336,9 +348,8 @@ def add_metadata_to_clip(
             else:
                 current_y_pos = info_rect_y_start + 40
 
-            comment_rect = fitz.Rect(
-                x0, current_y_pos, page_last.rect.width - 50, info_rect_y_end
-            )
+            # コメント
+            comment_rect = fitz.Rect(x0, current_y_pos, x1, info_rect_y_end)
             if comment_to_embed:
                 shape_last.insert_textbox(
                     comment_rect,
@@ -784,9 +795,7 @@ def embed_ocr_text_in_pdf(
             # 1. ページごとに既存テキストをチェック
             page_text = page.get_text("text", sort=True).strip()
             if len(page_text) > meaningful_text_threshold:
-                logger.info(
-                    f"Page {page_num + 1} には既存テキストがあるためスキップ。"
-                )
+                logger.info(f"Page {page_num + 1} には既存テキストがあるためスキップ。")
                 continue
 
             # --- 既存テキストがないページのみ、以下を実行 ---
