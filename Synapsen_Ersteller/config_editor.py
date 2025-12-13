@@ -26,7 +26,7 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 pass
 
         self.title("Synapsen 設定")
-        self.geometry("650x750")  # 項目が増えたので少し縦長に
+        self.geometry("650x800")
 
         # モーダル設定
         self.transient(parent)
@@ -81,7 +81,20 @@ class ConfigEditorWindow(ctk.CTkToplevel):
             "DBへの自動追記 (Ersteller)", "Automation", "auto_append_to_default_db"
         )
 
-        # --- [ReportLab] セクション (New) ---
+        # --- [Watchdog] セクション (New) ---
+        self._add_section_label("監視設定 (Watchdog)")
+
+        self.entry_watch_dir = self._add_path_entry(
+            "監視フォルダ (Watch Input):", "Watchdog", "watch_dir", is_file=False
+        )
+        self.entry_watch_output = self._add_path_entry(
+            "出力フォルダ (Watch Output):", "Watchdog", "output_dir", is_file=False
+        )
+        self.entry_watch_size = self._add_text_entry(
+            "正規化サイズ (A4/A5):", "Watchdog", "target_size"
+        )
+
+        # --- [ReportLab] セクション ---
         self._add_section_label("PDF生成設定 (ReportLab)")
 
         self.entry_paper_size = self._add_text_entry(
@@ -236,7 +249,15 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 str(self.var_auto_db.get()).lower(),
             )
 
-            # ReportLab (New)
+            # Watchdog (New)
+            if not self.config.has_section("Watchdog"):
+                self.config.add_section("Watchdog")
+
+            self.config.set("Watchdog", "watch_dir", self.entry_watch_dir.get())
+            self.config.set("Watchdog", "output_dir", self.entry_watch_output.get())
+            self.config.set("Watchdog", "target_size", self.entry_watch_size.get())
+
+            # ReportLab
             if not self.config.has_section("ReportLab"):
                 self.config.add_section("ReportLab")
 
