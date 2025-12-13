@@ -12,6 +12,8 @@ import configparser
 import sqlite3
 import logging
 
+import fitz
+
 # === 2. プロジェクトルートをパスに追加 ===
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
@@ -27,7 +29,7 @@ import PDFMargeHelper as Helper                 # noqa: E402
 import pdf_processor as Process                 # noqa: E402
 import reportlab_generator as Generator         # noqa: E402
 import gui_dialogs as Dialogs                   # noqa: E402
-from pypdf import PdfReader, PdfWriter          # noqa: E402
+from pypdf import PdfReader                     # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
 from logging_setup import setup_logging  # noqa: E402
 
@@ -1082,14 +1084,12 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # 結果通知
         if excluded_count > 0:
-            msg = f"{excluded_count} 件のファイルが無効（存在しない・破損）なため、生成対象から除外しました。\nログを確認してください。"
+            msg = f"{excluded_count} 件のファイルが無効なため除外しました。"
             logger.warning(msg)
             messagebox.showwarning("ファイル除外", msg)
 
         if not valid_notes_info:
-            messagebox.showerror(
-                "エラー", "有効なPDFファイルが1つもありません。処理を中断します。"
-            )
+            messagebox.showerror("エラー", "有効なPDFファイルがありません。")
             self.label.configure(text="有効なファイルがありません。")
             return
 
@@ -1127,12 +1127,11 @@ class Synapsen_Ersteller(ctk.CTk):
         total_volumes = len(volumes)
 
         if total_volumes > 1:
-            msg = (
+            messagebox.showinfo(
+                "分割生成",
                 f"指定されたページ制限 ({self.max_pages_per_volume} p) に基づき、"
-                f"全体を {total_volumes} 冊に分割して生成します。"
+                f"全体を {total_volumes} 冊に分割して生成します。",
             )
-            logger.info(msg)
-            messagebox.showinfo("分割生成", msg)
 
         # ======================================================================
         # 各巻ごとのループ処理
@@ -1155,12 +1154,15 @@ class Synapsen_Ersteller(ctk.CTk):
             )
             self.update_idletasks()
 
-            # --- 一時ディレクトリの作成 ---
+            # --- 一時ディレクトリ ---
             temp_dir = tempfile.mkdtemp()
+            final_doc = None
+            skeleton_doc = None
+
             try:
                 # --- A. 骨格PDF生成 ---
                 self.label.configure(
-                    text=f"[{current_vol_num}/{total_volumes}] ページ構成を生成中 (ReportLab)..."
+                    text=f"[{current_vol_num}/{total_volumes}] 骨格生成中..."
                 )
                 self.update_idletasks()
 
@@ -1188,80 +1190,131 @@ class Synapsen_Ersteller(ctk.CTk):
                     messagebox.showerror("エラー", "骨格PDFの生成に失敗しました。")
                     return
 
-                # --- B. PDF結合処理 ---
+                # --- B. ノート結合・合成 (PyMuPDF) ---
                 self.label.configure(
-                    text=f"[{current_vol_num}/{total_volumes}] ノートを結合中..."
+                    text=f"[{current_vol_num}/{total_volumes}] ノート結合中..."
                 )
                 self.update_idletasks()
 
-                draft_reader = PdfReader(str(draft_pdf_path))
-                final_writer = PdfWriter()
+                # ベースとして骨格をコピー
+                shutil.copy2(draft_pdf_path, current_save_path)
+                final_doc = fitz.open(str(current_save_path))
 
-                note_content_start_page = layout_info["content_start_page"]
-                index_start_page = layout_info["index_start_page"]
+                # 骨格(枠線参照用)を開く
+                skeleton_doc = fitz.open(str(draft_pdf_path))
 
-                # 1. 目次
-                for i in range(note_content_start_page):
-                    final_writer.add_page(draft_reader.pages[i])
+                content_start_page_idx = layout_info["content_start_page"]
+                index_start_page_idx = layout_info["index_start_page"]
 
-                # 2. 本文
+                # ReportLabから受け取ったリンク情報 (存在しない場合は空リスト)
+                skeleton_links = layout_info.get("links", [])
+
                 updated_notes_info = []
-                note_page_cursor = note_content_start_page
+                current_doc_page_cursor = content_start_page_idx
 
-                for note in notes_in_volume:
+                # ループ: ノートの挿入と枠線のオーバーレイ
+                for i, note in enumerate(notes_in_volume):
                     # マージ後の情報を記録 (DB登録用)
-                    note["merged_start_page"] = note_page_cursor + 1
+                    note["merged_start_page"] = current_doc_page_cursor + 1
                     note["merged_pdf_filename"] = current_save_path.name
-
-                    # PDF生成のタイミングを「更新日時」として記録
                     note["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
                     updated_notes_info.append(note)
 
+                    note_path = note["filepath"]
+                    src_doc = None
                     try:
-                        original_reader = PdfReader(note["filepath"])
-                        for i in range(len(original_reader.pages)):
-                            if note_page_cursor >= index_start_page:
+                        src_doc = fitz.open(note_path)
+
+                        for src_pno in range(len(src_doc)):
+                            if current_doc_page_cursor >= index_start_page_idx:
+                                break
+                            if current_doc_page_cursor >= len(final_doc):
                                 break
 
-                            template_page = draft_reader.pages[note_page_cursor]
-                            content_page = original_reader.pages[i]
-                            content_page.merge_page(template_page)
+                            # 1. ノートページを挿入 (注釈・リンク維持)
+                            final_doc.insert_pdf(
+                                src_doc,
+                                from_page=src_pno,
+                                to_page=src_pno,
+                                start_at=current_doc_page_cursor,
+                            )
 
-                            final_writer.add_page(content_page)
-                            note_page_cursor += 1
+                            # 2. 枠線(ヘッダー等)をオーバーレイ
+                            target_page = final_doc[current_doc_page_cursor]
+                            skeleton_page_idx = current_doc_page_cursor
+
+                            if skeleton_page_idx < len(skeleton_doc):
+                                target_page.show_pdf_page(
+                                    target_page.rect,
+                                    skeleton_doc,
+                                    skeleton_page_idx,
+                                    keep_proportion=False,
+                                    overlay=True,
+                                )
+
+                            # 3. 元の空白ページ(リンク先IDを持っていたページ)を削除
+                            # これにより ReportLab生成の NamedDestination は消える
+                            final_doc.delete_page(current_doc_page_cursor + 1)
+
+                            current_doc_page_cursor += 1
+
                     except Exception as e:
                         logger.error(f"ノート結合エラー ({note.get('title')}): {e}")
-                        p_count = note.get("pages", 0)
-                        for _ in range(p_count):
-                            if note_page_cursor < len(draft_reader.pages):
-                                final_writer.add_page(
-                                    draft_reader.pages[note_page_cursor]
+                        note_pages = note.get("pages", 0)
+                        current_doc_page_cursor += note_pages
+                        if current_doc_page_cursor > index_start_page_idx:
+                            current_doc_page_cursor = index_start_page_idx
+
+                    finally:
+                        if src_doc:
+                            src_doc.close()
+
+                # --- C. リンクの再適用 ---
+                # insert_pdf/delete_page で NamedDestination が消失するため、
+                # 保存しておいた座標情報を使ってページ番号指定(GOTO)リンクとして再作成する
+                if skeleton_links:
+                    logger.info(f"リンク情報の再適用: {len(skeleton_links)} 件")
+
+                    for link_data in skeleton_links:
+                        try:
+                            # ページ番号は 1-based なので 0-based に変換
+                            src_page_idx = link_data["page"] - 1
+                            target_page_idx = link_data["target_page"] - 1
+
+                            if 0 <= src_page_idx < len(final_doc):
+                                page = final_doc[src_page_idx]
+                                page_height = page.rect.height
+
+                                # 座標変換: ReportLab(左下原点) -> PyMuPDF(左上原点)
+                                # rect = (x1, y1, x2, y2) in RL
+                                rl_rect = link_data["rect"]
+                                x1, y1, x2, y2 = rl_rect
+
+                                # PyMuPDFのRectは (x0, y0, x1, y1) かつ yは上から
+                                # RLの y2 (上辺) が PyMuPDFの y0 (上辺) になる
+                                pm_rect = fitz.Rect(
+                                    x1, page_height - y2, x2, page_height - y1
                                 )
-                                note_page_cursor += 1
 
-                # 3. 索引
-                for i in range(index_start_page, len(draft_reader.pages)):
-                    final_writer.add_page(draft_reader.pages[i])
+                                # リンク作成
+                                page.insert_link(
+                                    {
+                                        "kind": fitz.LINK_GOTO,
+                                        "page": target_page_idx,
+                                        "from": pm_rect,
+                                    }
+                                )
+                        except Exception as e:
+                            logger.warning(f"リンク作成失敗: {e}")
 
-                # --- C. メタデータ設定---
-                # PDFプロパティにタイトルや作成者を書き込む
-                metadata = {
-                    "/Title": current_pdf_title,
-                    "/Author": self.reportlab_author,
-                    "/Producer": "Synapsen Ersteller (ReportLab + pypdf)",
-                    "/Creator": "Synapsen",
-                    "/CreationDate": datetime.now().strftime("D:%Y%m%d%H%M%S"),
-                }
-                final_writer.add_metadata(metadata)
+                # --- D. メタデータ設定 ---
+                metadata = final_doc.metadata
+                metadata["title"] = current_pdf_title
+                metadata["author"] = self.reportlab_author
+                metadata["producer"] = "Synapsen Ersteller (ReportLab + PyMuPDF)"
+                final_doc.set_metadata(metadata)
 
-                # --- D. ブックマークのコピー ---
-                if draft_reader.outline:
-                    self._copy_bookmarks_recursive(
-                        draft_reader.outline, final_writer, draft_reader
-                    )
-
-                # --- E. 復旧用メタデータ(JSON)埋め込み ---
+                # --- E. 復旧用データ埋め込み ---
                 try:
                     metadata_to_embed = []
                     for note in updated_notes_info:
@@ -1289,22 +1342,32 @@ class Synapsen_Ersteller(ctk.CTk):
                     }
 
                     json_data = json.dumps(data_to_save, ensure_ascii=False, indent=2)
-                    final_writer.add_attachment(
+                    final_doc.embfile_add(
                         "synapsen_metadata_backup.json", json_data.encode("utf-8")
                     )
                 except Exception as e:
-                    logger.warning(f"復旧用メタデータ埋め込み失敗: {e}")
+                    logger.warning(f"メタデータ埋め込み失敗: {e}")
 
-                # --- F. ファイル保存 ---
+                # --- F. 保存処理 ---
                 self.label.configure(
                     text=f"[{current_vol_num}/{total_volumes}] 保存中..."
                 )
                 self.update_idletasks()
 
-                with open(current_save_path, "wb") as f:
-                    final_writer.write(f)
+                temp_output_filename = f"temp_output_{current_save_path.name}"
+                temp_output_path = current_save_path.with_name(temp_output_filename)
 
-                # --- G. DB / CSV 保存 ---
+                final_doc.save(str(temp_output_path), garbage=4, deflate=True)
+
+                final_doc.close()
+                final_doc = None
+                if skeleton_doc:
+                    skeleton_doc.close()
+                    skeleton_doc = None
+
+                shutil.move(str(temp_output_path), str(current_save_path))
+
+                # --- G. DB/CSV保存 ---
                 if self.auto_append_db and self.default_db_path:
                     self.append_to_master_db(updated_notes_info)
 
@@ -1312,6 +1375,10 @@ class Synapsen_Ersteller(ctk.CTk):
                     self.save_merged_index_csv(updated_notes_info, current_save_path)
 
             except Exception as e:
+                if final_doc:
+                    final_doc.close()
+                if skeleton_doc:
+                    skeleton_doc.close()
                 logger.error(f"Fatal error in Vol {current_vol_num}: {e}")
                 messagebox.showerror(
                     "エラー",
@@ -1321,10 +1388,8 @@ class Synapsen_Ersteller(ctk.CTk):
             finally:
                 shutil.rmtree(temp_dir)
 
-        self.label.configure(text="全てのPDF生成と保存が完了しました。")
-        messagebox.showinfo(
-            "完了", f"合計 {total_volumes} 冊のPDFを作成・保存しました。"
-        )
+        self.label.configure(text="完了しました。")
+        messagebox.showinfo("完了", f"合計 {total_volumes} 冊のPDFを作成しました。")
 
     def _split_notes_into_volumes(self, all_notes, max_pages):
         """

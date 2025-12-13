@@ -47,6 +47,9 @@ class ReportLabPDFGenerator:
             k.lower(): v for k, v in config.get("key_colors", {}).items()
         }
 
+        # 生成したリンク情報を保持するリスト
+        self.link_annotations: List[Dict[str, Any]] = []
+
     def _register_font(self) -> None:
         """
         PDF生成に使用するフォントを登録する。
@@ -131,7 +134,7 @@ class ReportLabPDFGenerator:
         paper_size: str,
         output_path: str,
         cover_image_path: str = None,
-    ) -> Dict[str, int]:
+    ) -> Dict[str, Any]:
         """
         目次、ヘッダー、フッター、索引を含む「骨格PDF」を生成する。
         実際のノート本文（中身）はここには描画されず、後工程で結合される。
@@ -144,9 +147,16 @@ class ReportLabPDFGenerator:
             cover_image_path (str): 表示に設定する画像のパス
 
         Returns:
-            Dict[str, int]: コンテンツ開始ページ番号などのメタデータ辞書。
-                            {'content_start_page': int, 'index_start_page': int}
+            Dict[str, Any]: コンテンツ開始ページ番号やリンク情報などのメタデータ辞書。
+                            {
+                                'content_start_page': int,
+                                'index_start_page': int,
+                                'links': List[Dict[str, Any]]
+                            }
         """
+
+        self.link_annotations = []
+
         pagesize = A5 if paper_size.upper() == "A5" else A4
         page_width, page_height = pagesize
 
@@ -167,6 +177,9 @@ class ReportLabPDFGenerator:
         # 2. ページ数の計算と予測
 
         # 目次ページ数の計算
+        line_height = 6 * mm
+        lines_per_page = int((page_height - 50 * mm) / line_height)
+
         toc_extra_lines = 0
         if has_cp_index:
             toc_extra_lines += 1
@@ -297,6 +310,7 @@ class ReportLabPDFGenerator:
         return {
             "content_start_page": content_start_page_num - 1,
             "index_start_page": index_start_page_num - 1,
+            "links": self.link_annotations,
         }
 
     # --- ヘルパーメソッド ---
@@ -536,9 +550,20 @@ class ReportLabPDFGenerator:
             )
             pdf_canvas.restoreState()
 
-            # 内部リンク領域の設定
+            # リンク情報の保存
             link_rect = (margin_x, current_y - 2, width - margin_x, current_y + 10)
+
+            # ReportLabでのリンク作成 (一応残すが、後で上書きするため重要度は低い)
             pdf_canvas.linkRect("", destinationname=f"NOTE_LINK_{i}", Rect=link_rect)
+
+            # リストに追加 (current_page は 1-based, dest_page も 1-based)
+            self.link_annotations.append(
+                {
+                    "page": pdf_canvas.getPageNumber(),
+                    "rect": link_rect,
+                    "target_page": dest_page,
+                }
+            )
 
             current_y -= line_height
 
@@ -573,6 +598,13 @@ class ReportLabPDFGenerator:
 
             link_rect = (margin_x, current_y - 2, width - margin_x, current_y + 10)
             pdf_canvas.linkRect("", destinationname="DEST_INDEX_KEY", Rect=link_rect)
+            self.link_annotations.append(
+                {
+                    "page": pdf_canvas.getPageNumber(),
+                    "rect": link_rect,
+                    "target_page": index_key_start_page,
+                }
+            )
             current_y -= line_height
 
         # --- タグ索引へのリンク ---
@@ -604,6 +636,13 @@ class ReportLabPDFGenerator:
 
             link_rect = (margin_x, current_y - 2, width - margin_x, current_y + 10)
             pdf_canvas.linkRect("", destinationname="DEST_INDEX_TAG", Rect=link_rect)
+            self.link_annotations.append(
+                {
+                    "page": pdf_canvas.getPageNumber(),
+                    "rect": link_rect,
+                    "target_page": tag_index_start_page,
+                }
+            )
             current_y -= line_height
 
         # 予定ページ数に達するまで空ページを追加 (本文開始位置の調整)
@@ -796,6 +835,15 @@ class ReportLabPDFGenerator:
 
                 pdf_canvas.linkRect(
                     "", destinationname=f"NOTE_LINK_{idx}", Rect=link_rect
+                )
+
+                # リストに追加
+                self.link_annotations.append(
+                    {
+                        "page": pdf_canvas.getPageNumber(),
+                        "rect": link_rect,
+                        "target_page": dest_page,
+                    }
                 )
 
                 current_y -= line_height
