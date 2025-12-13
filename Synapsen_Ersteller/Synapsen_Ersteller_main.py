@@ -1107,11 +1107,30 @@ class Synapsen_Ersteller(ctk.CTk):
 
         base_pdf_title = f"{self.reportlab_title_prefix} ({year}年 {month}月)"
 
+        initial_save_dir = None
+
+        # 優先順位 1: config.ini [Paths] pdf_root_folder
+        if hasattr(self, "pdf_root_folder") and self.pdf_root_folder:
+            if os.path.isdir(self.pdf_root_folder):
+                initial_save_dir = self.pdf_root_folder
+
+        # 優先順位 2: マスターDBが存在するフォルダ
+        if (
+            not initial_save_dir
+            and hasattr(self, "default_db_path")
+            and self.default_db_path
+        ):
+            # default_db_path はファイルパスなので、その親ディレクトリを取得
+            db_dir = os.path.dirname(self.default_db_path)
+            if os.path.isdir(db_dir):
+                initial_save_dir = db_dir
+
         save_filepath_str = tkinter.filedialog.asksaveasfilename(
             defaultextension=".pdf",
             filetypes=[("PDFファイル", "*.pdf")],
             title="統合PDFの保存先を選択 (分割時は連番が付与されます)",
             initialfile=f"統合ノート_{year}_{month:02d}.pdf",
+            initialdir=initial_save_dir,
         )
         if not save_filepath_str:
             return
