@@ -584,16 +584,24 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
 # 一括編集ウィンドウ
 # ==============================================================================
 class BatchEditWindow(ctk.CTkToplevel):
-    def __init__(self, parent, selected_count, all_tags, commonplace_key_options):
+    def __init__(
+        self,
+        parent,
+        selected_count,
+        all_tags,
+        tags_in_selection,
+        commonplace_key_options,
+    ):
         super().__init__(parent)
         self.parent = parent
         self.all_tags = all_tags
+        self.tags_in_selection = tags_in_selection  # 選択範囲内のタグ
         self.commonplace_key_options = commonplace_key_options
         self.result = None
 
         # 一時的なタグリスト
         self.tags_to_add = []
-        self.tags_to_remove = []
+        self.tags_to_remove = []  # 削除対象のタグリスト
 
         self._custom_icon_path = None
         if hasattr(parent, "icon_path") and parent.icon_path:
@@ -644,22 +652,23 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
         self.add_tags_display_frame.pack(fill="both", expand=True)
 
-        # --- 3. 削除するタグ ---
+        # --- 3. 削除するタグ (選択式リスト) ---
         remove_tag_frame = ctk.CTkFrame(self)
         remove_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        ctk.CTkLabel(remove_tag_frame, text="削除するタグ:").pack(anchor="w")
+        header_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
+        header_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(
+            header_frame, text="含まれているタグ (×で削除指定):", text_color="#E74C3C"
+        ).pack(side="left", padx=5)
 
-        remove_tag_input_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
-        remove_tag_input_frame.pack(pady=5, fill="x")
-        self.remove_tag_entry = ctk.CTkEntry(
-            remove_tag_input_frame, placeholder_text="Enterで追加"
-        )
-        self.remove_tag_entry.pack(side="left", padx=(0, 5), expand=True, fill="x")
-        self.remove_tag_entry.bind("<Return>", self.add_tag_to_remove_list)
+        # 削除タグ一覧を表示するスクロールフレーム
+        self.remove_tags_scroll = ctk.CTkScrollableFrame(remove_tag_frame, height=200)
+        self.remove_tags_scroll.pack(fill="both", expand=True, padx=5, pady=5)
 
-        self.remove_tags_display_frame = ctk.CTkScrollableFrame(remove_tag_frame)
-        self.remove_tags_display_frame.pack(fill="both", expand=True)
+        # 選択範囲のタグ一覧を描画
+        self.tag_widgets = {}  # {tag_name: (label, button)}
+        self.populate_remove_tag_list()
 
         # --- 4. 適用 / キャンセルボタン ---
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -726,13 +735,60 @@ class BatchEditWindow(ctk.CTkToplevel):
             self.add_tag_to_add_list()
 
     # --- 「削除するタグ」リストの管理 ---
-    def add_tag_to_remove_list(self, event=None):
-        new_tag = self.remove_tag_entry.get().strip()
-        if new_tag and new_tag not in self.tags_to_remove:
-            # 削除は階層を考慮しない
-            self.tags_to_remove.append(new_tag)
-        self.update_remove_tags_display()
-        self.remove_tag_entry.delete(0, "end")
+    def populate_remove_tag_list(self):
+        """選択範囲に含まれるタグを一覧表示し、削除ボタンを配置する"""
+        if not self.tags_in_selection:
+            ctk.CTkLabel(
+                self.remove_tags_scroll,
+                text="（選択されたノートに共通するタグはありません）",
+                text_color="gray",
+            ).pack(pady=10)
+            return
+
+        for tag in self.tags_in_selection:
+            row = ctk.CTkFrame(self.remove_tags_scroll, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+
+            # タグ名ラベル
+            lbl = ctk.CTkLabel(row, text=tag, anchor="w")
+            lbl.pack(side="left", padx=5, fill="x", expand=True)
+
+            # 削除/戻すボタン
+            # lambdaで変数をキャプチャする際、デフォルト引数を使うことで現在の値を固定する
+            btn = ctk.CTkButton(
+                row,
+                text="×",
+                width=40,
+                fg_color="#C0392B",  # 赤系
+                hover_color="#E74C3C",
+                command=lambda t=tag: self.toggle_remove_tag(t),
+            )
+            btn.pack(side="right", padx=5)
+
+            # ウィジェットへの参照を保持 (後で色やテキストを変えるため)
+            self.tag_widgets[tag] = (lbl, btn)
+
+    def toggle_remove_tag(self, tag):
+        """タグの削除状態を切り替える (Keep <-> Remove)"""
+        lbl, btn = self.tag_widgets[tag]
+
+        if tag in self.tags_to_remove:
+            # 既に削除対象 -> 元に戻す
+            self.tags_to_remove.remove(tag)
+
+            # UIを通常状態に戻す
+            lbl.configure(
+                text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+            )  # デフォルト色
+            btn.configure(text="×", fg_color="#C0392B", hover_color="#E74C3C")
+
+        else:
+            # 削除対象に追加
+            self.tags_to_remove.append(tag)
+
+            # UIを削除待機状態にする
+            lbl.configure(text_color="gray")  # グレーアウト
+            btn.configure(text="戻す", fg_color="gray", hover_color="#555")
 
     def remove_tag_from_remove_list(self, tag_to_remove):
         self.tags_to_remove.remove(tag_to_remove)

@@ -1544,17 +1544,27 @@ class Synapsen_Ersteller(ctk.CTk):
         if not self.selected_notes:
             return
 
-        # ダイアログの「既存タグから選択」で使うためのタグリストを作成
+        # 1. 全タグの収集（追加タグの候補用）
         session_tags = set()
         for note in self.all_notes_info:
             session_tags.update(note.get("tags", []))
         combined_tags = session_tags.union(set(self.predefined_tags))
 
-        # gui_dialogs.py に追加した BatchEditWindow を呼び出す
+        # 2. 選択範囲に含まれるタグの収集（削除リスト表示用）
+        tags_in_selection = set()
+        for note in self.all_notes_info:
+            if note.get("key") in self.selected_notes:
+                tags_in_selection.update(note.get("tags", []))
+
+        # ソートしてリスト化
+        tags_in_selection_list = sorted(list(tags_in_selection))
+
+        # 3. ダイアログを開く
         dialog = Dialogs.BatchEditWindow(
             self,
             len(self.selected_notes),
             list(combined_tags),
+            tags_in_selection_list,
             self.commonplace_key_options,
         )
 
