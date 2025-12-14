@@ -1577,14 +1577,28 @@ class Synapsen_Ersteller(ctk.CTk):
                 result.get("index_key"),
                 result.get("tags_to_add", []),
                 result.get("tags_to_remove", []),
+                result.get("memo_text", None),
+                result.get("overwrite_mode", False),
             )
 
-    def apply_batch_edits(self, index_key_to_set, tags_to_add, tags_to_remove):
+    def apply_batch_edits(
+        self,
+        index_key_to_set,
+        tags_to_add,
+        tags_to_remove,
+        memo_text,
+        overwrite_mode=False,
+    ):
         """
         BatchEditWindow で指定された内容に基づき、
         選択中のすべてのノートのデータを変更する。
         """
-        if index_key_to_set is None and not tags_to_add and not tags_to_remove:
+        if (
+            index_key_to_set is None
+            and not tags_to_add
+            and not tags_to_remove
+            and memo_text is None
+        ):
             logger.info("一括編集: 変更内容がありません。")
             return
 
@@ -1599,17 +1613,30 @@ class Synapsen_Ersteller(ctk.CTk):
                 if index_key_to_set is not None:
                     note["commonplace_key"] = index_key_to_set
 
-                # 2. タグの変更
+                # 2. メモへの追記
+                if memo_text is not None:
+                    if overwrite_mode:
+                        # 上書きモード: そのまま置き換える
+                        note["memo"] = memo_text
+                    else:
+                        # 追記モード (デフォルト)
+                        current_memo = note.get("memo", "").strip()
+                        if current_memo:
+                            note["memo"] = current_memo + "\n\n" + memo_text
+                        else:
+                            note["memo"] = memo_text
+
+                # 3. タグの変更
                 current_tags = set(note.get("tags", []))
 
-                # 2a. タグの追加 (階層も考慮)
+                # 3a. タグの追加 (階層も考慮)
                 for tag_to_add in tags_to_add:
                     parts = tag_to_add.split("_")
                     for i in range(len(parts)):
                         hierarchical_tag = "_".join(parts[: i + 1])
                         current_tags.add(hierarchical_tag)
 
-                # 2b. タグの削除
+                # 3b. タグの削除
                 current_tags.difference_update(tags_to_remove)
 
                 note["tags"] = sorted(list(current_tags))

@@ -613,7 +613,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                     logger.error(f"Initial icon set error: {e}")
 
         self.title(f"一括編集 ({selected_count} 件)")
-        self.geometry("600x700")
+        self.geometry("600x825")
         self.transient(parent)
         self.grab_set()
 
@@ -630,7 +630,27 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.cp_key_combo.pack(side="left", expand=True, fill="x")
         self.cp_key_combo.set("[ 変更しない ]")  # デフォルト
 
-        # --- 2. 追加するタグ ---
+        # --- 2. メモ追記 ---
+        memo_frame = ctk.CTkFrame(self)
+        memo_frame.pack(pady=5, padx=10, fill="x")
+
+        # ヘッダー (ラベルとスイッチ)
+        memo_header_frame = ctk.CTkFrame(memo_frame, fg_color="transparent")
+        memo_header_frame.pack(side="top", fill="x", padx=5, pady=(5, 0))
+
+        ctk.CTkLabel(memo_header_frame, text="メモ編集 (引用など):", anchor="w").pack(
+            side="left"
+        )
+
+        # 上書き切り替えスイッチ (デフォルトOFF=追記)
+        self.overwrite_switch = ctk.CTkSwitch(memo_header_frame, text="上書きモード")
+        self.overwrite_switch.pack(side="right")
+
+        # テキストボックス
+        self.memo_input_box = ctk.CTkTextbox(memo_frame, height=80)
+        self.memo_input_box.pack(side="bottom", fill="x", padx=5, pady=5)
+
+        # --- 3. 追加するタグ ---
         add_tag_frame = ctk.CTkFrame(self)
         add_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
@@ -652,7 +672,7 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
         self.add_tags_display_frame.pack(fill="both", expand=True)
 
-        # --- 3. 削除するタグ (選択式リスト) ---
+        # --- 4. 削除するタグ (選択式リスト) ---
         remove_tag_frame = ctk.CTkFrame(self)
         remove_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
@@ -687,12 +707,21 @@ class BatchEditWindow(ctk.CTkToplevel):
     def apply_changes(self):
         index_key_to_set = self.cp_key_combo.get()
         if index_key_to_set == "[ 変更しない ]":
-            index_key_to_set = None  # 変更しない場合は None を返す
+            index_key_to_set = None
+
+        # 入力内容とモードを取得
+        text_val = self.memo_input_box.get("1.0", "end-1c").strip()
+        memo_text = text_val if text_val else None
+
+        # スイッチの状態を取得 (1=ON, 0=OFF)
+        overwrite_mode = bool(self.overwrite_switch.get())
 
         self.result = {
             "index_key": index_key_to_set,
             "tags_to_add": self.tags_to_add,
             "tags_to_remove": self.tags_to_remove,
+            "memo_text": memo_text,  # テキスト
+            "overwrite_mode": overwrite_mode,  # モード
         }
         self.destroy()
 
