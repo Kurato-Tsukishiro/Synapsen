@@ -1544,17 +1544,27 @@ class Synapsen_Ersteller(ctk.CTk):
         if not self.selected_notes:
             return
 
-        # ダイアログの「既存タグから選択」で使うためのタグリストを作成
+        # 1. 全タグの収集（追加タグの候補用）
         session_tags = set()
         for note in self.all_notes_info:
             session_tags.update(note.get("tags", []))
         combined_tags = session_tags.union(set(self.predefined_tags))
 
-        # gui_dialogs.py に追加した BatchEditWindow を呼び出す
+        # 2. 選択範囲に含まれるタグの収集（削除リスト表示用）
+        tags_in_selection = set()
+        for note in self.all_notes_info:
+            if note.get("key") in self.selected_notes:
+                tags_in_selection.update(note.get("tags", []))
+
+        # ソートしてリスト化
+        tags_in_selection_list = sorted(list(tags_in_selection))
+
+        # 3. ダイアログを開く
         dialog = Dialogs.BatchEditWindow(
             self,
             len(self.selected_notes),
             list(combined_tags),
+            tags_in_selection_list,
             self.commonplace_key_options,
         )
 
@@ -1567,14 +1577,28 @@ class Synapsen_Ersteller(ctk.CTk):
                 result.get("index_key"),
                 result.get("tags_to_add", []),
                 result.get("tags_to_remove", []),
+                result.get("memo_text", None),
+                result.get("overwrite_mode", False),
             )
 
-    def apply_batch_edits(self, index_key_to_set, tags_to_add, tags_to_remove):
+    def apply_batch_edits(
+        self,
+        index_key_to_set,
+        tags_to_add,
+        tags_to_remove,
+        memo_text,
+        overwrite_mode=False,
+    ):
         """
         BatchEditWindow で指定された内容に基づき、
         選択中のすべてのノートのデータを変更する。
         """
-        if index_key_to_set is None and not tags_to_add and not tags_to_remove:
+        if (
+            index_key_to_set is None
+            and not tags_to_add
+            and not tags_to_remove
+            and memo_text is None
+        ):
             logger.info("一括編集: 変更内容がありません。")
             return
 
@@ -1589,17 +1613,30 @@ class Synapsen_Ersteller(ctk.CTk):
                 if index_key_to_set is not None:
                     note["commonplace_key"] = index_key_to_set
 
-                # 2. タグの変更
+                # 2. メモへの追記
+                if memo_text is not None:
+                    if overwrite_mode:
+                        # 上書きモード: そのまま置き換える
+                        note["memo"] = memo_text
+                    else:
+                        # 追記モード (デフォルト)
+                        current_memo = note.get("memo", "").strip()
+                        if current_memo:
+                            note["memo"] = current_memo + "\n\n" + memo_text
+                        else:
+                            note["memo"] = memo_text
+
+                # 3. タグの変更
                 current_tags = set(note.get("tags", []))
 
-                # 2a. タグの追加 (階層も考慮)
+                # 3a. タグの追加 (階層も考慮)
                 for tag_to_add in tags_to_add:
                     parts = tag_to_add.split("_")
                     for i in range(len(parts)):
                         hierarchical_tag = "_".join(parts[: i + 1])
                         current_tags.add(hierarchical_tag)
 
-                # 2b. タグの削除
+                # 3b. タグの削除
                 current_tags.difference_update(tags_to_remove)
 
                 note["tags"] = sorted(list(current_tags))

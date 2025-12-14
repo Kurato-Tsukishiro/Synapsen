@@ -274,12 +274,22 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.update_tags_display()
 
     def open_tag_selector(self):
-        selector = TagSelectorWindow(self, self.all_tags, self.temp_tags)
-        selected_tag = selector.get_selection()
-        if selected_tag:
-            self.tag_entry.delete(0, "end")
-            self.tag_entry.insert(0, selected_tag)
-            self.add_tag_event()
+        # タグが選択されたときに実行する関数
+        def on_tag_selected(selected_tag):
+            # 直接入力欄に入れて追加イベントを発火させる、または直接リストに追加する
+            # ここでは直接リストに追加して表示更新するフローを採用します
+            if selected_tag:
+                # 階層タグの処理（既存ロジックの流用）
+                parts = selected_tag.split("_")
+                for i in range(len(parts)):
+                    hierarchical_tag = "_".join(parts[: i + 1])
+                    if hierarchical_tag not in self.temp_tags:
+                        self.temp_tags.append(hierarchical_tag)
+
+                self.update_tags_display()
+
+        # コールバック関数を渡してウィンドウを開く
+        TagSelectorWindow(self, self.all_tags, self.temp_tags, on_tag_selected)
 
     def iconbitmap(self, *args, **kwargs):
         """
@@ -308,7 +318,7 @@ class DataEditorWindow(ctk.CTkToplevel):
 # 既存タグ選択ウィンドウ
 # ==============================================================================
 class TagSelectorWindow(ctk.CTkToplevel):
-    def __init__(self, parent, all_tags, current_tags):
+    def __init__(self, parent, all_tags, current_tags, callback=None):
         super().__init__(parent)
 
         self._custom_icon_path = None
@@ -330,14 +340,18 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 except Exception as e:
                     logger.error(f"Initial icon set error (TagSelector): {e}")
 
-        self.selection = None
+        self.callback = callback
         self.title("既存のタグを選択")
-        self.geometry("300x400")
+        self.geometry("300x450")
         self.transient(parent)
         self.grab_set()
+
+        # --- タグリスト ---
         scroll_frame = ctk.CTkScrollableFrame(self)
-        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
+
         for tag in tags_to_show:
             btn = ctk.CTkButton(
                 scroll_frame,
@@ -347,15 +361,13 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
+            btn.configure(command=lambda t=tag, b=btn: self.select_tag(t, b))
             btn.pack(fill="x")
 
-    def select_tag(self, tag):
-        self.selection = tag
-        self.destroy()
-
-    def get_selection(self):
-        self.master.wait_window(self)
-        return self.selection
+    def select_tag(self, tag, btn_widget):
+        if self.callback:  # コールバックを実行（親画面に追加）
+            self.callback(tag)
+        btn_widget.destroy()  # 押されたボタンを画面から削除
 
     def iconbitmap(self, *args, **kwargs):
         """
@@ -518,7 +530,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
     アイコンの参照元が異なるため別クラスとして定義する。
     """
 
-    def __init__(self, parent, all_tags, current_tags):
+    def __init__(self, parent, all_tags, current_tags, callback=None):
         super().__init__(parent)
 
         self._custom_icon_path = None
@@ -540,13 +552,15 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 except Exception as e:
                     logger.error("Initial icon set error (BatchTagSelector): " f"{e}")
 
-        self.selection = None
+        self.callback = callback
         self.title("既存のタグを選択")
-        self.geometry("300x400")
+        self.geometry("300x450")
         self.transient(parent)
         self.grab_set()
+
         scroll_frame = ctk.CTkScrollableFrame(self)
-        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
         for tag in tags_to_show:
             btn = ctk.CTkButton(
@@ -557,15 +571,13 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
+            btn.configure(command=lambda t=tag, b=btn: self.select_tag(t, b))
             btn.pack(fill="x")
 
-    def select_tag(self, tag):
-        self.selection = tag
-        self.destroy()
-
-    def get_selection(self):
-        self.master.wait_window(self)
-        return self.selection
+    def select_tag(self, tag, btn_widget):
+        if self.callback:  # コールバックを実行（親画面に追加）
+            self.callback(tag)
+        btn_widget.destroy()  # 押されたボタンを画面から削除
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
@@ -584,16 +596,24 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
 # 一括編集ウィンドウ
 # ==============================================================================
 class BatchEditWindow(ctk.CTkToplevel):
-    def __init__(self, parent, selected_count, all_tags, commonplace_key_options):
+    def __init__(
+        self,
+        parent,
+        selected_count,
+        all_tags,
+        tags_in_selection,
+        commonplace_key_options,
+    ):
         super().__init__(parent)
         self.parent = parent
         self.all_tags = all_tags
+        self.tags_in_selection = tags_in_selection  # 選択範囲内のタグ
         self.commonplace_key_options = commonplace_key_options
         self.result = None
 
         # 一時的なタグリスト
         self.tags_to_add = []
-        self.tags_to_remove = []
+        self.tags_to_remove = []  # 削除対象のタグリスト
 
         self._custom_icon_path = None
         if hasattr(parent, "icon_path") and parent.icon_path:
@@ -605,7 +625,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                     logger.error(f"Initial icon set error: {e}")
 
         self.title(f"一括編集 ({selected_count} 件)")
-        self.geometry("600x700")
+        self.geometry("600x825")
         self.transient(parent)
         self.grab_set()
 
@@ -622,7 +642,27 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.cp_key_combo.pack(side="left", expand=True, fill="x")
         self.cp_key_combo.set("[ 変更しない ]")  # デフォルト
 
-        # --- 2. 追加するタグ ---
+        # --- 2. メモ追記 ---
+        memo_frame = ctk.CTkFrame(self)
+        memo_frame.pack(pady=5, padx=10, fill="x")
+
+        # ヘッダー (ラベルとスイッチ)
+        memo_header_frame = ctk.CTkFrame(memo_frame, fg_color="transparent")
+        memo_header_frame.pack(side="top", fill="x", padx=5, pady=(5, 0))
+
+        ctk.CTkLabel(memo_header_frame, text="メモ編集 (引用など):", anchor="w").pack(
+            side="left"
+        )
+
+        # 上書き切り替えスイッチ (デフォルトOFF=追記)
+        self.overwrite_switch = ctk.CTkSwitch(memo_header_frame, text="上書きモード")
+        self.overwrite_switch.pack(side="right")
+
+        # テキストボックス
+        self.memo_input_box = ctk.CTkTextbox(memo_frame, height=80)
+        self.memo_input_box.pack(side="bottom", fill="x", padx=5, pady=5)
+
+        # --- 3. 追加するタグ ---
         add_tag_frame = ctk.CTkFrame(self)
         add_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
@@ -644,22 +684,23 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
         self.add_tags_display_frame.pack(fill="both", expand=True)
 
-        # --- 3. 削除するタグ ---
+        # --- 4. 削除するタグ (選択式リスト) ---
         remove_tag_frame = ctk.CTkFrame(self)
         remove_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        ctk.CTkLabel(remove_tag_frame, text="削除するタグ:").pack(anchor="w")
+        header_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
+        header_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(
+            header_frame, text="含まれているタグ (×で削除指定):", text_color="#E74C3C"
+        ).pack(side="left", padx=5)
 
-        remove_tag_input_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
-        remove_tag_input_frame.pack(pady=5, fill="x")
-        self.remove_tag_entry = ctk.CTkEntry(
-            remove_tag_input_frame, placeholder_text="Enterで追加"
-        )
-        self.remove_tag_entry.pack(side="left", padx=(0, 5), expand=True, fill="x")
-        self.remove_tag_entry.bind("<Return>", self.add_tag_to_remove_list)
+        # 削除タグ一覧を表示するスクロールフレーム
+        self.remove_tags_scroll = ctk.CTkScrollableFrame(remove_tag_frame, height=200)
+        self.remove_tags_scroll.pack(fill="both", expand=True, padx=5, pady=5)
 
-        self.remove_tags_display_frame = ctk.CTkScrollableFrame(remove_tag_frame)
-        self.remove_tags_display_frame.pack(fill="both", expand=True)
+        # 選択範囲のタグ一覧を描画
+        self.tag_widgets = {}  # {tag_name: (label, button)}
+        self.populate_remove_tag_list()
 
         # --- 4. 適用 / キャンセルボタン ---
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -678,12 +719,21 @@ class BatchEditWindow(ctk.CTkToplevel):
     def apply_changes(self):
         index_key_to_set = self.cp_key_combo.get()
         if index_key_to_set == "[ 変更しない ]":
-            index_key_to_set = None  # 変更しない場合は None を返す
+            index_key_to_set = None
+
+        # 入力内容とモードを取得
+        text_val = self.memo_input_box.get("1.0", "end-1c").strip()
+        memo_text = text_val if text_val else None
+
+        # スイッチの状態を取得 (1=ON, 0=OFF)
+        overwrite_mode = bool(self.overwrite_switch.get())
 
         self.result = {
             "index_key": index_key_to_set,
             "tags_to_add": self.tags_to_add,
             "tags_to_remove": self.tags_to_remove,
+            "memo_text": memo_text,  # テキスト
+            "overwrite_mode": overwrite_mode,  # モード
         }
         self.destroy()
 
@@ -718,21 +768,76 @@ class BatchEditWindow(ctk.CTkToplevel):
             tag_frame.pack(anchor="w", pady=2, fill="x")
 
     def open_tag_selector_for_add(self):
-        selector = BatchTagSelectorWindow(self, self.all_tags, self.tags_to_add)
-        selected_tag = selector.get_selection()
-        if selected_tag:
-            self.add_tag_entry.delete(0, "end")
-            self.add_tag_entry.insert(0, selected_tag)
-            self.add_tag_to_add_list()
+        def on_batch_tag_selected(selected_tag):
+            if selected_tag:
+                parts = selected_tag.split("_")
+                for i in range(len(parts)):
+                    hierarchical_tag = "_".join(parts[: i + 1])
+                    if hierarchical_tag not in self.tags_to_add:
+                        self.tags_to_add.append(hierarchical_tag)
+
+                self.update_add_tags_display()
+
+        # BatchTagSelectorWindowをコールバック付きで呼び出し
+        BatchTagSelectorWindow(
+            self, self.all_tags, self.tags_to_add, on_batch_tag_selected
+        )
 
     # --- 「削除するタグ」リストの管理 ---
-    def add_tag_to_remove_list(self, event=None):
-        new_tag = self.remove_tag_entry.get().strip()
-        if new_tag and new_tag not in self.tags_to_remove:
-            # 削除は階層を考慮しない
-            self.tags_to_remove.append(new_tag)
-        self.update_remove_tags_display()
-        self.remove_tag_entry.delete(0, "end")
+    def populate_remove_tag_list(self):
+        """選択範囲に含まれるタグを一覧表示し、削除ボタンを配置する"""
+        if not self.tags_in_selection:
+            ctk.CTkLabel(
+                self.remove_tags_scroll,
+                text="（選択されたノートに共通するタグはありません）",
+                text_color="gray",
+            ).pack(pady=10)
+            return
+
+        for tag in self.tags_in_selection:
+            row = ctk.CTkFrame(self.remove_tags_scroll, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+
+            # タグ名ラベル
+            lbl = ctk.CTkLabel(row, text=tag, anchor="w")
+            lbl.pack(side="left", padx=5, fill="x", expand=True)
+
+            # 削除/戻すボタン
+            # lambdaで変数をキャプチャする際、デフォルト引数を使うことで現在の値を固定する
+            btn = ctk.CTkButton(
+                row,
+                text="×",
+                width=40,
+                fg_color="#C0392B",  # 赤系
+                hover_color="#E74C3C",
+                command=lambda t=tag: self.toggle_remove_tag(t),
+            )
+            btn.pack(side="right", padx=5)
+
+            # ウィジェットへの参照を保持 (後で色やテキストを変えるため)
+            self.tag_widgets[tag] = (lbl, btn)
+
+    def toggle_remove_tag(self, tag):
+        """タグの削除状態を切り替える (Keep <-> Remove)"""
+        lbl, btn = self.tag_widgets[tag]
+
+        if tag in self.tags_to_remove:
+            # 既に削除対象 -> 元に戻す
+            self.tags_to_remove.remove(tag)
+
+            # UIを通常状態に戻す
+            lbl.configure(
+                text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"]
+            )  # デフォルト色
+            btn.configure(text="×", fg_color="#C0392B", hover_color="#E74C3C")
+
+        else:
+            # 削除対象に追加
+            self.tags_to_remove.append(tag)
+
+            # UIを削除待機状態にする
+            lbl.configure(text_color="gray")  # グレーアウト
+            btn.configure(text="戻す", fg_color="gray", hover_color="#555")
 
     def remove_tag_from_remove_list(self, tag_to_remove):
         self.tags_to_remove.remove(tag_to_remove)

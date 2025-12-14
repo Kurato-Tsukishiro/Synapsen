@@ -293,12 +293,16 @@ class NoteEditorWindow(ctk.CTkToplevel):
         self.update_tags_display()
 
     def open_tag_selector(self):
-        selector = TagSelectorWindow(self, self.all_tags, self.temp_tags)
-        selected_tag = selector.get_selection()
-        if selected_tag:
-            self.tag_entry.delete(0, "end")
-            self.tag_entry.insert(0, selected_tag)
-            self.add_tag_event()
+        def on_nexus_tag_selected(selected_tag):
+            if selected_tag:
+                parts = selected_tag.split("_")
+                for i in range(len(parts)):
+                    hierarchical_tag = "_".join(parts[: i + 1])
+                    if hierarchical_tag not in self.temp_tags:
+                        self.temp_tags.append(hierarchical_tag)
+                self.update_tags_display()
+
+        TagSelectorWindow(self, self.all_tags, self.temp_tags, on_nexus_tag_selected)
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
@@ -317,7 +321,7 @@ class NoteEditorWindow(ctk.CTkToplevel):
 # 既存タグ選択ウィンドウ (gui_dialogs.pyから移植)
 # ==============================================================================
 class TagSelectorWindow(ctk.CTkToplevel):
-    def __init__(self, parent, all_tags, current_tags):
+    def __init__(self, parent, all_tags, current_tags, callback=None):
         super().__init__(parent)
 
         self._custom_icon_path = None
@@ -333,14 +337,16 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 except Exception as e:
                     logger.error(f"Initial icon set error (TagSelector): {e}")
 
-        self.selection = None
+        self.callback = callback
         self.title("既存のタグを選択")
-        self.geometry("300x400")
+        self.geometry("300x450")
         self.transient(parent)
         self.grab_set()
-        scroll_frame = ctk.CTkScrollableFrame(self)
-        scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
+        scroll_frame = ctk.CTkScrollableFrame(self)
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # 常に全タグを表示するように変更（連続追加のため）
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
 
         for tag in tags_to_show:
@@ -352,15 +358,13 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
+            btn.configure(command=lambda t=tag, b=btn: self.select_tag(t, b))
             btn.pack(fill="x")
 
-    def select_tag(self, tag):
-        self.selection = tag
-        self.destroy()
-
-    def get_selection(self):
-        self.master.wait_window(self)
-        return self.selection
+    def select_tag(self, tag, btn_widget):
+        if self.callback:  # コールバックを実行（親画面に追加）
+            self.callback(tag)
+        btn_widget.destroy()  # 押されたボタンを画面から削除
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
