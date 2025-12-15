@@ -4,6 +4,7 @@ Synapsenアプリケーションテーマ定義。
 このモジュールは、Synapsen_Lantcher、Synapsen_Nexus、Synapsen_Ersteller、Synapsen_Normalisierer全体で、
 デザインの一貫性を確保するため、色操作用のカラー定数と補助関数を格納します。
 """
+from typing import Tuple
 
 
 # --- Color Constants (Theme Colors) ---
@@ -40,6 +41,22 @@ COLOR_NEXUS = COLOR_TETSU
 
 
 # --- Color Utility Functions ---
+def hex_to_rgb_frac(hex_color: str) -> Tuple[float, float, float]:
+    """
+    16進カラー文字列をRGBの分数（0.0～1.0）のタプルに変換する。
+    ReportLabなどのライブラリで有用。
+
+    Args:
+        hex_color (str): 16進カラー文字列（例:  "#38b48b" or "38b48b").
+
+    Returns:
+        Tuple[float, float, float]: 0.0から1.0の間で正規化されたRGB値。(unityで言うとColor型)
+    """
+    hex_color = hex_color.lstrip("#")
+    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+    return f"{{{r/255:.4f},{g/255:.4f},{b/255:.4f}}}"
+
+
 def adjust_brightness(hex_color: str, factor: float = 0.8) -> str:
     """
     16進数カラーコードを受け取り、明度を調整したコードを返すヘルパー関数。
