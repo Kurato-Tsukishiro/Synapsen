@@ -61,7 +61,7 @@ try:
         from Synapsen_Nexus.canvas_window import CanvasWindow
         from Synapsen_Nexus.preview_window import NotePreviewWindow
         from Synapsen_Nexus.editor_window import NoteEditorWindow
-        import theme
+        from theme import SemanticColors as Colors
 
     except ImportError:
         # ディレクトリ直下で実行された場合など
@@ -84,7 +84,7 @@ try:
         from canvas_window import CanvasWindow
         from preview_window import NotePreviewWindow
         from editor_window import NoteEditorWindow
-        import theme
+        from theme import SemanticColors as Colors
 
 except ImportError as e:
     logger.critical(f"Critical Import Error: {e}")
@@ -468,9 +468,9 @@ class Synapsen_Nexus(
                 onvalue="1",
                 offvalue="0",
                 command=self._trigger_search_now,
-                fg_color=theme.COLOR_UI_BASIC,
-                hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
-                checkmark_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, 1.8),
+                fg_color=Colors.UI_BASIC,
+                hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+                checkmark_color=Colors.adjust_brightness(Colors.UI_BASIC, 1.8),
             ).pack(side="left", expand=True, fill="x")
             self.filter_checkboxes[key] = var
 
@@ -691,7 +691,7 @@ class Synapsen_Nexus(
         if not self.selected_keys:
             # 選択がない場合、ラベルを一瞬赤くして通知
             self.selection_info_label.configure(
-                text="選択なし!", text_color=theme.COLOR_LABEL_DANGER
+                text="選択なし!", text_color=Colors.LABEL_DANGER
             )
             self.after(1000, self.update_selection_ui_state)  # 1秒後に元に戻す
             return
@@ -702,7 +702,7 @@ class Synapsen_Nexus(
         # 2. 成功メッセージ
         count = len(self.selected_keys)
         self.selection_info_label.configure(
-            text=f"Canvasに追加: {count}件", text_color=theme.COLOR_LABEL_SUCCESS
+            text=f"Canvasに追加: {count}件", text_color=Colors.LABEL_SUCCESS
         )
         self.after(1500, self.update_selection_ui_state)
 
@@ -757,7 +757,7 @@ class Synapsen_Nexus(
         if count > 0:
             # 選択がある時は強調色（黄色/オレンジ系）にする
             self.selection_info_label.configure(
-                text_color=theme.adjust_brightness(theme.COLOR_LABEL_WARNING)
+                text_color=Colors.adjust_brightness(Colors.LABEL_WARNING)
             )
             self.copy_links_button.configure(state="normal")
             # 選択グラフも有効化されていることを視覚的に示すため、メニューは常に有効のまま
@@ -1235,10 +1235,8 @@ class Synapsen_Nexus(
                     f,
                     text=cp_key,
                     fg_color="transparent",
-                    text_color=(theme.COLOR_TEXT_LINK, theme.COLOR_TEXT_LINK_BRIGHT),
-                    hover_color=theme.adjust_brightness(
-                        theme.COLOR_BACKGROUND_PANEL, 0.9
-                    ),
+                    text_color=(Colors.TEXT_LINK, Colors.TEXT_LINK_BRIGHT),
+                    hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.9),
                     anchor="w",
                     height=20,
                     command=lambda k=cp_key: self.quick_search(f"ikey:{k}"),
@@ -1283,8 +1281,8 @@ class Synapsen_Nexus(
                     text="📂",
                     width=30,
                     height=24,
-                    fg_color=theme.COLOR_UI_LINK,
-                    hover_color=theme.adjust_brightness(theme.COLOR_UI_LINK),
+                    fg_color=Colors.UI_LINK,
+                    hover_color=Colors.adjust_brightness(Colors.UI_LINK),
                     text_color="black",
                     command=lambda p=target_open_path: self.open_file_location(p),
                 ).pack(side="left", padx=(0, 5))
@@ -1293,10 +1291,8 @@ class Synapsen_Nexus(
                     f,
                     text=display_filename,
                     fg_color="transparent",
-                    text_color=(theme.COLOR_TEXT_LINK, theme.COLOR_TEXT_LINK_BRIGHT),
-                    hover_color=theme.adjust_brightness(
-                        theme.COLOR_BACKGROUND_PANEL, 0.9
-                    ),
+                    text_color=(Colors.TEXT_LINK, Colors.TEXT_LINK_BRIGHT),
+                    hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.9),
                     anchor="w",
                     height=20,
                     command=lambda fn=display_filename: self.quick_search(f"file:{fn}"),
@@ -1323,16 +1319,12 @@ class Synapsen_Nexus(
                         s,
                         text=t,
                         font=("", 11),
-                        fg_color=theme.adjust_brightness(
-                            theme.COLOR_BACKGROUND_PANEL, 0.9
-                        ),
+                        fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.9),
                         text_color=(
-                            theme.COLOR_TEXT_LINK,
-                            theme.COLOR_TEXT_LINK_BRIGHT,
+                            Colors.TEXT_LINK,
+                            Colors.TEXT_LINK_BRIGHT,
                         ),
-                        hover_color=theme.adjust_brightness(
-                            theme.COLOR_BACKGROUND_PANEL
-                        ),
+                        hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
                         height=20,
                         width=30,
                         command=lambda tag=t: self.quick_search(f"tag:{tag}"),
@@ -1957,14 +1949,14 @@ class Synapsen_Nexus(
                     # 計算上は今のページにいるはずだが見つからない (フィルタで除外されている等)
                     self.selection_info_label.configure(
                         text="リスト外",
-                        text_color=theme.adjust_brightness(theme.COLOR_LABEL_WARNING),
+                        text_color=Colors.adjust_brightness(Colors.LABEL_WARNING),
                     )
                     self.after(1500, self.update_selection_ui_state)
                 else:
                     # ページ遷移を実行
                     self.selection_info_label.configure(
                         text="ジャンプ中...",
-                        text_color=theme.adjust_brightness(theme.COLOR_LABEL_WARNING),
+                        text_color=Colors.adjust_brightness(Colors.LABEL_WARNING),
                     )
 
                     self._pending_reveal_key = target_key  # 読み込み完了後の予約
@@ -1974,7 +1966,7 @@ class Synapsen_Nexus(
                 # 検索条件に合致しない (除外タグなど)
                 self.selection_info_label.configure(
                     text="リスト外",
-                    text_color=theme.adjust_brightness(theme.COLOR_LABEL_WARNING),
+                    text_color=Colors.adjust_brightness(Colors.LABEL_WARNING),
                 )
                 self.after(1500, self.update_selection_ui_state)
 

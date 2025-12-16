@@ -23,7 +23,7 @@ root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
-import theme  # noqa: E402
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 def load_app_config(base_path):
@@ -367,7 +367,7 @@ def build_memo_display(
         link_label = ctk.CTkLabel(
             content_frame,
             text=display_text,
-            text_color=(theme.COLOR_TEXT_LINK, theme.COLOR_TEXT_LINK_BRIGHT),
+            text_color=(Colors.TEXT_LINK, Colors.TEXT_LINK_BRIGHT),
             cursor="hand2",
             wraplength=frame_width,
             justify="left",

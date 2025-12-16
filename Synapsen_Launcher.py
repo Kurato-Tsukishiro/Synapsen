@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 from tkinter import messagebox
 
-import theme
+from theme import SemanticColors as Colors
 
 # --- パス設定 (exe/script両対応) ---
 
@@ -118,28 +118,28 @@ class SynapsenLauncher(ctk.CTk):
                 "Normalisierer",
                 "正規化: PDFの整形・OCR・Webクリップ",
                 "--normalisierer",
-                theme.COLOR_NORMALISIERER,
+                Colors.NORMALISIERER,
                 False,
             ),
             (
                 "Ersteller",
                 "統合: メタデータ編集・月次PDF作成",
                 "--ersteller",
-                theme.COLOR_ERSTELLER,
+                Colors.ERSTELLER,
                 False,
             ),
             (
                 "Nexus",
                 "閲覧: 検索・ネットワーク思考",
                 "--nexus",
-                theme.COLOR_NEXUS,
+                Colors.NEXUS,
                 False,
             ),
             (
                 "Watchdog",
                 "監視: 自動正規化(常駐)",
                 "--watchdog",
-                theme.COLOR_WATCHDOG,
+                Colors.WATCHDOG,
                 False,
             ),
         ]
@@ -157,7 +157,7 @@ class SynapsenLauncher(ctk.CTk):
                 font=("Arial", 16, "bold"),
                 height=50,
                 fg_color=color,
-                hover_color=theme.adjust_brightness(color, 0.8),
+                hover_color=Colors.adjust_brightness(color, 0.8),
                 command=lambda f=arg_flag, c=use_console: self.launch_self(f, c),
             )
             btn.pack(fill="x", pady=(0, 5))
