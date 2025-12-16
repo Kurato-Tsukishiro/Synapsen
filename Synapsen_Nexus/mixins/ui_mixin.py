@@ -1,7 +1,17 @@
 import customtkinter as ctk
 import logging
+import sys
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+import theme  # noqa: E402
 
 
 class NexusUiMixin:
@@ -10,7 +20,7 @@ class NexusUiMixin:
     def create_widgets(self):
         """全ウィジェットの生成と配置"""
         # トップコンテナ
-        top_container = ctk.CTkFrame(self)
+        top_container = ctk.CTkFrame(self, fg_color=theme.COLOR_BACKGROUND_PANEL)
         top_container.grid(
             row=0, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="ew"
         )
@@ -55,12 +65,24 @@ class NexusUiMixin:
         frame.pack(side="left", padx=(0, 5))
         # load_database_dialog は Synapsen_Nexus_main.py に定義されている前提
         ctk.CTkButton(
-            frame, text="DB", command=self.load_database_dialog, width=50
+            frame,
+            text="DB",
+            command=self.load_database_dialog,
+            width=50,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, factor=0.2),
         ).pack(side="left", padx=(0, 5))
         # show_search_help はこのファイル(Mixin)の下部に定義
-        ctk.CTkButton(frame, text="？", command=self.show_search_help, width=30).pack(
-            side="left", padx=0
-        )
+        ctk.CTkButton(
+            frame,
+            text="？",
+            command=self.show_search_help,
+            width=30,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, factor=0.2),
+        ).pack(side="left", padx=0)
 
     def _create_smart_search_buttons(self, parent):
         """検索保存・呼び出しボタンの作成 (ここで saved_search_combo を定義)"""
@@ -73,6 +95,9 @@ class NexusUiMixin:
             text="検索保存",
             command=self.search_manager.save_current_search,
             width=80,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, factor=0.2),
         )
         self.save_search_button.pack(side="left", padx=(0, 5))
 
@@ -81,6 +106,14 @@ class NexusUiMixin:
             values=["保存済み検索..."],
             width=150,
             command=self.search_manager.on_saved_search_selected,
+            button_color=theme.adjust_brightness(theme.COLOR_BACKGROUND_PANEL, 0.7),
+            button_hover_color=theme.adjust_brightness(
+                theme.COLOR_BACKGROUND_PANEL, 0.6
+            ),
+            dropdown_fg_color=theme.COLOR_BACKGROUND_HOLLOW,
+            dropdown_hover_color=theme.adjust_brightness(
+                theme.COLOR_BACKGROUND_HOLLOW, 0.85
+            ),
         )
         self.saved_search_combo.pack(side="left", padx=0)
         self.saved_search_combo.set("保存済み検索...")
@@ -111,21 +144,31 @@ class NexusUiMixin:
             text="▲ 古い順",
             command=self.toggle_sort_order,
             width=90,
-            fg_color="#585a9c",
-            hover_color="#494B83",
+            fg_color=theme.COLOR_UI_SECONDARY,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_SECONDARY),
         )
         self.sort_button.pack(side="left", padx=(0, 5))
 
         self.fts_checkbox = ctk.CTkCheckBox(
-            frame, text="本文・メモ検索", command=self._trigger_search_now
+            frame,
+            text="本文・メモ検索",
+            command=self._trigger_search_now,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            checkmark_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, 1.8),
         )
         self.fts_checkbox.pack(side="left", padx=(0, 10))
 
         self.exclude_tags_checkbox = ctk.CTkCheckBox(
-            frame, text="除外タグ", command=self._trigger_search_now
+            frame,
+            text="除外タグ",
+            command=self._trigger_search_now,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            checkmark_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, 1.8),
         )
         self.exclude_tags_checkbox.pack(side="left", padx=(0, 10))
-        defaults = getattr(self, 'exclude_tags_by_default', [])
+        defaults = getattr(self, "exclude_tags_by_default", [])
         if defaults:
             # タグ名を表示して分かりやすくする (例: "除外: Archive")
             label_text = f"除外: {','.join(defaults)}"
@@ -144,7 +187,13 @@ class NexusUiMixin:
         self.selection_info_label.pack(side="left", padx=(0, 5))
 
         self.clear_selection_button = ctk.CTkButton(
-            frame, text="×", command=self.clear_selection, width=30, fg_color="#6C757D"
+            frame,
+            text="×",
+            command=self.clear_selection,
+            width=30,
+            fg_color=theme.adjust_brightness(theme.COLOR_BACKGROUND_PANEL, 0.7),
+            hover_color=theme.adjust_brightness(theme.COLOR_BACKGROUND_PANEL, 0.6),
+            text_color="white",
         )
         self.clear_selection_button.pack(side="left", padx=0)
 
@@ -161,8 +210,9 @@ class NexusUiMixin:
             values=["全体 (Global)", "関連 (Local)", "選択 (Selected)"],
             command=self.handle_graph_menu,
             width=130,
-            fg_color="#585a9c",
-            button_color="#494B83",
+            fg_color=theme.COLOR_UI_SECONDARY,
+            button_color=theme.adjust_brightness(theme.COLOR_UI_SECONDARY),
+            button_hover_color=theme.adjust_brightness(theme.COLOR_UI_SECONDARY, 0.6),
         )
         self.graph_menu.pack(side="left", padx=(0, 5))
 
@@ -171,8 +221,8 @@ class NexusUiMixin:
             text="リンクコピー",
             command=self.copy_selected_links,
             width=90,
-            fg_color="#28a745",
-            hover_color="#218838",
+            fg_color=theme.COLOR_UI_LINK,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_LINK),
             state="disabled",
         )
         self.copy_links_button.pack(side="left", padx=(0, 5))
@@ -189,11 +239,11 @@ class NexusUiMixin:
             ],
             command=self.handle_export_menu,
             width=130,
-            fg_color="#17a2b8",
-            button_color="#138496",
+            fg_color=theme.COLOR_UI_EXPORT,
+            button_color=theme.adjust_brightness(theme.COLOR_UI_EXPORT),
+            button_hover_color=theme.adjust_brightness(theme.COLOR_UI_EXPORT, 0.6),
         )
         self.export_menu.pack(side="left", padx=(0, 5))
-
         ctk.CTkLabel(parent, text="|", text_color="gray").pack(side="left", padx=5)
 
     def _create_extra_tools(self, parent):
@@ -205,8 +255,8 @@ class NexusUiMixin:
             text="閃き (R)",
             command=self.show_random_note,
             width=70,
-            fg_color="#585a9c",
-            hover_color="#494B83",
+            fg_color=theme.COLOR_UI_SECONDARY,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_SECONDARY),
         )
         self.random_note_button.pack(side="left", padx=(0, 5))
 
@@ -215,8 +265,9 @@ class NexusUiMixin:
             text="キャンバス",
             command=self.open_canvas,
             width=80,
-            fg_color="#e0a800",
-            hover_color="#c69500",
+            fg_color=theme.COLOR_CANVAS,
+            hover_color=theme.adjust_brightness(theme.COLOR_CANVAS),
+            text_color=theme.adjust_brightness(theme.COLOR_CANVAS, factor=0.2),
         )
         self.canvas_button.pack(side="left", padx=0)
 
@@ -227,13 +278,16 @@ class NexusUiMixin:
             width=60,
             fg_color="transparent",
             border_width=1,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_OTHER),
             text_color=("gray10", "gray90"),
         )
         self.toggle_details_button.pack(side="left", padx=(5, 0))
 
     def _create_left_panel_contents(self):
         # フィルタ、リスト、ページネーション
-        filter_container = ctk.CTkFrame(self.left_panel)
+        filter_container = ctk.CTkFrame(
+            self.left_panel, fg_color=theme.COLOR_BACKGROUND_PANEL
+        )
         filter_container.grid(row=0, column=0, sticky="ew")
         filter_container.grid_columnconfigure(1, weight=1)
 
@@ -242,6 +296,9 @@ class NexusUiMixin:
             text="▶ IndexKey",
             command=self.toggle_filter_panel,
             width=20,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, factor=0.2),
         )
         self.toggle_filter_button.grid(row=0, column=0, padx=5, pady=5)
 
@@ -250,12 +307,17 @@ class NexusUiMixin:
         )
         self.collapsed_icons_frame.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        self.key_filter_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="")
+        self.key_filter_frame = ctk.CTkScrollableFrame(
+            self.left_panel, label_text="", fg_color=theme.COLOR_BACKGROUND_PANEL
+        )
         self.key_filter_frame.grid(row=1, column=0, padx=0, pady=(0, 5), sticky="nsew")
         self.key_filter_frame.grid_remove()  # 初期非表示
 
         self.results_list = ctk.CTkScrollableFrame(
-            self.left_panel, label_text="ノート一覧"
+            self.left_panel,
+            label_text="ノート一覧",
+            fg_color=theme.COLOR_BACKGROUND_PANEL,
+            label_fg_color=theme.adjust_brightness(theme.COLOR_BACKGROUND_PANEL, 0.8),
         )
         self.results_list.grid(row=2, column=0, padx=0, pady=0, sticky="nsew")
 
@@ -269,6 +331,9 @@ class NexusUiMixin:
             self.pagination_frame,
             text="< 前",
             width=80,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, factor=0.2),
             command=self.prev_page,
             state="disabled",
         )
@@ -279,13 +344,16 @@ class NexusUiMixin:
             self.pagination_frame,
             text="次 >",
             width=80,
+            fg_color=theme.COLOR_UI_BASIC,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+            text_color="black",
             command=self.next_page,
             state="disabled",
         )
         self.btn_next_page.pack(side="right", padx=10)
 
     def _create_details_panel(self):
-        self.details_frame = ctk.CTkFrame(self)
+        self.details_frame = ctk.CTkFrame(self, fg_color=theme.COLOR_BACKGROUND_PANEL)
         self.details_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
 
         self.details_frame.grid_rowconfigure(0, weight=0)  # Info
@@ -314,16 +382,26 @@ class NexusUiMixin:
         )
         self.pdf_preview_label.pack()
 
+        # メモと引用元のエリアのラベル色
+        label_fg_color = theme.adjust_brightness(theme.COLOR_BACKGROUND_HOLLOW, 0.85)
+
         # メモエリア
-        ctk.CTkLabel(self.details_frame, text="メモ:", anchor="w").grid(
-            row=1, column=0, sticky="w", padx=10
+        self.memo_display_frame = ctk.CTkScrollableFrame(
+            self.details_frame,
+            label_text="メモ",
+            height=150,
+            fg_color=theme.COLOR_BACKGROUND_HOLLOW,
+            label_fg_color=label_fg_color,
         )
-        self.memo_display_frame = ctk.CTkScrollableFrame(self.details_frame, height=150)
         self.memo_display_frame.grid(row=2, column=0, sticky="nsew", padx=10)
 
         # 引用エリア
         self.references_display_frame = ctk.CTkScrollableFrame(
-            self.details_frame, label_text="引用元", height=100
+            self.details_frame,
+            label_text="引用元",
+            height=100,
+            fg_color=theme.COLOR_BACKGROUND_HOLLOW,
+            label_fg_color=label_fg_color,
         )
         self.references_display_frame.grid(
             row=3, column=0, sticky="nsew", padx=10, pady=5
@@ -340,8 +418,8 @@ class NexusUiMixin:
             text="詳細プレビュー",
             command=self.open_current_note_in_preview,
             state="disabled",
-            fg_color="#00695C",
-            hover_color="#004D40",
+            fg_color=theme.COLOR_UI_LINK,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_LINK),
         )
         self.open_preview_button.pack(side="left", padx=5)
         self.edit_button = ctk.CTkButton(
@@ -349,14 +427,16 @@ class NexusUiMixin:
             text="編集",
             command=self.open_edit_dialog,
             state="disabled",
+            fg_color=theme.COLOR_UI_EDIT,
+            hover_color=theme.adjust_brightness(theme.COLOR_UI_EDIT),
         )
         self.edit_button.pack(side="left", padx=5)
         self.delete_button = ctk.CTkButton(
             self.edit_button_frame,
             text="削除",
             command=self.confirm_delete_note,
-            fg_color="#D9534F",
-            hover_color="#C9302C",
+            fg_color=theme.COLOR_LABEL_DENGER,
+            hover_color=theme.adjust_brightness(theme.COLOR_LABEL_DENGER),
             state="disabled",
         )
         self.delete_button.pack(side="left", padx=5)
@@ -413,6 +493,9 @@ class NexusUiMixin:
                 onvalue="on",
                 offvalue="off",
                 command=on_toggle,
+                fg_color=theme.COLOR_UI_BASIC,
+                hover_color=theme.adjust_brightness(theme.COLOR_UI_BASIC),
+                checkmark_color=theme.adjust_brightness(theme.COLOR_UI_BASIC, 1.8),
             )
             if not note_key:
                 checkbox.configure(state="disabled")
