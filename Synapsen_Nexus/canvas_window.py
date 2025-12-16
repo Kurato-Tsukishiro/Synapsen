@@ -44,6 +44,7 @@ try:
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
     )
+    from theme import SemanticColors as Colors
 except ImportError:
     print("Warning: pdf_utils import failed.")
 
@@ -56,10 +57,12 @@ if not logger.handlers:
 # ==============================================================================
 # 定数定義
 # ==============================================================================
-DEFAULT_CANVAS_BG_DARK = "#2b2b2b"
-DEFAULT_CANVAS_BG_LIGHT = "#f0f0f0"
-DEFAULT_GRID_COLOR_DARK = "#3a3a3a"
-DEFAULT_GRID_COLOR_LIGHT = "#e0e0e0"
+DEFAULT_CANVAS_BG_DARK = Colors.BACKGROUND_DARK_PANEL
+DEFAULT_CANVAS_BG_LIGHT = Colors.BACKGROUND_HOLLOW
+DEFAULT_GRID_COLOR_DARK = Colors.blend_colors(
+    "#FFFFFF", Colors.BACKGROUND_DARK_PANEL, 0.2
+)
+DEFAULT_GRID_COLOR_LIGHT = Colors.BACKGROUND_PANEL
 
 SHAPE_COLORS = {
     "レッド": "#FF4500",
@@ -71,12 +74,12 @@ SHAPE_COLORS = {
 }
 
 STICKY_COLORS = [
-    ("イエロー", "#FFFFA5"),
-    ("ブルー", "#D1EAFF"),
-    ("レッド", "#FFD1D1"),
-    ("グリーン", "#D1FFD1"),
-    ("ホワイト", "#FFFFF0"),
-    ("グレー", "#E0E0E0"),
+    ("イエロー", "#f8e58c"),  # 淡黄
+    ("ブルー", "#bbc8e6"),  # 淡藤色
+    ("レッド", "#eebbcb"),  # 撫子色
+    ("グリーン", "#c1d8ac"),  # 裏葉柳
+    ("ホワイト", "#fbfaf5"),  # 生成り色
+    ("グレー", "#adadad"),  # 薄鈍
 ]
 
 
@@ -417,7 +420,9 @@ Esc : キャンセル (保存せずに閉じる)
 [ノート追加]: Nexusで選択中のノートをキャンバスに追加
 [PDF出力]: キャンバス全体をPDFとして保存
 """
-        textbox = ctk.CTkTextbox(self, wrap="word", font=("", 12))
+        textbox = ctk.CTkTextbox(
+            self, wrap="word", font=("", 12), fg_color=Colors.BACKGROUND_PANEL
+        )
         textbox.pack(fill="both", expand=True, padx=10, pady=10)
         textbox.insert("1.0", help_text)
         textbox.configure(state="disabled")
@@ -548,31 +553,41 @@ class CanvasWindow(BaseSubWindow):
         self.destroy()
 
     def _create_ui(self):
-        self.toolbar = ctk.CTkFrame(self)
+        self.toolbar = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
         self.toolbar.pack(side="top", fill="x", padx=5, pady=5)
 
         # ファイル操作系
-        self._add_tool_btn("開く", 50, self.load_from_file, fg="#585a9c")
+        self._add_tool_btn(
+            "開く",
+            50,
+            self.load_from_file,
+            fg=Colors.UI_SECONDARY,
+            hover=Colors.adjust_brightness(Colors.UI_SECONDARY),
+        )
         self._add_tool_btn("保存", 50, self.save_canvas)
         self._add_tool_btn("別名保存", 60, self.save_as_file)
         self._add_sep()
 
         self._add_tool_btn(
-            "PDF出力", 60, self.export_canvas_dialog, fg="#00695C", hover="#004D40"
+            "PDF出力",
+            60,
+            self.export_canvas_dialog,
+            fg=Colors.UI_EXPORT,
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
         )
         self._add_tool_btn(
             "画像出力",
             60,
             self.export_canvas_image_dialog,
-            fg="#00695C",
-            hover="#004D40",
+            fg=Colors.UI_EXPORT,
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
         )
         self._add_tool_btn(
             "Mermaid出力",
             80,
             self.export_canvas_mermaid_dialog,
-            fg="#00695C",
-            hover="#004D40",
+            fg=Colors.UI_EXPORT,
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
         )
 
         # ズーム系
@@ -589,7 +604,10 @@ class CanvasWindow(BaseSubWindow):
             border_width=1,
             border_color="gray",
             text_color=("black", "white"),
-            hover_color=("gray70", "gray30"),
+            hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.2),
+            ),
         )
         self.zoom_reset_button.pack(side="left", padx=2)
         self._add_tool_btn("+", 30, self._zoom_in_btn)
@@ -602,6 +620,12 @@ class CanvasWindow(BaseSubWindow):
             values=list(SHAPE_COLORS.keys()),
             variable=self.color_var,
             width=90,
+            fg_color=Colors.UI_BASIC,
+            button_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            button_hover_color=Colors.adjust_brightness(Colors.UI_BASIC, 0.6),
+            text_color="black",
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.color_menu.pack(side="left", padx=2)
 
@@ -626,24 +650,35 @@ class CanvasWindow(BaseSubWindow):
             "OR検索",
             70,
             self.send_or_search_to_nexus,
-            fg="#E0a800",
-            hover="#D09800",
+            fg=Colors.CANVAS,
+            hover=Colors.adjust_brightness(Colors.CANVAS),
             text_col="black",
         )
 
         # 右側ボタン
-        ctk.CTkButton(self.toolbar, text="？", width=30, command=self.show_help).pack(
-            side="right", padx=5
-        )
         ctk.CTkButton(
-            self.toolbar, text="ノート追加", command=self.add_selected_notes
+            self.toolbar,
+            text="？",
+            width=30,
+            command=self.show_help,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+        ).pack(side="right", padx=5)
+        ctk.CTkButton(
+            self.toolbar,
+            text="ノート追加",
+            command=self.add_selected_notes,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="right", padx=5)
         ctk.CTkButton(
             self.toolbar,
             text="全消去",
             width=60,
-            fg_color="#D9534F",
-            hover_color="#C9302C",
+            fg_color=Colors.LABEL_DENGER,
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
             command=self.clear_canvas,
         ).pack(side="right", padx=5)
 
@@ -672,7 +707,18 @@ class CanvasWindow(BaseSubWindow):
         self._setup_move_shortcuts()
         self._setup_undo_shortcuts()
 
-    def _add_tool_btn(self, text, w, cmd, fg=None, hover=None, text_col=None):
+    def _add_tool_btn(
+        self,
+        text,
+        w,
+        cmd,
+        fg=Colors.UI_BASIC,
+        hover=Colors.adjust_brightness(Colors.UI_BASIC),
+        text_col=None,
+    ):
+        text_col = (
+            "black" if ((fg is Colors.UI_BASIC) and (text_col is None)) else text_col
+        )
         btn = ctk.CTkButton(
             self.toolbar,
             text=text,
@@ -693,6 +739,7 @@ class CanvasWindow(BaseSubWindow):
             self.toolbar,
             text=text,
             width=50,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
             command=lambda: self.set_mode(mode, label),
         )
         btn.pack(side="left", padx=2)
@@ -854,7 +901,13 @@ class CanvasWindow(BaseSubWindow):
         self.current_mode = mode
         self.status_label_var.set(f"現在のツール: {label_text}")
         for m, btn in self.mode_buttons.items():
-            btn.configure(fg_color="#1F6AA5" if m == mode else "#777777")
+            btn.configure(
+                fg_color=(
+                    Colors.adjust_brightness(Colors.UI_BASIC, 0.6)
+                    if m == mode
+                    else Colors.adjust_brightness(Colors.BACKGROUND_PANEL)
+                )
+            )
         if mode != "select":
             self._clear_selection()
 
@@ -2757,12 +2810,12 @@ class CanvasWindow(BaseSubWindow):
 
         # 2. 付箋 (Stickies)
         color_map = {
-            "#FFFFA5": "sticky_yellow",
-            "#D1EAFF": "sticky_blue",
-            "#FFD1D1": "sticky_red",
-            "#D1FFD1": "sticky_green",
-            "#E0E0E0": "sticky_gray",
-            "#FFFFF0": "note",
+            "#f8e58c": "sticky_yellow",
+            "#bbc8e6": "sticky_blue",
+            "#eebbcb": "sticky_red",
+            "#c1d8ac": "sticky_green",
+            "#fbfaf5": "sticky_gray",
+            "#adadad": "note",
         }
 
         for s in self.stickies_on_canvas:
@@ -2778,7 +2831,7 @@ class CanvasWindow(BaseSubWindow):
             if content:
                 display_text += f"<br>{content}"
 
-            bg_color = s.get("bg_color", "#FFFFA5")
+            bg_color = s.get("bg_color", "#f8e58c")
             style_class = color_map.get(bg_color, "sticky_yellow")
 
             lines.append(f'    {sid}["{display_text}"]:::{style_class}')

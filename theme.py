@@ -41,6 +41,9 @@ class Colors:
     DOVEGREY: Final[str] = "#9e8b8e"
     """ 鳩羽鼠色 """
 
+    KACIIKAESHI: Final[str] = "#203744"
+    """ 褐返色 """
+
     # Base
     WHITE: Final[str] = "#FFFFFF"
     BLACK: Final[str] = "#000000"
@@ -215,7 +218,7 @@ class SemanticColors:
     LABEL_SUCCESS: Final[str] = Colors.HISUI
     """ 成功ラベル : 翡翠色 """
 
-    # --- Backgrounds (計算して定義) ---
+    # --- Backgrounds ---
     BACKGROUND_PANEL: Final[str] = blend_colors(
         adjust_saturation(Colors.DOVEGREY, 0.7), Colors.WHITE, alpha=0.35
     )
@@ -227,3 +230,6 @@ class SemanticColors:
     """
     窪み背景色 : 非常に薄い灰色 (鳩羽色及びパネル背景色をベースに明るく調整)
     """
+
+    BACKGROUND_DARK_PANEL = Colors.KACIIKAESHI
+    """ パネル背景色(DARK) """
