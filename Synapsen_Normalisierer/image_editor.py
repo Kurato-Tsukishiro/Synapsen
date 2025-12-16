@@ -1,8 +1,17 @@
+import sys
 import customtkinter as ctk
 import tkinter as tk
 from PIL import Image, ImageTk
 import numpy as np
 from pathlib import Path
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 class PerspectiveCropEditor(ctk.CTkToplevel):
@@ -92,13 +101,15 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             self.toolbar,
             text="ホイール: ズーム | 右ドラッグ: 移動 | ■ハンドル: 辺移動(軸固定)",
             font=("", 12),
-            text_color="gray",
+            fg_color=Colors.BACKGROUND_PANEL,
+            text_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.25),
         ).pack(side="left", padx=15)
 
         self.btn_cancel = ctk.CTkButton(
             self.toolbar,
             text="キャンセル",
-            fg_color="gray",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
             width=80,
             command=self.destroy,
         )
@@ -109,11 +120,20 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             text="リセット (全体表示)",
             width=120,
             command=self._reset_view_and_corners,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.btn_reset.pack(side="left", padx=5)
 
         self.btn_save = ctk.CTkButton(
-            self.toolbar, text="変形して適用", width=120, command=self._apply_and_save
+            self.toolbar,
+            text="変形して適用",
+            width=120,
+            command=self._apply_and_save,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.btn_save.pack(side="right", padx=5)
 
@@ -122,7 +142,10 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         self.canvas_frame.pack(side="top", fill="both", expand=True, padx=10, pady=10)
 
         self.canvas = tk.Canvas(
-            self.canvas_frame, bg="#333333", highlightthickness=0, cursor="crosshair"
+            self.canvas_frame,
+            bg=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.75),
+            highlightthickness=0,
+            cursor="crosshair",
         )
         self.canvas.pack(fill="both", expand=True)
 
@@ -247,7 +270,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
 
         # 枠線
         self.canvas.create_polygon(
-            flat_c_pts, outline="#00E5FF", width=2, fill="", tags="ui"
+            flat_c_pts, outline=Colors.UI_BASIC, width=2, fill="", tags="ui"
         )
 
         # --- コーナーハンドル (●) ---
@@ -258,7 +281,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
                 cy - r,
                 cx + r,
                 cy + r,
-                fill="#00E5FF",
+                fill=Colors.UI_BASIC,
                 outline="white",
                 width=2,
                 tags=("ui", "handle", f"corner_{i}"),
@@ -279,7 +302,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
                 my - er,
                 mx + er,
                 my + er,
-                fill="#FF4081",
+                fill=Colors.LABEL_DENGER,
                 outline="white",
                 width=2,
                 tags=("ui", "handle", f"edge_{i}"),
@@ -472,7 +495,7 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             mag_y,
             mag_x + self.magnifier_size,
             mag_y + self.magnifier_size,
-            outline="#00E5FF",
+            outline=Colors.UI_BASIC,
             width=3,
             fill="black",
             tags="magnifier",
@@ -484,10 +507,10 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         cy = mag_y + self.magnifier_size / 2
         L = 10
         self.canvas.create_line(
-            cx - L, cy, cx + L, cy, fill="#00E5FF", width=1, tags="magnifier"
+            cx - L, cy, cx + L, cy, fill=Colors.UI_BASIC, width=1, tags="magnifier"
         )
         self.canvas.create_line(
-            cx, cy - L, cx, cy + L, fill="#00E5FF", width=1, tags="magnifier"
+            cx, cy - L, cx, cy + L, fill=Colors.UI_BASIC, width=1, tags="magnifier"
         )
 
     def _reset_corners(self):

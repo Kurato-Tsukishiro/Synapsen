@@ -211,8 +211,8 @@ class SemanticColors:
     # ラベル・通知系
     LABEL_DENGER: Final[str] = Colors.SUOU
     """ 危険ラベル警告 : 蘇芳色 """
-    LABEL_WARNING: Final[str] = Colors.HIMAWARI
-    """ 注意ラベル警告 : 向日葵色 """
+    LABEL_WARNING: Final[str] = adjust_brightness(Colors.HIMAWARI)
+    """ 注意ラベル警告 : 向日葵色 (20% 暗) """
     LABEL_INFO: Final[str] = Colors.MYOSOTIS
     """ 情報ラベル警告 : 勿忘草色 """
     LABEL_SUCCESS: Final[str] = Colors.HISUI
