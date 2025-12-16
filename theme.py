@@ -190,8 +190,10 @@ class SemanticColors:
     """ 第三のUI要素 : 鳩羽鼠色 """
 
     # リンク・ジャンプ系
+    UI_PREVIEW: Final[str] = Colors.HISUI
+    """ 表示系のUIカラー : 翡翠色 """
     UI_LINK: Final[str] = Colors.HISUI
-    """ リンク関連機能のUI, ジャンプ系機能 : 翡翠色 """
+    """ リンク関連機能のUIカラー : 翡翠色 """
     TEXT_LINK: Final[str] = Colors.KIKYO
     """ リンクテキスト(暗) : 桔梗色 """
     TEXT_LINK_BRIGHT: Final[str] = Colors.MYOSOTIS

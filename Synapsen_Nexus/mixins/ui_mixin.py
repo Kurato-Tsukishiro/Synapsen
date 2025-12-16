@@ -416,8 +416,8 @@ class NexusUiMixin:
             text="詳細プレビュー",
             command=self.open_current_note_in_preview,
             state="disabled",
-            fg_color=Colors.UI_LINK,
-            hover_color=Colors.adjust_brightness(Colors.UI_LINK),
+            fg_color=Colors.UI_PREVIEW,
+            hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
         )
         self.open_preview_button.pack(side="left", padx=5)
         self.edit_button = ctk.CTkButton(

@@ -2,6 +2,8 @@ from tkinter import messagebox
 import customtkinter as ctk
 import fitz
 import logging
+import sys
+from pathlib import Path
 
 from utils import (
     build_memo_display,
@@ -12,6 +14,14 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 # ==============================================================================
@@ -88,7 +98,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # --- [Col 0] PDFプレビューコンテナ ---
-        self.pdf_preview_container = ctk.CTkFrame(self)
+        self.pdf_preview_container = ctk.CTkFrame(
+            self, fg_color=Colors.BACKGROUND_PANEL
+        )
         self.pdf_preview_container.grid_rowconfigure(1, weight=1)
         self.pdf_preview_container.grid_columnconfigure(0, weight=1)
 
@@ -105,6 +117,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
             text="<",
             width=30,
             state="disabled",
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color=Colors.adjust_brightness(Colors.UI_BASIC, factor=0.2),
             command=self.show_prev_page,
         )
         self.pdf_prev_button.pack(side="left", padx=5)
@@ -117,6 +132,9 @@ class NotePreviewWindow(ctk.CTkToplevel):
             text=">",
             width=30,
             state="disabled",
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color=Colors.adjust_brightness(Colors.UI_BASIC, factor=0.2),
             command=self.show_next_page,
         )
         self.pdf_next_button.pack(side="left", padx=5)
@@ -132,7 +150,12 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.pdf_preview_label.grid(row=1, column=0, padx=5, pady=(0, 5), sticky="nsew")
 
         # --- [Col 1] 情報/メモ/引用元コンテナ ---
-        self.info_container = ctk.CTkScrollableFrame(self, label_text="ノート詳細")
+        self.info_container = ctk.CTkScrollableFrame(
+            self,
+            label_text="ノート詳細",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.info_container.grid_columnconfigure(1, weight=1)
 
         # メモと引用元のために行の重みを設定
@@ -198,8 +221,15 @@ class NotePreviewWindow(ctk.CTkToplevel):
             row=5, column=0, padx=10, pady=5, sticky="nw"
         )
 
+        # メモと引用元のエリアのラベル色
+        label_fg_color = Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85)
+
         # 7. メモ (フレーム)
-        self.memo_display_frame = ctk.CTkScrollableFrame(self.info_container)
+        self.memo_display_frame = ctk.CTkScrollableFrame(
+            self.info_container,
+            fg_color=Colors.BACKGROUND_HOLLOW,
+            label_fg_color=label_fg_color,
+        )
         self.memo_display_frame.grid(row=5, column=1, padx=10, pady=5, sticky="nsew")
 
         # 8. 引用元
@@ -209,7 +239,10 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         # 9. 引用元 (フレーム)
         self.references_display_frame = ctk.CTkScrollableFrame(
-            self.info_container, label_text="このノートを引用"
+            self.info_container,
+            label_text="このノートを引用",
+            fg_color=Colors.BACKGROUND_HOLLOW,
+            label_fg_color=label_fg_color,
         )
         self.references_display_frame.grid(
             row=7, column=1, padx=10, pady=5, sticky="nsew"
@@ -220,58 +253,68 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         # 10. PDFを開くボタン
         self.pdf_button = ctk.CTkButton(
-            self.button_frame, text="PDFを開く", command=self.open_pdf_action, width=50
+            self.button_frame, text="PDFを開く",
+            fg_color=Colors.UI_PREVIEW,
+            hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
+            command=self.open_pdf_action, width=50
         )
         self.pdf_button.pack(side="left", padx=5)
 
-        # 11. 編集ボタン
-        self.edit_button = ctk.CTkButton(
-            self.button_frame,
-            text="編集する",
-            command=self.edit_note_action,
-            fg_color="#585a9c",
-            hover_color="#494B83",
-        )
-        self.edit_button.pack(side="left", padx=5)
-
-        # 12. ウィンドウサイズ切り替えボタン
+        # 11. ウィンドウサイズ切り替えボタン
         self.toggle_view_button = ctk.CTkButton(
             self.button_frame,
             text="表示切替",  # テキストは update_layout で設定
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color=Colors.adjust_brightness(Colors.UI_BASIC, factor=0.2),
             command=self.toggle_view_mode,
         )
         self.toggle_view_button.pack(side="left", padx=5)
 
-        # 13. 関連グラフボタン
+        # 12. 関連グラフボタン
         self.graph_button = ctk.CTkButton(
             self.button_frame,
             text="関連グラフ",
             command=self.show_local_graph_action,
-            fg_color="#585a9c",
-            hover_color="#494B83",
+            fg_color=Colors.UI_SECONDARY,
+            hover_color=Colors.adjust_brightness(Colors.UI_SECONDARY),
         )
         self.graph_button.pack(side="left", padx=5)
 
-        # 14. 本体Key/引用先コピーボタン
+        # 13. 本体Key/引用先コピーボタン
         self.copy_menu_var = ctk.StringVar(value="コピー...")
         self.copy_menu = ctk.CTkOptionMenu(
             self.button_frame,
             variable=self.copy_menu_var,
             values=["本体のKeyをコピー", "引用先をコピー"],
             command=self.handle_copy_menu,
-            fg_color="#28a745",  # ボタン色 (緑)
-            button_color="#218838",  # ドロップダウン矢印の色
-            button_hover_color="#1E7E34",  # ドロップダウン矢印のホバー色
+            fg_color=Colors.UI_LINK,  # ボタン色
+            button_color=Colors.adjust_brightness(  # ドロップダウン矢印の色
+                Colors.UI_LINK
+            ),
+            button_hover_color=Colors.adjust_brightness(  # ドロップダウン矢印のホバー色
+                Colors.UI_LINK, 0.6
+            ),
         )
         self.copy_menu.pack(side="left", padx=5)
+
+        # 14. 編集ボタン
+        self.edit_button = ctk.CTkButton(
+            self.button_frame,
+            text="編集する",
+            command=self.edit_note_action,
+            fg_color=Colors.UI_EDIT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT),
+        )
+        self.edit_button.pack(side="left", padx=5)
 
         # 15. 選択ノートへリンク
         self.link_to_selected_button = ctk.CTkButton(
             self.button_frame,
             text="選択へリンク",
             command=self.link_to_selected_action,
-            fg_color="#00695C",
-            hover_color="#004D40",
+            fg_color=Colors.UI_EDIT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT),
         )
         self.link_to_selected_button.pack(side="left", padx=5)
 
@@ -620,7 +663,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
                 image=None,
                 text="プレビューの読み込みに失敗",
                 fg_color="gray20",
-                text_color="#D9534F",
+                text_color=Colors.LABEL_DENGER,
             )
             self.pdf_page_label.configure(text="(-/-)")
             self.pdf_prev_button.configure(state="disabled")
@@ -655,7 +698,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
                 image=None,
                 text=f"ページ {absolute_page_index + 1} の描画に失敗",
                 fg_color="gray20",
-                text_color="#D9534F",
+                text_color=Colors.LABEL_DENGER,
             )
 
         # 4. ページめくりUIを更新 (1-indexed)

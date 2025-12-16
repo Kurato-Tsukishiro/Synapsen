@@ -1281,8 +1281,8 @@ class Synapsen_Nexus(
                     text="📂",
                     width=30,
                     height=24,
-                    fg_color=Colors.UI_LINK,
-                    hover_color=Colors.adjust_brightness(Colors.UI_LINK),
+                    fg_color=Colors.UI_PREVIEW,
+                    hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
                     text_color="black",
                     command=lambda p=target_open_path: self.open_file_location(p),
                 ).pack(side="left", padx=(0, 5))
