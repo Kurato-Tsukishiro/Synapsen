@@ -748,12 +748,18 @@ Esc : 入力欄からフォーカスを外す
 - **ON (低速)**: 上記に加え、`memo:` と `fulltext:` も対象に含めて検索します。
 """
 
-        textbox = ctk.CTkTextbox(self, wrap="word")
+        textbox = ctk.CTkTextbox(self, wrap="word", fg_color=Colors.BACKGROUND_PANEL)
         textbox.pack(fill="both", expand=True, padx=10, pady=(10, 5))
         textbox.insert("1.0", help_text)
         textbox.configure(state="disabled")
 
-        close_button = ctk.CTkButton(self, text="閉じる", command=self.destroy)
+        close_button = ctk.CTkButton(
+            self,
+            text="閉じる",
+            command=self.destroy,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+        )
         close_button.pack(pady=(0, 10), padx=10)
 
     def iconbitmap(self, *args, **kwargs):

@@ -1,10 +1,20 @@
 import customtkinter as ctk
 from tkinter import messagebox
 import json
+import sys
+from pathlib import Path
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 # ==============================================================================
@@ -92,7 +102,12 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         self.transient(parent_app)
         self.grab_set()
 
-        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="クリックして削除")
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            label_text="クリックして削除",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.populate_list()
@@ -113,14 +128,16 @@ class ManageSearchesWindow(ctk.CTkToplevel):
 
         for search_name in sorted_search_names:
             query = self.search_manager.saved_searches[search_name]
-            row_frame = ctk.CTkFrame(self.scroll_frame, fg_color="#ADADAD")
+            row_frame = ctk.CTkFrame(
+                self.scroll_frame, fg_color=Colors.BACKGROUND_HOLLOW
+            )
 
             delete_btn = ctk.CTkButton(
                 row_frame,
                 text="削除 (X)",
                 width=80,
-                fg_color="#D9534F",
-                hover_color="#C9302C",
+                fg_color=Colors.LABEL_DENGER,
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
                 command=lambda name=search_name: self.confirm_delete(name),
             )
             delete_btn.pack(side="left", padx=(7, 5), pady=7)
