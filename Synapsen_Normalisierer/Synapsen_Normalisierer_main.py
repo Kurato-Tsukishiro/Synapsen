@@ -115,6 +115,9 @@ class Synapsen_Normalisierer(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Normalisierer")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("500x300")
 
         # --- 設定値の初期化 ---

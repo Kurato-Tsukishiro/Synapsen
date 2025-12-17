@@ -59,6 +59,9 @@ class PreviewWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.title("ページプレビュー")
         self.geometry("800x600")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self._custom_icon_path = icon_path
 
         self.transient(parent)
@@ -205,26 +208,30 @@ class WebClipWindow(ctk.CTkToplevel):
         )
         input_frame.pack(pady=10, padx=10, fill="x")
 
-        ctk.CTkLabel(input_frame, text="URL:", width=80).grid(
-            row=0, column=0, padx=5, pady=5, sticky="w"
-        )
+        ctk.CTkLabel(
+            input_frame, text="URL:", width=80, text_color=Colors.BACKGROUND_HOLLOW
+        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.url_entry = ctk.CTkEntry(
             input_frame,
             placeholder_text="https://...",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            text_color=Colors.BACKGROUND_HOLLOW,
         )
         self.url_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(input_frame, text="ファイル名:", width=80).grid(
-            row=1, column=0, padx=5, pady=5, sticky="w"
-        )
+        ctk.CTkLabel(
+            input_frame,
+            text="ファイル名:",
+            width=80,
+            text_color=Colors.BACKGROUND_HOLLOW,
+        ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
         now = datetime.datetime.now()
         default_base_name = f"{now.strftime('%Y%m%d_%H%M%S')}_WebClip"
         self.filename_var = ctk.StringVar(value=default_base_name)
         self.filename_entry = ctk.CTkEntry(
             input_frame,
             textvariable=self.filename_var,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.filename_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         ctk.CTkLabel(input_frame, text=".pdf").grid(
@@ -270,7 +277,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.sist_author_entry = ctk.CTkEntry(
             sist_frame,
             placeholder_text="（自動取得試行）",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_author_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
@@ -280,7 +287,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.sist_title_entry = ctk.CTkEntry(
             sist_frame,
             placeholder_text="（自動取得試行）",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_title_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
@@ -290,7 +297,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.sist_site_entry = ctk.CTkEntry(
             sist_frame,
             placeholder_text="（自動取得試行）",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_site_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
@@ -300,7 +307,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.sist_date_entry = ctk.CTkEntry(
             sist_frame,
             placeholder_text="（自動取得試行, YYYY-MM-DD）",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_date_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
@@ -316,7 +323,7 @@ class WebClipWindow(ctk.CTkToplevel):
         self.index_key_combo = ctk.CTkComboBox(
             key_frame,
             values=["（未選択）"] + key_options,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
             button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
             dropdown_fg_color=Colors.BACKGROUND_PANEL,
@@ -332,7 +339,9 @@ class WebClipWindow(ctk.CTkToplevel):
         comment_frame = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
         comment_frame.pack(pady=(0, 10), padx=10, fill="both", expand=True)
         self.comment_textbox = ctk.CTkTextbox(
-            comment_frame, height=80, fg_color=Colors.BACKGROUND_HOLLOW
+            comment_frame,
+            height=80,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.comment_textbox.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -343,7 +352,9 @@ class WebClipWindow(ctk.CTkToplevel):
         key_frame2 = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
 
         self.cited_keys_entry = ctk.CTkTextbox(
-            key_frame2, height=60, fg_color=Colors.BACKGROUND_HOLLOW
+            key_frame2,
+            height=60,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.cited_keys_entry.pack(fill="both", expand=True, padx=5, pady=5)
         key_frame2.pack(pady=(0, 10), padx=10, fill="x")

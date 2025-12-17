@@ -102,6 +102,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         self.title("D&D/ペーストで正規化")
         self.geometry("1000x800")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         self._custom_icon_path = None
         if hasattr(parent_app, "icon_path") and parent_app.icon_path:
@@ -161,7 +164,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.index_key_combo = ctk.CTkComboBox(
             meta_frame,
             values=["（未選択）"] + key_options,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
             button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
             dropdown_fg_color=Colors.BACKGROUND_PANEL,
@@ -175,7 +178,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             meta_frame, text="コメント (PDF 最終ページに埋込):", anchor="w"
         ).pack(pady=(5, 0), padx=10, fill="x")
         self.comment_textbox = ctk.CTkTextbox(
-            meta_frame, height=80, fg_color=Colors.BACKGROUND_HOLLOW
+            meta_frame,
+            height=80,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.comment_textbox.pack(pady=5, padx=10, fill="both", expand=True)
 
@@ -193,7 +198,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             row=0, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_author_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）", fg_color=Colors.BACKGROUND_HOLLOW
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_author_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
@@ -201,7 +208,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             row=1, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_title_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）", fg_color=Colors.BACKGROUND_HOLLOW
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_title_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
@@ -209,7 +218,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             row=2, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_site_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意）", fg_color=Colors.BACKGROUND_HOLLOW
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_site_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
@@ -219,7 +230,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.sist_date_entry = ctk.CTkEntry(
             sist_frame,
             placeholder_text="（任意, YYYY-MM-DD）",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_date_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
@@ -241,7 +252,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             meta_frame, text="引用元Key (カンマ区切り または 改行区切り):", anchor="w"
         ).pack(pady=(10, 0), padx=10, fill="x")
         self.cited_keys_entry = ctk.CTkTextbox(
-            meta_frame, height=40, fg_color=Colors.BACKGROUND_HOLLOW
+            meta_frame,
+            height=40,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.cited_keys_entry.pack(pady=5, padx=10, fill="both", expand=True)
 
@@ -525,7 +538,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         name_entry = ctk.CTkEntry(
             bottom_sub_frame,
             textvariable=item["base_name_var"],
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
 
         if self.merge_files_checkbox.get():

@@ -42,6 +42,9 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
 
         self.title("画像変形・トリミング")
         self.geometry("1000x800")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.on_save_callback = on_save_callback
 
         # 画像の読み込み
@@ -102,7 +105,10 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
             text="ホイール: ズーム | 右ドラッグ: 移動 | ■ハンドル: 辺移動(軸固定)",
             font=("", 12),
             fg_color=Colors.BACKGROUND_PANEL,
-            text_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.25),
+            text_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.25),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.75),
+            ),
         ).pack(side="left", padx=15)
 
         self.btn_cancel = ctk.CTkButton(
