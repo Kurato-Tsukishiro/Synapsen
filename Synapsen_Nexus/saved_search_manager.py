@@ -1,10 +1,20 @@
 import customtkinter as ctk
 from tkinter import messagebox
 import json
+import sys
+from pathlib import Path
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 # ==============================================================================
@@ -15,6 +25,9 @@ class SaveSearchDialog(ctk.CTkToplevel):
         super().__init__(parent_app)
         self.title("検索を保存")
         self.geometry("400x180")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.result = None
 
         # アイコン設定
@@ -38,15 +51,21 @@ class SaveSearchDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=10)
 
-        ctk.CTkButton(btn_frame, text="OK", width=100, command=self.on_ok).pack(
-            side="left", padx=10
-        )
+        ctk.CTkButton(
+            btn_frame,
+            text="OK",
+            width=100,
+            command=self.on_ok,
+            fg_color=Colors.UI_BASIC,
+            text_color="black",
+        ).pack(side="left", padx=10)
         ctk.CTkButton(
             btn_frame,
             text="キャンセル",
             width=100,
             command=self.destroy,
-            fg_color="gray",
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="left", padx=10)
 
         self.bind("<Return>", lambda e: self.on_ok())
@@ -79,6 +98,9 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         self.search_manager = search_manager
         self.title("保存済み検索の管理")
         self.geometry("450x500")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         # アイコン設定
         if self.parent_app.icon_path:
@@ -92,7 +114,12 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         self.transient(parent_app)
         self.grab_set()
 
-        self.scroll_frame = ctk.CTkScrollableFrame(self, label_text="クリックして削除")
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            label_text="クリックして削除",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.populate_list()
@@ -113,14 +140,17 @@ class ManageSearchesWindow(ctk.CTkToplevel):
 
         for search_name in sorted_search_names:
             query = self.search_manager.saved_searches[search_name]
-            row_frame = ctk.CTkFrame(self.scroll_frame, fg_color="#ADADAD")
+            row_frame = ctk.CTkFrame(
+                self.scroll_frame,
+                fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            )
 
             delete_btn = ctk.CTkButton(
                 row_frame,
                 text="削除 (X)",
                 width=80,
-                fg_color="#D9534F",
-                hover_color="#C9302C",
+                fg_color=Colors.LABEL_DENGER,
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
                 command=lambda name=search_name: self.confirm_delete(name),
             )
             delete_btn.pack(side="left", padx=(7, 5), pady=7)

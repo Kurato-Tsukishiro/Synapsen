@@ -15,13 +15,19 @@ if getattr(sys, "frozen", False):
 else:
     CURRENT_DIR = Path(__file__).parent
     ROOT_DIR = CURRENT_DIR.parent
-
 sys.path.append(str(CURRENT_DIR))
+
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
 
 try:
     from pdf_utils import normalize_pdf_to_papersize
 except ImportError:
     pass  # GUI内でエラー表示するためここではパス
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 # --- ロギング設定 (GUI出力用) ---
@@ -193,6 +199,9 @@ class WatchdogApp(ctk.CTk):
         super().__init__()
         self.title("Synapsen Watchdog")
         self.geometry("500x400")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
 
         # アイコン設定
         icon_path = ROOT_DIR / "assets" / "synapsen.ico"
@@ -203,7 +212,7 @@ class WatchdogApp(ctk.CTk):
                 pass
 
         # テーマカラー (蘇芳色)
-        self.theme_color = "#9E3D3F"
+        self.theme_color = Colors.WATCHDOG
 
         self.observer = None
         self._setup_ui()
@@ -226,7 +235,11 @@ class WatchdogApp(ctk.CTk):
         title_label.pack(pady=10)
 
         # ログ表示エリア
-        self.log_textbox = ctk.CTkTextbox(self, font=("Consolas", 12))
+        self.log_textbox = ctk.CTkTextbox(
+            self,
+            font=("Consolas", 12),
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.log_textbox.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.log_textbox.configure(state="disabled")
 
@@ -254,8 +267,8 @@ class WatchdogApp(ctk.CTk):
         stop_btn = ctk.CTkButton(
             footer_frame,
             text="停止して終了",
-            fg_color="#555",
-            hover_color="#333",
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             width=100,
             command=self.on_closing,
         )

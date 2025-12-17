@@ -1,6 +1,7 @@
 import re
 import io
 import os
+import sys
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -17,6 +18,13 @@ from pdf_utils import add_metadata_to_clip, hex_to_rgb_tuple
 import logging
 
 logger = logging.getLogger(__name__)
+
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 # --- Playwright パス設定 (EXE化対策) ---
 # PyInstallerでバンドルされた環境でも、システムにインストールされたブラウザを見に行くように強制する
@@ -51,6 +59,9 @@ class PreviewWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.title("ページプレビュー")
         self.geometry("800x600")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self._custom_icon_path = icon_path
 
         self.transient(parent)
@@ -62,7 +73,11 @@ class PreviewWindow(ctk.CTkToplevel):
 
         # --- キャンバスとスクロールバーの配置 ---
         # 背景色はダークグレーにしておく (画像が見やすいように)
-        self.canvas = ctk.CTkCanvas(self, bg="#2b2b2b", highlightthickness=0)
+        self.canvas = ctk.CTkCanvas(
+            self,
+            bg=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.75),
+            highlightthickness=0,
+        )
         self.canvas.grid(row=0, column=0, sticky="nsew")
 
         # 縦スクロールバー
@@ -188,22 +203,36 @@ class WebClipWindow(ctk.CTkToplevel):
         # --- [UI定義] ---
 
         # --- 1. URLとファイル名 ---
-        input_frame = ctk.CTkFrame(self, fg_color="gray25")
+        input_frame = ctk.CTkFrame(
+            self, fg_color=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.75)
+        )
         input_frame.pack(pady=10, padx=10, fill="x")
 
-        ctk.CTkLabel(input_frame, text="URL:", width=80).grid(
-            row=0, column=0, padx=5, pady=5, sticky="w"
+        ctk.CTkLabel(
+            input_frame, text="URL:", width=80, text_color=Colors.BACKGROUND_HOLLOW
+        ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.url_entry = ctk.CTkEntry(
+            input_frame,
+            placeholder_text="https://...",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            text_color=Colors.BACKGROUND_HOLLOW,
         )
-        self.url_entry = ctk.CTkEntry(input_frame, placeholder_text="https://...")
         self.url_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(input_frame, text="ファイル名:", width=80).grid(
-            row=1, column=0, padx=5, pady=5, sticky="w"
-        )
+        ctk.CTkLabel(
+            input_frame,
+            text="ファイル名:",
+            width=80,
+            text_color=Colors.BACKGROUND_HOLLOW,
+        ).grid(row=1, column=0, padx=5, pady=5, sticky="w")
         now = datetime.datetime.now()
         default_base_name = f"{now.strftime('%Y%m%d_%H%M%S')}_WebClip"
         self.filename_var = ctk.StringVar(value=default_base_name)
-        self.filename_entry = ctk.CTkEntry(input_frame, textvariable=self.filename_var)
+        self.filename_entry = ctk.CTkEntry(
+            input_frame,
+            textvariable=self.filename_var,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.filename_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
         ctk.CTkLabel(input_frame, text=".pdf").grid(
             row=1, column=2, padx=5, pady=5, sticky="w"
@@ -213,17 +242,24 @@ class WebClipWindow(ctk.CTkToplevel):
 
         # --- 2. ページ情報取得ボタン ---
         self.fetch_button = ctk.CTkButton(
-            self, text="1. ページ情報取得 (書誌情報)", command=self.fetch_page_info
+            self,
+            text="1. ページ情報取得 (書誌情報)",
+            command=self.fetch_page_info,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.fetch_button.pack(pady=5, padx=10, fill="x")
 
-        # プレビューボタン (前回の追加分)
+        # プレビューボタン
         self.preview_button = ctk.CTkButton(
             self,
             text="内容確認 (スクリーンショット)",
             command=self.show_page_preview,
             state="disabled",
-            fg_color="#585a9c",
+            fg_color=Colors.UI_PREVIEW,
+            hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
+            text_color="black",
         )
         self.preview_button.pack(pady=2, padx=10, fill="x")
 
@@ -231,7 +267,7 @@ class WebClipWindow(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="書誌情報 (SIST 02準拠)", anchor="w").pack(
             pady=(10, 0), padx=10, fill="x"
         )
-        sist_frame = ctk.CTkFrame(self)
+        sist_frame = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
         sist_frame.pack(pady=(0, 10), padx=10, fill="x")
         sist_frame.grid_columnconfigure(1, weight=1)
 
@@ -239,7 +275,9 @@ class WebClipWindow(ctk.CTkToplevel):
             row=0, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_author_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（自動取得試行）"
+            sist_frame,
+            placeholder_text="（自動取得試行）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_author_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
@@ -247,7 +285,9 @@ class WebClipWindow(ctk.CTkToplevel):
             row=1, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_title_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（自動取得試行）"
+            sist_frame,
+            placeholder_text="（自動取得試行）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_title_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
@@ -255,7 +295,9 @@ class WebClipWindow(ctk.CTkToplevel):
             row=2, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_site_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（自動取得試行）"
+            sist_frame,
+            placeholder_text="（自動取得試行）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_site_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
@@ -263,7 +305,9 @@ class WebClipWindow(ctk.CTkToplevel):
             row=3, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_date_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（自動取得試行, YYYY-MM-DD）"
+            sist_frame,
+            placeholder_text="（自動取得試行, YYYY-MM-DD）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_date_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
@@ -271,13 +315,19 @@ class WebClipWindow(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="IndexKey (PDF 1ページ目に埋込)", anchor="w").pack(
             pady=(10, 0), padx=10, fill="x"
         )
-        key_frame = ctk.CTkFrame(self)
+        key_frame = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
         key_frame.pack(pady=(0, 10), padx=10, fill="x")
 
         key_options = self.parent_app.config_data.get("commonplace_keys_options", [])
 
         self.index_key_combo = ctk.CTkComboBox(
-            key_frame, values=["（未選択）"] + key_options
+            key_frame,
+            values=["（未選択）"] + key_options,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+            button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.index_key_combo.set("（未選択）")
         self.index_key_combo.pack(fill="x", padx=5, pady=5)
@@ -286,18 +336,26 @@ class WebClipWindow(ctk.CTkToplevel):
         ctk.CTkLabel(self, text="コメント (PDF 最終ページに埋込)", anchor="w").pack(
             pady=(10, 0), padx=10, fill="x"
         )
-        comment_frame = ctk.CTkFrame(self)
+        comment_frame = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
         comment_frame.pack(pady=(0, 10), padx=10, fill="both", expand=True)
-        self.comment_textbox = ctk.CTkTextbox(comment_frame, height=80)
+        self.comment_textbox = ctk.CTkTextbox(
+            comment_frame,
+            height=80,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.comment_textbox.pack(fill="both", expand=True, padx=5, pady=5)
 
         # --- 7. Key入力欄 ---
         ctk.CTkLabel(
             self, text="引用元Key (カンマ区切り または 改行区切り)", anchor="w"
         ).pack(pady=(10, 0), padx=10, fill="x")
-        key_frame2 = ctk.CTkFrame(self)
+        key_frame2 = ctk.CTkFrame(self, fg_color=Colors.BACKGROUND_PANEL)
 
-        self.cited_keys_entry = ctk.CTkTextbox(key_frame2, height=60)
+        self.cited_keys_entry = ctk.CTkTextbox(
+            key_frame2,
+            height=60,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.cited_keys_entry.pack(fill="both", expand=True, padx=5, pady=5)
         key_frame2.pack(pady=(0, 10), padx=10, fill="x")
 
@@ -307,6 +365,9 @@ class WebClipWindow(ctk.CTkToplevel):
             text="2. 出力先を選んでクリップ実行",
             command=self.run_webclip_process,
             state="disabled",  # 初期状態は無効
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -471,7 +532,7 @@ class WebClipWindow(ctk.CTkToplevel):
             logger.warning(f"ページ読み込みタイムアウト: {e}")
             self.status_label.configure(
                 text="タイムアウト。簡易情報(タイトル/ドメイン)を取得します...",
-                text_color="orange",
+                text_color=Colors.LABEL_WARNING,
             )
 
             try:
@@ -500,7 +561,7 @@ class WebClipWindow(ctk.CTkToplevel):
                 )
                 self.status_label.configure(
                     text="情報取得失敗（タイムアウト）。手動で入力してください。",
-                    text_color="orange",
+                    text_color=Colors.LABEL_WARNING,
                 )
                 self.page_title_cache = ""
                 self.site_name_cache = ""
@@ -584,7 +645,7 @@ class WebClipWindow(ctk.CTkToplevel):
         font_path = self.parent_app.font_path
         if not font_path or not Path(font_path).is_file():
             self.parent_app.status_label.configure(
-                text="configエラー: フォント設定", text_color="orange"
+                text="configエラー: フォント設定", text_color=Colors.LABEL_WARNING
             )
             return
 
@@ -716,7 +777,8 @@ class WebClipWindow(ctk.CTkToplevel):
             # --- フォールバック: 簡易PDF生成 ---
             logger.error(f"Webクリップ変換失敗 (フォールバック実行): {e}")
             self.status_label.configure(
-                text="取得失敗。書誌情報のみのPDFを生成します...", text_color="orange"
+                text="取得失敗。書誌情報のみのPDFを生成します...",
+                text_color=Colors.LABEL_WARNING,
             )
             self.update_idletasks()
 

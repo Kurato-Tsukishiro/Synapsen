@@ -6,6 +6,8 @@ from pathlib import Path
 from PIL import Image
 from tkinter import messagebox
 
+from theme import SemanticColors as Colors
+
 # --- パス設定 (exe/script両対応) ---
 
 # 1. 実行環境のルートディレクトリを特定
@@ -50,16 +52,9 @@ except ImportError:
 # --- PyInstaller スプラッシュスクリーン制御 ---
 # ビルド環境以外(スクリプト実行時)ではインポートエラーになるためtryで囲む
 try:
-    import pyi_splash
+    import pyi_splash  # type: ignore
 except ImportError:
     pyi_splash = None
-
-# --- Synapsen Theme Colors ---
-COLOR_HISUI = "#38b48b"  # 翡翠色 (Main: Ersteller)
-COLOR_TETSU = "#005243"  # 鉄色   (Main: Nexus)
-COLOR_MUSHI = "#20604F"  # 虫襖   (Sub)
-COLOR_SUOU = "#9E3D3F"   # 蘇芳色 (Sub: Watchdog)
-COLOR_KIKYO = "#585a9c"  # 桔梗色 (Sub: Normalisierer)
 
 
 class SynapsenLauncher(ctk.CTk):
@@ -68,6 +63,9 @@ class SynapsenLauncher(ctk.CTk):
 
         self.title("Synapsen Launcher")
         self.geometry("600x550")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         # 物理パスを使用 (assets等はexeの隣にある前提)
         self.base_path = BASE_DIR
@@ -87,7 +85,9 @@ class SynapsenLauncher(ctk.CTk):
         self._create_ui()
 
     def _create_ui(self):
-        main_frame = ctk.CTkFrame(self)
+        main_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
         main_frame.grid_columnconfigure((0, 1), weight=1)
 
@@ -123,28 +123,28 @@ class SynapsenLauncher(ctk.CTk):
                 "Normalisierer",
                 "正規化: PDFの整形・OCR・Webクリップ",
                 "--normalisierer",
-                COLOR_KIKYO,  # 桔梗色
+                Colors.NORMALISIERER,
                 False,
             ),
             (
                 "Ersteller",
                 "統合: メタデータ編集・月次PDF作成",
                 "--ersteller",
-                COLOR_HISUI,  # 翡翠色
+                Colors.ERSTELLER,
                 False,
             ),
             (
                 "Nexus",
                 "閲覧: 検索・ネットワーク思考",
                 "--nexus",
-                COLOR_TETSU,  # 鉄色 (基盤)
+                Colors.NEXUS,
                 False,
             ),
             (
                 "Watchdog",
                 "監視: 自動正規化(常駐)",
                 "--watchdog",
-                COLOR_SUOU,  # 蘇芳色 (警告/監視)
+                Colors.WATCHDOG,
                 False,
             ),
         ]
@@ -162,7 +162,7 @@ class SynapsenLauncher(ctk.CTk):
                 font=("Arial", 16, "bold"),
                 height=50,
                 fg_color=color,
-                hover_color=self._adjust_brightness(color, 0.8),
+                hover_color=Colors.adjust_brightness(color, 0.8),
                 command=lambda f=arg_flag, c=use_console: self.launch_self(f, c),
             )
             btn.pack(fill="x", pady=(0, 5))
@@ -172,23 +172,14 @@ class SynapsenLauncher(ctk.CTk):
             ).pack()
 
         exit_btn = ctk.CTkButton(
-            self, text="終了", fg_color="gray", width=100, command=self.destroy
+            self,
+            text="終了",
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
+            width=100,
+            command=self.destroy,
         )
         exit_btn.grid(row=(len(tools) + 1) // 2 + 1, column=0, columnspan=2, pady=20)
-
-    def _adjust_brightness(self, hex_color, factor=0.8):
-        """
-        16進数カラーコードを受け取り、明度を調整したコードを返すヘルパー関数
-        factor < 1.0 で暗く、> 1.0 で明るくなります。
-        """
-        hex_color = hex_color.lstrip("#")
-
-        # RGBに分解
-        r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-
-        # 明度調整 (最大255)
-        r, g, b = [max(0, min(255, int(c * factor))) for c in (r, g, b)]
-        return f"#{r:02x}{g:02x}{b:02x}"
 
     def launch_self(self, flag, use_console=False):
         """自分自身を別プロセスとして起動"""

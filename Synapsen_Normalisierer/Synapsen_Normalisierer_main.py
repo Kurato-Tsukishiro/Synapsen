@@ -25,6 +25,13 @@ from pdf_utils import (
     embed_processing_flag,
 )
 
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
+
 # --- 定数 ---
 A4_WIDTH = 595.276
 A4_HEIGHT = 841.89
@@ -108,6 +115,9 @@ class Synapsen_Normalisierer(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Normalisierer")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("500x300")
 
         # --- 設定値の初期化 ---
@@ -131,6 +141,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             self,
             text="入力/出力フォルダを選んで処理実行",
             command=self.run_folder_process,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.folder_run_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -139,8 +152,8 @@ class Synapsen_Normalisierer(ctk.CTk):
             self,
             text="D&D / ペースト (個別ファイル) で正規化",
             command=self.open_dnd_window,
-            fg_color="#585a9c",  # 桔梗色
-            hover_color="#494B83",
+            fg_color=Colors.UI_SECONDARY,
+            hover_color=Colors.adjust_brightness(Colors.UI_SECONDARY),
         )
         self.dnd_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -151,8 +164,8 @@ class Synapsen_Normalisierer(ctk.CTk):
             self,
             text="Webクリップ (URLからPDF化) で正規化",
             command=self.open_webclip_window,
-            fg_color="#00695C",  # 濃い緑
-            hover_color="#004D40",  # さらに濃い緑
+            fg_color=Colors.UI_EXPORT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EXPORT),
         )
         self.webclip_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
 
@@ -319,7 +332,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     "エラー: config.iniで有効なフォントパスが指定されていません。\n"
                     + f"'{self.font_path}'"
                 ),
-                text_color="orange",
+                text_color=Colors.LABEL_WARNING,
             )
             self.folder_run_button.configure(state="disabled")
             self.dnd_window_button.configure(state="disabled")

@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 import re
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
@@ -7,6 +9,14 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 # ==============================================================================
@@ -35,6 +45,9 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.commonplace_key_options = commonplace_key_options
 
         self.title(f"データ編集: {self.note_data['title']}")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("1000x700")
         self.transient(parent)
         self.grab_set()
@@ -66,7 +79,21 @@ class DataEditorWindow(ctk.CTkToplevel):
             row=0, column=0, sticky="w"
         )
         self.cp_key_combo = ctk.CTkComboBox(
-            cp_key_frame, values=self.commonplace_key_options
+            cp_key_frame,
+            values=self.commonplace_key_options,
+            button_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.2),
+            ),
+            button_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.4),
+            ),
+            dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            dropdown_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.15),
+            ),
         )
         self.cp_key_combo.grid(row=0, column=1, sticky="ew")
         self.cp_key_combo.set(self.note_data.get("commonplace_key", ""))
@@ -93,7 +120,11 @@ class DataEditorWindow(ctk.CTkToplevel):
         )
 
         self.summary_entry = ctk.CTkTextbox(
-            summary_outer_frame, height=75, wrap="word", activate_scrollbars=False
+            summary_outer_frame,
+            height=75,
+            wrap="word",
+            activate_scrollbars=False,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 1.2),
         )
         self.summary_entry.pack(side="top", fill="x", pady=5)
 
@@ -119,7 +150,11 @@ class DataEditorWindow(ctk.CTkToplevel):
         )
         current_row += 1
 
-        self.memo_textbox = ctk.CTkTextbox(left_frame, height=275)
+        self.memo_textbox = ctk.CTkTextbox(
+            left_frame,
+            height=275,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 1.2),
+        )
         self.memo_textbox.grid(row=current_row, column=0, pady=5, sticky="nsew")
         self.memo_textbox.insert("1.0", self.note_data.get("memo", ""))
         # 行の重み設定を適用
@@ -136,6 +171,9 @@ class DataEditorWindow(ctk.CTkToplevel):
 
         right_row = 0
 
+        button_fg_color = Colors.UI_BASIC
+        button_hover_color = Colors.adjust_brightness(Colors.UI_BASIC)
+
         # 4. Tag Input
         tag_input_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
         tag_input_frame.grid(row=right_row, column=0, pady=5, sticky="ew")
@@ -151,15 +189,30 @@ class DataEditorWindow(ctk.CTkToplevel):
         tag_button_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
         tag_button_frame.grid(row=right_row, column=0, pady=5, sticky="e")
         ctk.CTkButton(
-            tag_button_frame, text="タグを追加", command=self.add_tag_event
+            tag_button_frame,
+            text="タグを追加",
+            fg_color=button_fg_color,
+            hover_color=button_hover_color,
+            text_color="black",
+            command=self.add_tag_event,
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            tag_button_frame, text="既存タグから選択", command=self.open_tag_selector
+            tag_button_frame,
+            text="既存タグから選択",
+            fg_color=button_fg_color,
+            hover_color=button_hover_color,
+            text_color="black",
+            command=self.open_tag_selector,
         ).pack(side="left", padx=5)
         right_row += 1
 
         # 6. Current Tags Display
-        self.tags_frame = ctk.CTkScrollableFrame(right_frame, label_text="現在のタグ")
+        self.tags_frame = ctk.CTkScrollableFrame(
+            right_frame,
+            label_text="現在のタグ",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.tags_frame.grid(row=right_row, column=0, pady=10, sticky="nsew")
         right_row += 1
 
@@ -167,10 +220,19 @@ class DataEditorWindow(ctk.CTkToplevel):
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
-            bottom_button_frame, text="保存", command=self.save_and_close
+            bottom_button_frame,
+            text="保存",
+            fg_color=button_fg_color,
+            hover_color=button_hover_color,
+            command=self.save_and_close,
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            bottom_button_frame, text="キャンセル", command=self.destroy
+            bottom_button_frame,
+            text="キャンセル",
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
+            command=self.destroy,
         ).pack(side="left", padx=5)
 
         self.update_tags_display()
@@ -250,11 +312,19 @@ class DataEditorWindow(ctk.CTkToplevel):
     def update_tags_display(self):
         for widget in self.tags_frame.winfo_children():
             widget.destroy()
+        fg = Colors.UI_BASIC
+        hover = Colors.adjust_brightness(Colors.UI_BASIC)
         for tag in sorted(self.temp_tags):
             tag_frame = ctk.CTkFrame(self.tags_frame)
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
-                tag_frame, text="x", width=20, command=lambda t=tag: self.remove_tag(t)
+                tag_frame,
+                text="×",
+                width=20,
+                fg_color=fg,
+                hover_color=hover,
+                text_color="black",
+                command=lambda t=tag: self.remove_tag(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 
@@ -320,6 +390,9 @@ class DataEditorWindow(ctk.CTkToplevel):
 class TagSelectorWindow(ctk.CTkToplevel):
     def __init__(self, parent, all_tags, current_tags, callback=None):
         super().__init__(parent)
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         self._custom_icon_path = None
 
@@ -342,12 +415,19 @@ class TagSelectorWindow(ctk.CTkToplevel):
 
         self.callback = callback
         self.title("既存のタグを選択")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("300x450")
         self.transient(parent)
         self.grab_set()
 
         # --- タグリスト ---
-        scroll_frame = ctk.CTkScrollableFrame(self)
+        scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
@@ -358,6 +438,7 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 text=tag,
                 text_color=("#1F1F1F", "#1F1F1F"),
                 fg_color="transparent",
+                hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
@@ -554,11 +635,18 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
 
         self.callback = callback
         self.title("既存のタグを選択")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("300x450")
         self.transient(parent)
         self.grab_set()
 
-        scroll_frame = ctk.CTkScrollableFrame(self)
+        scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
@@ -568,6 +656,7 @@ class BatchTagSelectorWindow(ctk.CTkToplevel):
                 text=tag,
                 text_color=("#1F1F1F", "#1F1F1F"),
                 fg_color="transparent",
+                hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
@@ -626,24 +715,45 @@ class BatchEditWindow(ctk.CTkToplevel):
 
         self.title(f"一括編集 ({selected_count} 件)")
         self.geometry("600x825")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.transient(parent)
         self.grab_set()
 
         # --- 1. Index Key ---
-        cp_key_frame = ctk.CTkFrame(self)
+        cp_key_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         cp_key_frame.pack(pady=10, padx=10, fill="x")
         ctk.CTkLabel(
-            cp_key_frame, text="Index Key を設定:", width=150, anchor="w"
+            cp_key_frame,
+            text="Index Key を設定:",
+            width=150,
+            anchor="w",
         ).pack(side="left")
 
         # [変更しない] オプションを追加
         cp_key_values = ["[ 変更しない ]"] + self.commonplace_key_options
-        self.cp_key_combo = ctk.CTkComboBox(cp_key_frame, values=cp_key_values)
+        self.cp_key_combo = ctk.CTkComboBox(
+            cp_key_frame,
+            values=cp_key_values,
+            button_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.2),
+            ),
+            button_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.4),
+            ),
+        )
         self.cp_key_combo.pack(side="left", expand=True, fill="x")
         self.cp_key_combo.set("[ 変更しない ]")  # デフォルト
 
         # --- 2. メモ追記 ---
-        memo_frame = ctk.CTkFrame(self)
+        memo_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         memo_frame.pack(pady=5, padx=10, fill="x")
 
         # ヘッダー (ラベルとスイッチ)
@@ -655,15 +765,31 @@ class BatchEditWindow(ctk.CTkToplevel):
         )
 
         # 上書き切り替えスイッチ (デフォルトOFF=追記)
-        self.overwrite_switch = ctk.CTkSwitch(memo_header_frame, text="上書きモード")
+        self.overwrite_switch = ctk.CTkSwitch(
+            memo_header_frame,
+            text="上書きモード",
+            button_color=Colors.adjust_brightness(Colors.STATE_DISABLED),
+            button_hover_color=Colors.adjust_brightness(Colors.STATE_DISABLED, 0.6),
+            fg_color=Colors.STATE_DISABLED,
+            progress_color=Colors.STATE_NORMAL,
+        )
         self.overwrite_switch.pack(side="right")
 
         # テキストボックス
-        self.memo_input_box = ctk.CTkTextbox(memo_frame, height=80)
+        self.memo_input_box = ctk.CTkTextbox(
+            memo_frame,
+            height=80,
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 1.2),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL),
+            ),
+        )
         self.memo_input_box.pack(side="bottom", fill="x", padx=5, pady=5)
 
         # --- 3. 追加するタグ ---
-        add_tag_frame = ctk.CTkFrame(self)
+        add_tag_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         add_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
         ctk.CTkLabel(add_tag_frame, text="追加するタグ:").pack(anchor="w")
@@ -671,7 +797,12 @@ class BatchEditWindow(ctk.CTkToplevel):
         add_tag_input_frame = ctk.CTkFrame(add_tag_frame, fg_color="transparent")
         add_tag_input_frame.pack(pady=5, fill="x")
         self.add_tag_entry = ctk.CTkEntry(
-            add_tag_input_frame, placeholder_text="Enterで追加"
+            add_tag_input_frame,
+            placeholder_text="Enterで追加",
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 1.2),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL),
+            ),
         )
         self.add_tag_entry.pack(side="left", padx=(0, 5), expand=True, fill="x")
         self.add_tag_entry.bind("<Return>", self.add_tag_to_add_list)
@@ -679,23 +810,43 @@ class BatchEditWindow(ctk.CTkToplevel):
             add_tag_input_frame,
             text="既存タグから選択",
             command=self.open_tag_selector_for_add,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="left")
 
-        self.add_tags_display_frame = ctk.CTkScrollableFrame(add_tag_frame)
+        self.add_tags_display_frame = ctk.CTkScrollableFrame(
+            add_tag_frame,
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.9),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.1),
+            ),
+        )
         self.add_tags_display_frame.pack(fill="both", expand=True)
 
         # --- 4. 削除するタグ (選択式リスト) ---
-        remove_tag_frame = ctk.CTkFrame(self)
+        remove_tag_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         remove_tag_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
         header_frame = ctk.CTkFrame(remove_tag_frame, fg_color="transparent")
         header_frame.pack(fill="x", pady=5)
         ctk.CTkLabel(
-            header_frame, text="含まれているタグ (×で削除指定):", text_color="#E74C3C"
+            header_frame,
+            text="含まれているタグ (×で削除指定):",
+            text_color=Colors.LABEL_DENGER,
         ).pack(side="left", padx=5)
 
         # 削除タグ一覧を表示するスクロールフレーム
-        self.remove_tags_scroll = ctk.CTkScrollableFrame(remove_tag_frame, height=200)
+        self.remove_tags_scroll = ctk.CTkScrollableFrame(
+            remove_tag_frame,
+            height=200,
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.9),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.1),
+            ),
+        )
         self.remove_tags_scroll.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 選択範囲のタグ一覧を描画
@@ -706,10 +857,19 @@ class BatchEditWindow(ctk.CTkToplevel):
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
-            bottom_button_frame, text="適用", command=self.apply_changes
+            bottom_button_frame,
+            text="適用",
+            command=self.apply_changes,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            bottom_button_frame, text="キャンセル", command=self.destroy
+            bottom_button_frame,
+            text="キャンセル",
+            command=self.destroy,
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="left", padx=5)
 
     def get_input(self):
@@ -763,6 +923,8 @@ class BatchEditWindow(ctk.CTkToplevel):
                 tag_frame,
                 text="x",
                 width=20,
+                fg_color=Colors.UI_BASIC,
+                hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
                 command=lambda t=tag: self.remove_tag_from_add_list(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
@@ -808,8 +970,8 @@ class BatchEditWindow(ctk.CTkToplevel):
                 row,
                 text="×",
                 width=40,
-                fg_color="#C0392B",  # 赤系
-                hover_color="#E74C3C",
+                fg_color=Colors.LABEL_DENGER,
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
                 command=lambda t=tag: self.toggle_remove_tag(t),
             )
             btn.pack(side="right", padx=5)
@@ -829,7 +991,11 @@ class BatchEditWindow(ctk.CTkToplevel):
             lbl.configure(
                 text_color=ctk.ThemeManager.theme["CTkLabel"]["text_color"]
             )  # デフォルト色
-            btn.configure(text="×", fg_color="#C0392B", hover_color="#E74C3C")
+            btn.configure(
+                text="×",
+                fg_color=Colors.LABEL_DENGER,
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+            )
 
         else:
             # 削除対象に追加
@@ -846,13 +1012,18 @@ class BatchEditWindow(ctk.CTkToplevel):
     def update_remove_tags_display(self):
         for widget in self.remove_tags_display_frame.winfo_children():
             widget.destroy()
+        fg = Colors.UI_BASIC
+        hover = Colors.adjust_brightness(Colors.UI_BASIC)
         for tag in sorted(self.tags_to_remove):
             tag_frame = ctk.CTkFrame(self.remove_tags_display_frame)
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
                 tag_frame,
-                text="x",
+                text="×",
                 width=20,
+                fg_color=fg,
+                hover_color=hover,
+                text_color="black",
                 command=lambda t=tag: self.remove_tag_from_remove_list(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")

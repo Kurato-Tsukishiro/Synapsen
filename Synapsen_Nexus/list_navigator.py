@@ -1,6 +1,16 @@
 import logging
+import sys
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 
 class ListNavigatorMixin:
@@ -81,8 +91,7 @@ class ListNavigatorMixin:
 
         # 新しいカーソル位置をハイライト
         curr_item = self.list_item_widgets[index]
-        # ライト/ダーク対応の色 (必要に応じて調整)
-        highlight_color = ("#D3D3D3", "#404040")
+        highlight_color = Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.9)
         curr_item["frame"].configure(fg_color=highlight_color)
 
         self._scroll_to_index(index)

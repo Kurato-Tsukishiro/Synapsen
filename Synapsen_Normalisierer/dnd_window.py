@@ -1,3 +1,4 @@
+import sys
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -30,6 +31,14 @@ from pdf_utils import (
 import logging
 
 logger = logging.getLogger(__name__)
+
+# === 2. プロジェクトルートをパスに追加 ===
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 SUPPORTED_EXTENSIONS = [
     ".pdf",
@@ -93,6 +102,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         self.title("D&D/ペーストで正規化")
         self.geometry("1000x800")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         self._custom_icon_path = None
         if hasattr(parent_app, "icon_path") and parent_app.icon_path:
@@ -109,7 +121,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         self.grid_columnconfigure(0, weight=1)
 
         # 1. ドラッグ＆ドロップ ゾーン
-        self.drop_target_frame = ctk.CTkFrame(self, height=100, fg_color="gray25")
+        self.drop_target_frame = ctk.CTkFrame(
+            self,
+            height=100,
+            fg_color=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.75),
+        )
         self.drop_target_frame.grid(row=0, column=0, pady=10, padx=10, sticky="ew")
 
         self.drop_target_label = ctk.CTkLabel(
@@ -135,16 +151,24 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         main_frame.grid_columnconfigure(1, weight=1)  # 右カラム (リスト)
 
         # 2. メタデータ入力フレーム (左カラム)
-        meta_frame = ctk.CTkFrame(main_frame)
+        meta_frame = ctk.CTkFrame(main_frame, fg_color=Colors.BACKGROUND_PANEL)
         meta_frame.grid(row=0, column=0, pady=0, padx=(0, 5), sticky="nsew")
 
         # IndexKey
         ctk.CTkLabel(
-            meta_frame, text="IndexKey (PDF 1ページ目に埋込):", anchor="w"
+            meta_frame,
+            text="IndexKey (PDF 1ページ目に埋込):",
+            anchor="w",
         ).pack(pady=(10, 0), padx=10, fill="x")
         key_options = self.parent_app.config_data.get("commonplace_keys_options", [])
         self.index_key_combo = ctk.CTkComboBox(
-            meta_frame, values=["（未選択）"] + key_options
+            meta_frame,
+            values=["（未選択）"] + key_options,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+            button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.index_key_combo.set("（未選択）")
         self.index_key_combo.pack(pady=5, padx=10, fill="x")
@@ -153,40 +177,60 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         ctk.CTkLabel(
             meta_frame, text="コメント (PDF 最終ページに埋込):", anchor="w"
         ).pack(pady=(5, 0), padx=10, fill="x")
-        self.comment_textbox = ctk.CTkTextbox(meta_frame, height=80)
+        self.comment_textbox = ctk.CTkTextbox(
+            meta_frame,
+            height=80,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.comment_textbox.pack(pady=5, padx=10, fill="both", expand=True)
 
         # 書誌情報
         ctk.CTkLabel(meta_frame, text="書誌情報 (任意入力)", anchor="w").pack(
             pady=(10, 0), padx=10, fill="x"
         )
-        sist_frame = ctk.CTkFrame(meta_frame)
+        sist_frame = ctk.CTkFrame(
+            meta_frame, fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.9)
+        )
         sist_frame.pack(pady=(0, 5), padx=5, fill="x")
         sist_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(sist_frame, text="著者名:").grid(
             row=0, column=0, padx=5, pady=5, sticky="w"
         )
-        self.sist_author_entry = ctk.CTkEntry(sist_frame, placeholder_text="（任意）")
+        self.sist_author_entry = ctk.CTkEntry(
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.sist_author_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
         ctk.CTkLabel(sist_frame, text="ページ名:").grid(
             row=1, column=0, padx=5, pady=5, sticky="w"
         )
-        self.sist_title_entry = ctk.CTkEntry(sist_frame, placeholder_text="（任意）")
+        self.sist_title_entry = ctk.CTkEntry(
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.sist_title_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
 
         ctk.CTkLabel(sist_frame, text="サイト名/出典:").grid(
             row=2, column=0, padx=5, pady=5, sticky="w"
         )
-        self.sist_site_entry = ctk.CTkEntry(sist_frame, placeholder_text="（任意）")
+        self.sist_site_entry = ctk.CTkEntry(
+            sist_frame,
+            placeholder_text="（任意）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.sist_site_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
         ctk.CTkLabel(sist_frame, text="更新日:").grid(
             row=3, column=0, padx=5, pady=5, sticky="w"
         )
         self.sist_date_entry = ctk.CTkEntry(
-            sist_frame, placeholder_text="（任意, YYYY-MM-DD）"
+            sist_frame,
+            placeholder_text="（任意, YYYY-MM-DD）",
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
         )
         self.sist_date_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
@@ -197,6 +241,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             variable=self.is_webclip_var,
             onvalue=True,
             offvalue=False,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            checkmark_color=Colors.adjust_brightness(Colors.UI_BASIC, 1.8),
         )
         self.webclip_checkbox.pack(pady=(5, 0), padx=15, anchor="w")
 
@@ -204,7 +251,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         ctk.CTkLabel(
             meta_frame, text="引用元Key (カンマ区切り または 改行区切り):", anchor="w"
         ).pack(pady=(10, 0), padx=10, fill="x")
-        self.cited_keys_entry = ctk.CTkTextbox(meta_frame, height=40)
+        self.cited_keys_entry = ctk.CTkTextbox(
+            meta_frame,
+            height=40,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         self.cited_keys_entry.pack(pady=5, padx=10, fill="both", expand=True)
 
         # 統合チェックボックス
@@ -212,12 +263,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             meta_frame,
             text="処理対象ファイルを1つのノート（PDF）に統合する",
             command=self.on_merge_toggle,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            checkmark_color=Colors.adjust_brightness(Colors.UI_BASIC, 1.8),
         )
         self.merge_files_checkbox.pack(pady=10, padx=10, anchor="w")
 
         # 処理対象リスト (スクロールフレーム)
         self.staged_list_frame = ctk.CTkScrollableFrame(
-            main_frame, label_text="処理対象リスト (ファイル名を編集可能)"
+            main_frame,
+            label_text="処理対象リスト (ファイル名を編集可能)",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.staged_list_frame.grid(row=0, column=1, pady=0, padx=(5, 0), sticky="nsew")
 
@@ -231,6 +288,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             text="出力先を選んで処理実行",
             command=self.run_staged_process,
             state="disabled",
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         self.staged_run_button.grid(row=3, column=0, pady=10, padx=10, sticky="ew")
 
@@ -402,7 +462,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
     def _create_row_widget(self, item):
         """アイテムの行ウィジェットを生成して配置する"""
-        row_frame = ctk.CTkFrame(self.staged_list_frame, fg_color="gray30")
+        row_frame = ctk.CTkFrame(
+            self.staged_list_frame,
+            fg_color=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.60),
+        )
         row_frame.item = item
 
         # 上段: 元ファイル名 + 編集ボタン
@@ -413,7 +476,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             top_sub_frame,
             text=item["original_name"],
             font=("", 10),
-            text_color="gray70",
+            text_color=Colors.blend_colors("#FFFFFF", Colors.BACKGROUND_PANEL, 0.30),
         )
         name_label.pack(side="left", fill="x", expand=True)
 
@@ -431,13 +494,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             is_editable = True
 
         if is_editable:
+            bg = Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.70)
             edit_btn = ctk.CTkButton(
                 top_sub_frame,
                 text="変形/Crop",
                 width=60,
                 height=20,
                 font=("", 10),
-                fg_color="#444",
+                fg_color=bg,
+                hover_color=Colors.adjust_brightness(bg),
+                text_color=Colors.blend_colors(
+                    "#FFFFFF", Colors.BACKGROUND_PANEL, 0.30
+                ),
                 command=lambda i=item: self.open_crop_editor(i),
             )
             edit_btn.pack(side="right", padx=5)
@@ -453,7 +521,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             width=30,
             height=28,
             font=("", 16),
-            fg_color="#555555",
+            fg_color=Colors.blend_colors("#000000", Colors.BACKGROUND_PANEL, 0.70),
+            text_color=Colors.blend_colors("#FFFFFF", Colors.BACKGROUND_PANEL, 0.30),
             corner_radius=6,
             cursor="fleur",
         )
@@ -466,7 +535,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         preview_label.bind("<B1-Motion>", self._on_reorder_drag)
         preview_label.bind("<ButtonRelease-1>", self._on_reorder_stop)
 
-        name_entry = ctk.CTkEntry(bottom_sub_frame, textvariable=item["base_name_var"])
+        name_entry = ctk.CTkEntry(
+            bottom_sub_frame,
+            textvariable=item["base_name_var"],
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
 
         if self.merge_files_checkbox.get():
             if self.staged_items:
@@ -487,8 +560,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             text="x",
             width=28,
             height=28,
-            fg_color="#D9534F",
-            hover_color="#C9302C",
+            fg_color=Colors.LABEL_DENGER,
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
             command=lambda i=item, rf=row_frame: self.remove_staged_item(i, rf),
         )
         delete_btn.pack(side="right")
@@ -612,7 +685,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             if "CLIPBOARD" in str(e):
                 self.parent_app.status_label.configure(
                     text="クリップボードが空か、対応形式ではありません。",
-                    text_color="orange",
+                    text_color=Colors.LABEL_WARNING,
                 )
             else:
                 messagebox.showerror(
@@ -819,7 +892,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         if not font_path or not Path(font_path).is_file():
             self.parent_app.status_label.configure(
                 text="エラー: config.iniで有効なフォントパスが指定されていません。",
-                text_color="orange",
+                text_color=Colors.LABEL_WARNING,
             )
             return
 
