@@ -105,6 +105,9 @@ class Synapsen_Nexus(
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapsen Nexus")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         self.grid_columnconfigure(0, weight=3)  # 左パネル
         self.grid_columnconfigure(1, weight=2)  # 右パネル

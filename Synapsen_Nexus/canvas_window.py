@@ -57,7 +57,7 @@ if not logger.handlers:
 # ==============================================================================
 # 定数定義
 # ==============================================================================
-DEFAULT_CANVAS_BG_DARK = Colors.BACKGROUND_DARK_PANEL
+DEFAULT_CANVAS_BG_DARK = Colors.BACKGROUND_DARK_HOLLOW
 DEFAULT_CANVAS_BG_LIGHT = Colors.BACKGROUND_HOLLOW
 DEFAULT_GRID_COLOR_DARK = Colors.blend_colors(
     "#FFFFFF", Colors.BACKGROUND_DARK_PANEL, 0.2
@@ -93,6 +93,9 @@ class BaseSubWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.title(title)
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         if geometry:
             self.geometry(geometry)
 
@@ -189,7 +192,13 @@ class StickyNoteDialog(BaseSubWindow):
         ctk.CTkLabel(self, text="内容:", anchor="w").grid(
             row=4, column=0, padx=10, pady=(0, 2), sticky="ew"
         )
-        self.content_textbox = ctk.CTkTextbox(self)
+        self.content_textbox = ctk.CTkTextbox(
+            self,
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.2),
+            ),
+        )
         self.content_textbox.grid(row=5, column=0, padx=10, pady=(0, 10), sticky="nsew")
         self.content_textbox.insert("1.0", content_val)
 
@@ -201,12 +210,19 @@ class StickyNoteDialog(BaseSubWindow):
             btn_frame,
             text="キャンセル",
             width=80,
-            fg_color="gray",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
             command=self.destroy,
         ).pack(side="left", padx=5)
-        ctk.CTkButton(btn_frame, text="OK", width=80, command=self.on_ok).pack(
-            side="left", padx=5
-        )
+        ctk.CTkButton(
+            btn_frame,
+            text="OK",
+            width=80,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+            command=self.on_ok,
+        ).pack(side="left", padx=5)
 
     def on_ok(self):
         raw_title = self.title_entry.get().replace("\n", " ").replace("\r", "").strip()

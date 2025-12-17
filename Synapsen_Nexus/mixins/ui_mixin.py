@@ -108,9 +108,10 @@ class NexusUiMixin:
             command=self.search_manager.on_saved_search_selected,
             button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.7),
             button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            dropdown_fg_color=Colors.BACKGROUND_HOLLOW,
-            dropdown_hover_color=Colors.adjust_brightness(
-                Colors.BACKGROUND_HOLLOW, 0.85
+            dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            dropdown_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.15),
             ),
         )
         self.saved_search_combo.pack(side="left", padx=0)
@@ -211,6 +212,8 @@ class NexusUiMixin:
             fg_color=Colors.UI_SECONDARY,
             button_color=Colors.adjust_brightness(Colors.UI_SECONDARY),
             button_hover_color=Colors.adjust_brightness(Colors.UI_SECONDARY, 0.6),
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.graph_menu.pack(side="left", padx=(0, 5))
 
@@ -240,6 +243,8 @@ class NexusUiMixin:
             fg_color=Colors.UI_EXPORT,
             button_color=Colors.adjust_brightness(Colors.UI_EXPORT),
             button_hover_color=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.export_menu.pack(side="left", padx=(0, 5))
         ctk.CTkLabel(parent, text="|", text_color="gray").pack(side="left", padx=5)
@@ -381,14 +386,17 @@ class NexusUiMixin:
         self.pdf_preview_label.pack()
 
         # メモと引用元のエリアのラベル色
-        label_fg_color = Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85)
+        label_fg_color = (
+            Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+            Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.15),
+        )
 
         # メモエリア
         self.memo_display_frame = ctk.CTkScrollableFrame(
             self.details_frame,
             label_text="メモ",
             height=150,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             label_fg_color=label_fg_color,
         )
         self.memo_display_frame.grid(row=2, column=0, sticky="nsew", padx=10)
@@ -398,7 +406,7 @@ class NexusUiMixin:
             self.details_frame,
             label_text="引用元",
             height=100,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             label_fg_color=label_fg_color,
         )
         self.references_display_frame.grid(
@@ -600,6 +608,9 @@ class SearchHelpWindow(ctk.CTkToplevel):
 
     def __init__(self, parent_app):
         super().__init__(parent_app)
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self._custom_icon_path = None  # 強制設定するアイコンパス
 
         if hasattr(parent_app, "icon_path") and parent_app.icon_path:
@@ -759,6 +770,7 @@ Esc : 入力欄からフォーカスを外す
             command=self.destroy,
             fg_color=Colors.UI_BASIC,
             hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         )
         close_button.pack(pady=(0, 10), padx=10)
 

@@ -25,6 +25,9 @@ class SaveSearchDialog(ctk.CTkToplevel):
         super().__init__(parent_app)
         self.title("検索を保存")
         self.geometry("400x180")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.result = None
 
         # アイコン設定
@@ -48,15 +51,21 @@ class SaveSearchDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=10)
 
-        ctk.CTkButton(btn_frame, text="OK", width=100, command=self.on_ok).pack(
-            side="left", padx=10
-        )
+        ctk.CTkButton(
+            btn_frame,
+            text="OK",
+            width=100,
+            command=self.on_ok,
+            fg_color=Colors.UI_BASIC,
+            text_color="black",
+        ).pack(side="left", padx=10)
         ctk.CTkButton(
             btn_frame,
             text="キャンセル",
             width=100,
             command=self.destroy,
-            fg_color="gray",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
         ).pack(side="left", padx=10)
 
         self.bind("<Return>", lambda e: self.on_ok())
@@ -89,6 +98,9 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         self.search_manager = search_manager
         self.title("保存済み検索の管理")
         self.geometry("450x500")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         # アイコン設定
         if self.parent_app.icon_path:
@@ -129,7 +141,8 @@ class ManageSearchesWindow(ctk.CTkToplevel):
         for search_name in sorted_search_names:
             query = self.search_manager.saved_searches[search_name]
             row_frame = ctk.CTkFrame(
-                self.scroll_frame, fg_color=Colors.BACKGROUND_HOLLOW
+                self.scroll_frame,
+                fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             )
 
             delete_btn = ctk.CTkButton(

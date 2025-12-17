@@ -222,12 +222,15 @@ class NotePreviewWindow(ctk.CTkToplevel):
         )
 
         # メモと引用元のエリアのラベル色
-        label_fg_color = Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85)
+        label_fg_color = (
+            Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+            Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.15),
+        )
 
         # 7. メモ (フレーム)
         self.memo_display_frame = ctk.CTkScrollableFrame(
             self.info_container,
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             label_fg_color=label_fg_color,
         )
         self.memo_display_frame.grid(row=5, column=1, padx=10, pady=5, sticky="nsew")
@@ -241,7 +244,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
         self.references_display_frame = ctk.CTkScrollableFrame(
             self.info_container,
             label_text="このノートを引用",
-            fg_color=Colors.BACKGROUND_HOLLOW,
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             label_fg_color=label_fg_color,
         )
         self.references_display_frame.grid(
@@ -253,10 +256,12 @@ class NotePreviewWindow(ctk.CTkToplevel):
 
         # 10. PDFを開くボタン
         self.pdf_button = ctk.CTkButton(
-            self.button_frame, text="PDFを開く",
+            self.button_frame,
+            text="PDFを開く",
             fg_color=Colors.UI_PREVIEW,
             hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
-            command=self.open_pdf_action, width=50
+            command=self.open_pdf_action,
+            width=50,
         )
         self.pdf_button.pack(side="left", padx=5)
 
@@ -295,6 +300,8 @@ class NotePreviewWindow(ctk.CTkToplevel):
             button_hover_color=Colors.adjust_brightness(  # ドロップダウン矢印のホバー色
                 Colors.UI_LINK, 0.6
             ),
+            dropdown_fg_color=Colors.BACKGROUND_PANEL,
+            dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.copy_menu.pack(side="left", padx=5)
 
