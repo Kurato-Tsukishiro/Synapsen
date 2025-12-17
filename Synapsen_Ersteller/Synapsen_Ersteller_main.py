@@ -31,7 +31,8 @@ import reportlab_generator as Generator         # noqa: E402
 import gui_dialogs as Dialogs                   # noqa: E402
 from pypdf import PdfReader                     # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
-from logging_setup import setup_logging  # noqa: E402
+from theme import SemanticColors as Colors      # noqa: E402
+from logging_setup import setup_logging         # noqa: E402
 
 # ==============================================================================
 # 定数定義
@@ -78,6 +79,9 @@ class Synapsen_Ersteller(ctk.CTk):
         super().__init__()
         self.icon_path = self.get_icon_path()
         self.title("Synapse Ersteller")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("800x700")
         self.grid_columnconfigure(0, weight=1)
         # ボタン用に row=1, 2 を確保し、リスト用に row=3 の weight を 1 に設定
@@ -109,18 +113,43 @@ class Synapsen_Ersteller(ctk.CTk):
 
         # フォルダ/CSV操作 (左側)
         load_frame = ctk.CTkFrame(top_button_frame, fg_color="transparent")
+
+        # 基本的なボタン色
+        fg_color_basic = Colors.UI_BASIC
+        hover_color_basic = Colors.adjust_brightness(Colors.UI_BASIC)
+
         load_frame.pack(side="left", padx=0)
         ctk.CTkButton(
-            load_frame, text="フォルダから新規読み込み", command=self.scan_folder
+            load_frame,
+            text="フォルダから新規読み込み",
+            command=self.scan_folder,
+            fg_color=fg_color_basic,
+            hover_color=hover_color_basic,
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            load_frame, text="リスト読込 (CSV)", command=self.load_from_csv
+            load_frame,
+            text="リスト読込 (CSV)",
+            command=self.load_from_csv,
+            fg_color=fg_color_basic,
+            hover_color=hover_color_basic,
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            load_frame, text="リストをフォルダと同期", command=self.sync_with_folder
+            load_frame,
+            text="リストをフォルダと同期",
+            command=self.sync_with_folder,
+            fg_color=fg_color_basic,
+            hover_color=hover_color_basic,
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            load_frame, text="リスト保存 (CSV)", command=self.save_to_csv
+            load_frame,
+            text="リスト保存 (CSV)",
+            command=self.save_to_csv,
+            fg_color=fg_color_basic,
+            hover_color=hover_color_basic,
+            text_color="black",
         ).pack(side="left", padx=5)
 
         # === 右側のボタン群 (PDF生成 / DB復旧 / 設定) ===
@@ -131,8 +160,8 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame,
             text="統合PDFを生成",
             command=self.generate_pdf,
-            fg_color="green",
-            hover_color="darkgreen",
+            fg_color=Colors.UI_EXPORT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
         ).pack(side="right", padx=10)
 
         # [2] メタデータ同期ボタン (その左)
@@ -140,8 +169,9 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame,
             text="メタデータ同期 (DB→PDF)",
             command=self.sync_metadata_db_to_pdf,
-            fg_color="#E0a800",  # 黄色系 (注意喚起/更新)
-            hover_color="#c69500",
+            fg_color=Colors.CANVAS,
+            hover_color=Colors.adjust_brightness(Colors.CANVAS),
+            text_color="black",
             width=140,
         ).pack(side="right", padx=10)
 
@@ -150,8 +180,9 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame,
             text="DB復旧ツール",
             command=self.open_recovery_tool,
-            fg_color="#17a2b8",
-            hover_color="#138496",  # シアン系
+            fg_color=hover_color_basic,
+            hover_color=Colors.adjust_brightness(hover_color_basic),
+            text_color="black",
             width=100,
         ).pack(side="right", padx=5)
 
@@ -160,8 +191,8 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame,
             text="設定 (Config)",
             command=self.open_config_editor,
-            fg_color="#555555",  # ツール系なのでグレー
-            hover_color="#333333",
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             width=80,
         ).pack(side="right", padx=5)
 
@@ -174,8 +205,8 @@ class Synapsen_Ersteller(ctk.CTk):
             text="一括編集 (0)",
             command=self.open_batch_editor,
             state="disabled",
-            fg_color="#585a9c",  # 桔梗色
-            hover_color="#494B83",  # 濃い桔梗色
+            fg_color=Colors.UI_SECONDARY,
+            hover_color=Colors.adjust_brightness(Colors.UI_SECONDARY),
         )
         self.batch_edit_button.pack(side="left", padx=5)
 
@@ -184,8 +215,8 @@ class Synapsen_Ersteller(ctk.CTk):
             text="選択解除",
             command=self.deselect_all,
             state="disabled",
-            fg_color="#6C757D",  # セカンダリ・グレー
-            hover_color="#5A6268",  # 濃いグレー
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         )
         self.deselect_all_button.pack(side="left", padx=5)
 
@@ -194,12 +225,17 @@ class Synapsen_Ersteller(ctk.CTk):
             text="リンクコピー (0)",
             command=self.copy_selected_links,
             state="disabled",
-            fg_color="#28a745",
-            hover_color="#218838",
+            fg_color=Colors.UI_LINK,
+            hover_color=Colors.adjust_brightness(Colors.UI_LINK),
         )
         self.copy_links_button.pack(side="left", padx=5)
 
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, label_text="読み込み結果")
+        self.scrollable_frame = ctk.CTkScrollableFrame(
+            self,
+            label_text="読み込み結果",
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.scrollable_frame.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
 
     def get_icon_path(self):
@@ -822,9 +858,15 @@ class Synapsen_Ersteller(ctk.CTk):
             ).pack()
         else:
             default_text_color = ("#1F1F1F", "#1F1F1F")
-            warning_text_color = ("#f08300", "#FF4500")
-            # 未登録キー用の注意色 (ライトモード: 濃いオレンジ, ダークモード: 黄色)
-            unknown_key_text_color = ("#D35400", "#FFC107")
+            warning_text_color = (
+                Colors.LABEL_WARNING,
+                Colors.adjust_brightness(Colors.LABEL_WARNING, 1.4),
+            )
+            # 未登録キー用の注意色
+            unknown_key_text_color = (
+                Colors.LABEL_DENGER,
+                Colors.adjust_brightness(Colors.LABEL_DENGER, 1.4),
+            )
 
             for note_data in self.all_notes_info:
                 row_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
@@ -844,6 +886,9 @@ class Synapsen_Ersteller(ctk.CTk):
                     onvalue="on",
                     offvalue="off",
                     width=25,
+                    fg_color=Colors.UI_BASIC,
+                    hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+                    checkmark_color=Colors.adjust_brightness(Colors.UI_BASIC, 1.8),
                     command=lambda note=note_data, v=var: self.toggle_selection(
                         note, v.get()
                     ),
