@@ -15,7 +15,7 @@ class Colors:
     """
 
     # Main
-    HISUI: Final[str] = "#38b48b"
+    HISUI: Final[str] = "#38B48B"
     """ 翡翠色 """
 
     TETSU: Final[str] = "#005243"
@@ -28,17 +28,17 @@ class Colors:
     SUOU: Final[str] = "#9E3D3F"
     """ 蘇芳色 """
 
-    KIKYO: Final[str] = "#585a9c"
+    KIKYO: Final[str] = "#5654A2"
     """ 桔梗色 """
 
     # Accent
-    MYOSOTIS: Final[str] = "#89c3eb"
+    MYOSOTIS: Final[str] = "#89C3EB"
     """ 勿忘草色 """
 
-    HIMAWARI: Final[str] = "#fcc800"
+    HIMAWARI: Final[str] = "#FCC800"
     """ 向日葵色 """
 
-    DOVEGREY: Final[str] = "#9e8b8e"
+    DOVEGREY: Final[str] = "#9E8B8E"
     """ 鳩羽鼠色 """
 
     KACIIKAESHI: Final[str] = "#203744"
