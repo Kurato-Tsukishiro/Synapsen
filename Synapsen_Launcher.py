@@ -63,6 +63,9 @@ class SynapsenLauncher(ctk.CTk):
 
         self.title("Synapsen Launcher")
         self.geometry("600x550")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
 
         # 物理パスを使用 (assets等はexeの隣にある前提)
         self.base_path = BASE_DIR
@@ -82,7 +85,9 @@ class SynapsenLauncher(ctk.CTk):
         self._create_ui()
 
     def _create_ui(self):
-        main_frame = ctk.CTkFrame(self)
+        main_frame = ctk.CTkFrame(
+            self, fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
+        )
         main_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
         main_frame.grid_columnconfigure((0, 1), weight=1)
 
@@ -167,7 +172,12 @@ class SynapsenLauncher(ctk.CTk):
             ).pack()
 
         exit_btn = ctk.CTkButton(
-            self, text="終了", fg_color="gray", width=100, command=self.destroy
+            self,
+            text="終了",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            width=100,
+            command=self.destroy,
         )
         exit_btn.grid(row=(len(tools) + 1) // 2 + 1, column=0, columnspan=2, pady=20)
 

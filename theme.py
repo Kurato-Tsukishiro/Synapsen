@@ -224,12 +224,17 @@ class SemanticColors:
     )
     """ パネル背景色: 薄い灰色 (鳩羽鼠色をベースに彩度を落とし、白とブレンド) """
 
-    BACKGROUND_HOLLOW: Final[str] = blend_colors(
-        Colors.WHITE, BACKGROUND_PANEL, 0.4
-    )
+    BACKGROUND_HOLLOW: Final[str] = blend_colors(Colors.WHITE, BACKGROUND_PANEL, 0.4)
     """
     窪み背景色 : 非常に薄い灰色 (鳩羽色及びパネル背景色をベースに明るく調整)
     """
 
-    BACKGROUND_DARK_PANEL = Colors.KACIIKAESHI
+    BACKGROUND_DARK_PANEL: Final[str] = Colors.KACIIKAESHI
     """ パネル背景色(DARK) """
+
+    BACKGROUND_DARK_HOLLOW: Final[str] = blend_colors(
+        Colors.KACIIKAESHI, Colors.BLACK, alpha=0.65
+    )
+    """
+    窪み背景色(DARK): 非常に暗い青紫色 (褐返色をベースに暗く調整)
+    """
