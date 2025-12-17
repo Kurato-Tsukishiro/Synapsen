@@ -106,8 +106,8 @@ class NexusUiMixin:
             values=["保存済み検索..."],
             width=150,
             command=self.search_manager.on_saved_search_selected,
-            button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.7),
-            button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            button_color=Colors.adjust_brightness(Colors.UI_CANCEL, 1.1),
+            button_hover_color=Colors.UI_CANCEL,
             dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             dropdown_hover_color=(
                 Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
@@ -190,8 +190,8 @@ class NexusUiMixin:
             text="×",
             command=self.clear_selection,
             width=30,
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.7),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
+            fg_color=Colors.adjust_brightness(Colors.UI_CANCEL, 1.1),
+            hover_color=Colors.UI_CANCEL,
             text_color="white",
         )
         self.clear_selection_button.pack(side="left", padx=0)

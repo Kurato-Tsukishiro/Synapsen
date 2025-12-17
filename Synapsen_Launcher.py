@@ -174,8 +174,8 @@ class SynapsenLauncher(ctk.CTk):
         exit_btn = ctk.CTkButton(
             self,
             text="終了",
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             width=100,
             command=self.destroy,
         )

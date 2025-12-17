@@ -200,7 +200,7 @@ class WatchdogApp(ctk.CTk):
         self.title("Synapsen Watchdog")
         self.geometry("500x400")
         self.configure(
-            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+            fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
         )
 
         # アイコン設定
@@ -267,8 +267,8 @@ class WatchdogApp(ctk.CTk):
         stop_btn = ctk.CTkButton(
             footer_frame,
             text="停止して終了",
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             width=100,
             command=self.on_closing,
         )

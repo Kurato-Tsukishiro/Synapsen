@@ -210,8 +210,8 @@ class StickyNoteDialog(BaseSubWindow):
             btn_frame,
             text="キャンセル",
             width=80,
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             command=self.destroy,
         ).pack(side="left", padx=5)
         ctk.CTkButton(

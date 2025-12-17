@@ -64,8 +64,8 @@ class SaveSearchDialog(ctk.CTkToplevel):
             text="キャンセル",
             width=100,
             command=self.destroy,
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="left", padx=10)
 
         self.bind("<Return>", lambda e: self.on_ok())

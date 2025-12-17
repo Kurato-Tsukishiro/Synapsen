@@ -182,6 +182,27 @@ class SemanticColors:
     CANVAS: Final[str] = Colors.HIMAWARI
     """ Canvas : 向日葵色 """
 
+    # --- Backgrounds ---
+    BACKGROUND_PANEL: Final[str] = blend_colors(
+        adjust_saturation(Colors.DOVEGREY, 0.7), Colors.WHITE, alpha=0.35
+    )
+    """ パネル背景色: 薄い灰色 (鳩羽鼠色をベースに彩度を落とし、白とブレンド) """
+
+    BACKGROUND_HOLLOW: Final[str] = blend_colors(Colors.WHITE, BACKGROUND_PANEL, 0.4)
+    """
+    窪み背景色 : 非常に薄い灰色 (鳩羽色及びパネル背景色をベースに明るく調整)
+    """
+
+    BACKGROUND_DARK_PANEL: Final[str] = Colors.KACIIKAESHI
+    """ パネル背景色(DARK) """
+
+    BACKGROUND_DARK_HOLLOW: Final[str] = blend_colors(
+        Colors.KACIIKAESHI, Colors.BLACK, alpha=0.65
+    )
+    """
+    窪み背景色(DARK): 非常に暗い青紫色 (褐返色をベースに暗く調整)
+    """
+
     # --- UI Semantics (機能別の色) ---
     UI_BASIC: Final[str] = Colors.MYOSOTIS
     """ 基本的なUIカラー : 勿忘草色 """
@@ -191,6 +212,9 @@ class SemanticColors:
 
     UI_TERTIARY: Final[str] = Colors.DOVEGREY
     """ 第三のUI要素 : 鳩羽鼠色 """
+
+    UI_CANCEL: Final[str] = adjust_brightness(BACKGROUND_PANEL, 0.6)
+    """ CANCEL関係のUIカラー :  灰色 (パネル背景色をさらに暗く調整)"""
 
     # リンク・ジャンプ系
     UI_PREVIEW: Final[str] = Colors.HISUI
@@ -217,24 +241,3 @@ class SemanticColors:
     """ 情報ラベル警告 : 勿忘草色 """
     LABEL_SUCCESS: Final[str] = Colors.HISUI
     """ 成功ラベル : 翡翠色 """
-
-    # --- Backgrounds ---
-    BACKGROUND_PANEL: Final[str] = blend_colors(
-        adjust_saturation(Colors.DOVEGREY, 0.7), Colors.WHITE, alpha=0.35
-    )
-    """ パネル背景色: 薄い灰色 (鳩羽鼠色をベースに彩度を落とし、白とブレンド) """
-
-    BACKGROUND_HOLLOW: Final[str] = blend_colors(Colors.WHITE, BACKGROUND_PANEL, 0.4)
-    """
-    窪み背景色 : 非常に薄い灰色 (鳩羽色及びパネル背景色をベースに明るく調整)
-    """
-
-    BACKGROUND_DARK_PANEL: Final[str] = Colors.KACIIKAESHI
-    """ パネル背景色(DARK) """
-
-    BACKGROUND_DARK_HOLLOW: Final[str] = blend_colors(
-        Colors.KACIIKAESHI, Colors.BLACK, alpha=0.65
-    )
-    """
-    窪み背景色(DARK): 非常に暗い青紫色 (褐返色をベースに暗く調整)
-    """

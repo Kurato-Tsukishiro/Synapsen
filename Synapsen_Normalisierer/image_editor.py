@@ -114,8 +114,8 @@ class PerspectiveCropEditor(ctk.CTkToplevel):
         self.btn_cancel = ctk.CTkButton(
             self.toolbar,
             text="キャンセル",
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
-            hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.4),
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             width=80,
             command=self.destroy,
         )
