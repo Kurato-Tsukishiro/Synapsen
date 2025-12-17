@@ -191,8 +191,8 @@ class Synapsen_Ersteller(ctk.CTk):
             top_button_frame,
             text="設定 (Config)",
             command=self.open_config_editor,
-            fg_color=Colors.UI_CANCEL,
-            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
+            fg_color=Colors.UI_SETTING,
+            hover_color=Colors.adjust_brightness(Colors.UI_SETTING),
             width=80,
         ).pack(side="right", padx=5)
 
@@ -215,8 +215,8 @@ class Synapsen_Ersteller(ctk.CTk):
             text="選択解除",
             command=self.deselect_all,
             state="disabled",
-            fg_color=Colors.UI_CANCEL,
-            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
+            fg_color=Colors.STATE_DISABLED,
+            hover_color=Colors.adjust_brightness(Colors.STATE_DISABLED),
         )
         self.deselect_all_button.pack(side="left", padx=5)
 

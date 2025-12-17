@@ -768,10 +768,10 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.overwrite_switch = ctk.CTkSwitch(
             memo_header_frame,
             text="上書きモード",
-            button_color=Colors.adjust_brightness(Colors.UI_CANCEL),
-            button_hover_color=Colors.adjust_brightness(Colors.UI_CANCEL, 0.6),
-            fg_color=Colors.UI_CANCEL,
-            progress_color=Colors.UI_BASIC,
+            button_color=Colors.adjust_brightness(Colors.STATE_DISABLED),
+            button_hover_color=Colors.adjust_brightness(Colors.STATE_DISABLED, 0.6),
+            fg_color=Colors.STATE_DISABLED,
+            progress_color=Colors.STATE_NORMAL,
         )
         self.overwrite_switch.pack(side="right")
 

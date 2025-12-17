@@ -231,6 +231,14 @@ class SemanticColors:
     """ 編集関連機能のUI : 鉄色 """
     UI_EXPORT: Final[str] = Colors.TETSU
     """ 出力関連機能のUI : 鉄色 """
+    UI_SETTING: Final[str] = adjust_brightness(BACKGROUND_PANEL, 0.6)
+    """ 設定関連のUI :  灰色 (パネル背景色をさらに暗く調整) """
+
+    # 状態
+    STATE_DISABLED: Final[str] = adjust_brightness(BACKGROUND_PANEL, 0.6)
+    """ 無効状態を表すカラー :  灰色 (パネル背景色をさらに暗く調整) """
+    STATE_NORMAL: Final[str] = UI_BASIC
+    """ 有効状態 (標準) : UI_BASIC (勿忘草色) を使用 """
 
     # ラベル・通知系
     LABEL_DENGER: Final[str] = Colors.SUOU

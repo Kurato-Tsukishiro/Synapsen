@@ -174,7 +174,7 @@ class StickyNoteDialog(BaseSubWindow):
                 value=code,
                 variable=self.selected_color,
                 fg_color=code,
-                border_color="gray",
+                border_color=Colors.STATE_DISABLED,
                 text_color=text_color,
                 width=80,
             )
@@ -310,7 +310,7 @@ class ConversionDialog(BaseSubWindow):
                     value=code,
                     variable=self.selected_color,
                     fg_color=code,
-                    border_color="gray",
+                    border_color=Colors.STATE_DISABLED,
                     text_color=text_color,
                     width=80,
                 )
@@ -325,7 +325,7 @@ class ConversionDialog(BaseSubWindow):
             btn_frame,
             text="キャンセル",
             width=80,
-            fg_color="gray",
+            fg_color=Colors.UI_CANCEL,
             command=self.destroy,
         ).pack(side="left", padx=5)
 
@@ -755,7 +755,7 @@ class CanvasWindow(BaseSubWindow):
             self.toolbar,
             text=text,
             width=50,
-            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            hover_color=Colors.adjust_brightness(Colors.STATE_NORMAL),
             command=lambda: self.set_mode(mode, label),
         )
         btn.pack(side="left", padx=2)
@@ -919,9 +919,9 @@ class CanvasWindow(BaseSubWindow):
         for m, btn in self.mode_buttons.items():
             btn.configure(
                 fg_color=(
-                    Colors.adjust_brightness(Colors.UI_BASIC, 0.6)
+                    Colors.adjust_brightness(Colors.STATE_NORMAL, 0.6)
                     if m == mode
-                    else Colors.adjust_brightness(Colors.BACKGROUND_PANEL)
+                    else Colors.adjust_brightness(Colors.STATE_DISABLED, 1.2)
                 )
             )
         if mode != "select":
@@ -1264,7 +1264,11 @@ class CanvasWindow(BaseSubWindow):
         x2 = (cx + pw / 2) * self.current_scale
         y2 = (cy + ph / 2) * self.current_scale
 
-        guide_color = "#FF4081" if ctk.get_appearance_mode() == "Dark" else "#D81B60"
+        guide_color = (
+            Colors.LABEL_DENGER
+            if ctk.get_appearance_mode() == "Dark"
+            else Colors.LABEL_DENGER
+        )
 
         self.canvas.create_rectangle(
             x1,
@@ -1397,7 +1401,7 @@ class CanvasWindow(BaseSubWindow):
             self.canvas.itemconfigure(
                 rect_id,
                 width=selected_width if is_sel else base_width,
-                outline="#585a9c" if is_sel else "white",
+                outline=Colors.UI_SECONDARY if is_sel else "white",
             )
             current_w = info["w"] * self.current_scale
             self.canvas.itemconfigure(
@@ -1414,7 +1418,7 @@ class CanvasWindow(BaseSubWindow):
             self.canvas.itemconfigure(
                 rect_id,
                 width=selected_width if is_sel else 0,
-                outline="#585a9c" if is_sel else "",
+                outline=Colors.UI_SECONDARY if is_sel else "",
             )
             current_w = sticky["w"] * self.current_scale
             self.canvas.itemconfigure(
@@ -1432,14 +1436,16 @@ class CanvasWindow(BaseSubWindow):
                     (
                         "red"
                         if s["type"] == "rect"
-                        else ("white" if self.bg_color == "#2b2b2b" else "black")
+                        else (
+                            "white" if ctk.get_appearance_mode() == "Dark" else "black"
+                        )
                     ),
                 )
                 if s["type"] == "rect":
-                    c = "#585a9c" if is_sel else base_color
+                    c = Colors.UI_SECONDARY if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], outline=c, width=w)
                 else:
-                    c = "#585a9c" if is_sel else base_color
+                    c = Colors.UI_SECONDARY if is_sel else base_color
                     self.canvas.itemconfigure(s["id"], fill=c, width=w)
 
         for c in self.connections_on_canvas:
@@ -1482,7 +1488,7 @@ class CanvasWindow(BaseSubWindow):
         self.canvas.delete("resize_handle")
         base_width = max(1, int(self.base_line_width * self.current_scale))
         selected_width = max(2, int(4 * self.current_scale))
-        sel_col = "#585a9c"
+        sel_col = Colors.UI_SECONDARY
         handle_size = 10 * self.current_scale
 
         # ノート (Note)
@@ -1529,7 +1535,7 @@ class CanvasWindow(BaseSubWindow):
             elif s["type"] == "line":
                 w = selected_width if is_sel else base_width
                 base_color = s.get(
-                    "color", "white" if self.bg_color == "#2b2b2b" else "black"
+                    "color", "white" if ctk.get_appearance_mode() == "Dark" else "black"
                 )
                 c = sel_col if is_sel else base_color
                 self.canvas.itemconfigure(s["id"], fill=c, width=w)
@@ -1543,7 +1549,7 @@ class CanvasWindow(BaseSubWindow):
                 y2 - size,
                 x2,
                 y2,
-                fill="gray",
+                fill=Colors.UI_SETTING,
                 outline="white",
                 tags=("resize_handle", tag),
             )
@@ -1773,9 +1779,9 @@ class CanvasWindow(BaseSubWindow):
             is_linked = self._check_db_link_exists(f_key, t_key)
 
         col = (
-            "#28a745"
+            Colors.UI_LINK
             if is_linked
-            else ("white" if self.bg_color == "#2b2b2b" else "black")
+            else ("white" if ctk.get_appearance_mode() == "Dark" else "black")
         )
         lw = max(1, int(self.base_line_width * self.current_scale))
 
@@ -2000,7 +2006,7 @@ class CanvasWindow(BaseSubWindow):
     def _handle_connect_click(self, target, cx, cy):
         if target and target[0] in ("note", "sticky"):
             self.drag_data["start_item"] = target
-            col = "white" if self.bg_color == "#2b2b2b" else "black"
+            col = "white" if ctk.get_appearance_mode() == "Dark" else "black"
             self.drag_data["temp_id"] = self.canvas.create_line(
                 cx, cy, cx, cy, fill=col, width=2, dash=(2, 2)
             )
@@ -2017,7 +2023,7 @@ class CanvasWindow(BaseSubWindow):
             if not is_shift:
                 self._clear_selection()
             self.drag_data["rubberband_id"] = self.canvas.create_rectangle(
-                cx, cy, cx, cy, outline="#585a9c", dash=(2, 2)
+                cx, cy, cx, cy, outline=Colors.UI_SECONDARY, dash=(2, 2)
             )
 
     def _handle_create_sticky(self, cx, cy):
@@ -2479,7 +2485,7 @@ class CanvasWindow(BaseSubWindow):
             touch_note_timestamp(cursor, key_b)
 
             conn.commit()
-            self.canvas.itemconfigure(item_id, fill="#28a745")
+            self.canvas.itemconfigure(item_id, fill=Colors.UI_LINK)
             messagebox.showinfo("完了", "リンクを作成しました。", parent=self)
         except Exception as e:
             if conn:
@@ -2507,7 +2513,7 @@ class CanvasWindow(BaseSubWindow):
             touch_note_timestamp(cursor, key_b)
 
             conn.commit()
-            base_color = "white" if self.bg_color == "#2b2b2b" else "black"
+            base_color = "white" if ctk.get_appearance_mode() == "Dark" else "black"
             self.canvas.itemconfigure(item_id, fill=base_color)
             messagebox.showinfo("完了", "リンクを解除しました。", parent=self)
         except Exception as e:
@@ -3304,7 +3310,7 @@ class CanvasWindow(BaseSubWindow):
             default_color = (
                 "red"
                 if s["type"] == "rect"
-                else ("white" if self.bg_color == "#2b2b2b" else "black")
+                else ("white" if ctk.get_appearance_mode() == "Dark" else "black")
             )
             color_val = s.get("color", default_color)
             color_map = {"red": "#FF0000", "white": "#FFFFFF", "black": "#000000"}
