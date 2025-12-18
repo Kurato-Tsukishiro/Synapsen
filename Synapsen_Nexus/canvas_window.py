@@ -245,6 +245,9 @@ class ConversionDialog(BaseSubWindow):
     ):
         geometry = "500x350" if show_color_option else "500x250"
         super().__init__(parent, title="詳細設定", geometry=geometry)
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.grab_set()
         self.result = None
         self.key_options = key_options
@@ -263,7 +266,9 @@ class ConversionDialog(BaseSubWindow):
         ).grid(row=current_row, column=0, padx=20, pady=(20, 5), sticky="ew")
         current_row += 1
 
-        self.title_entry = ctk.CTkEntry(self)
+        self.title_entry = ctk.CTkEntry(
+            self, fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2)
+        )
         self.title_entry.grid(
             row=current_row, column=0, padx=20, pady=(0, 15), sticky="ew"
         )
@@ -276,7 +281,18 @@ class ConversionDialog(BaseSubWindow):
         )
         current_row += 1
 
-        self.key_combo = ctk.CTkComboBox(self, values=self.key_options)
+        self.key_combo = ctk.CTkComboBox(
+            self,
+            values=self.key_options,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+            button_color=Colors.adjust_brightness(Colors.UI_SETTING, 1.1),
+            button_hover_color=Colors.UI_SETTING,
+            dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            dropdown_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.15),
+            ),
+        )
         self.key_combo.grid(
             row=current_row,
             column=0,
@@ -326,13 +342,20 @@ class ConversionDialog(BaseSubWindow):
             text="キャンセル",
             width=80,
             fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
             command=self.destroy,
         ).pack(side="left", padx=5)
 
         ok_text = "変換実行" if self.show_color_option else "PDF出力"
-        ctk.CTkButton(btn_frame, text=ok_text, width=80, command=self.on_ok).pack(
-            side="left", padx=5
-        )
+        ctk.CTkButton(
+            btn_frame,
+            text=ok_text,
+            width=80,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+            command=self.on_ok,
+        ).pack(side="left", padx=5)
 
     def on_ok(self):
         title = self.title_entry.get().strip()
