@@ -424,14 +424,31 @@ class Synapsen_Nexus(
     def _handle_shortcut(self, command):
         """
         ショートカット実行時のハンドラ。
-        入力フィールド(Entry, Text)にフォーカスがある場合は無視して文字入力を優先する。
+        入力フィールドにフォーカスがある場合、
+        または別ウィンドウ(Toplevel)にフォーカスがある場合は実行しない。
         """
         focused = self.focus_get()
-        # 入力ウィジェットにフォーカスがある場合は実行しない
-        if focused and focused.winfo_class() in ["Entry", "Text"]:
-            return
 
-        # 入力中でなければコマンドを実行
+        if focused:
+            # 1. 入力ウィジェットのチェック (Entry, Textなど)
+            # CustomTkinterの内部ウィジェットのクラス名も含めてチェック
+            if focused.winfo_class() in ["Entry", "Text", "TEntry", "ScrolledText"]:
+                return
+
+            # 2. フォーカスがメインウィンドウ以外 (詳細プレビューやCanvasなど) にあるかチェック
+            try:
+                # フォーカスされているウィジェットが属するトップレベルウィンドウを取得
+                top_level = focused.winfo_toplevel()
+
+                # そのトップレベルウィンドウが自分自身(Main)でない場合は無視する
+                # (NotePreviewWindow や CanvasWindow にフォーカスがある場合など)
+                if top_level != self:
+                    return
+            except Exception:
+                # ウィジェットの破棄タイミング等でエラーが出た場合は安全側に倒して実行しない
+                pass
+
+        # 条件をクリアした場合のみコマンドを実行
         command()
 
     def _focus_search(self, event):

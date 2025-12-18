@@ -343,6 +343,36 @@ class NotePreviewWindow(ctk.CTkToplevel):
         # レイアウトを適用
         self.update_layout()
 
+        # ショートカットキーの設定
+        self._setup_shortcuts()
+
+        self.after(50, self.focus_force)  # 遅延しないとフォーカスが切り替わらない
+
+    def _setup_shortcuts(self):
+        """プレビューウィンドウ固有のショートカットキーを設定"""
+
+        # 1. PDFページ送り (矢印キー)
+        self.bind("<Left>", lambda e: self.show_prev_page())
+        self.bind("<Right>", lambda e: self.show_next_page())
+
+        # 2. 縮小/拡大表示の切り替え (Spaceキー)
+        self.bind("<space>", lambda e: self.toggle_view_mode())
+
+        # 3. PDFを開く (Enterキー)
+        self.bind("<Return>", lambda e: self.open_pdf_action())
+
+        # 4. ウィンドウを閉じる (Escキー)
+        self.bind("<Escape>", lambda e: self.on_close())
+
+        # 5. 編集する (Eキー / Ctrl+E)
+        # メイン画面と操作感を統一
+        self.bind("e", lambda e: self.edit_note_action())
+        self.bind("<Control-e>", lambda e: self.edit_note_action())
+
+        # 6. 関連グラフを表示 (Lキー)
+        # メイン画面(Local Graph)と統一
+        self.bind("l", lambda e: self.show_local_graph_action())
+
     def show_local_graph_action(self):
         """「関連グラフ」ボタンが押されたときの処理"""
         key_to_show = self.note_data.get("key")
