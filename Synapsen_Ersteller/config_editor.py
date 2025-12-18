@@ -11,6 +11,8 @@ root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
+from theme import SemanticColors as Colors  # noqa: E402
+
 
 class ConfigEditorWindow(ctk.CTkToplevel):
     def __init__(self, parent, config_path):
@@ -26,6 +28,9 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 pass
 
         self.title("Synapsen 設定")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("650x800")
 
         # モーダル設定
@@ -49,7 +54,11 @@ class ConfigEditorWindow(ctk.CTkToplevel):
 
     def _create_widgets(self):
         # スクロール可能なメインフレーム
-        self.scroll_frame = ctk.CTkScrollableFrame(self)
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color=Colors.BACKGROUND_PANEL,
+            label_fg_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.8),
+        )
         self.scroll_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         # --- [Paths] セクション ---
@@ -78,7 +87,10 @@ class ConfigEditorWindow(ctk.CTkToplevel):
             "インク注釈をフラット化", "Automation", "flatten_ink_annotations"
         )
         self.var_auto_db = self._add_checkbox(
-            "DBへの自動追記 (Ersteller)", "Automation", "auto_append_to_default_db"
+            "DBへの自動追記 (Ersteller => Nexus)", "Automation", "auto_append_to_default_db"
+        )
+        self.var_export_csv = self._add_checkbox(
+            "統合時のリストCSVの出力", "Automation", "create_individual_csv"
         )
 
         # --- [Watchdog] セクション (New) ---
@@ -122,11 +134,15 @@ class ConfigEditorWindow(ctk.CTkToplevel):
             btn_frame,
             text="保存して閉じる",
             command=self._save_config,
-            fg_color="green",
-            hover_color="darkgreen",
+            fg_color=Colors.UI_EDIT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT, 0.6),
         ).pack(side="right", padx=5)
         ctk.CTkButton(
-            btn_frame, text="キャンセル", command=self.destroy, fg_color="gray"
+            btn_frame,
+            text="キャンセル",
+            command=self.destroy,
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="right", padx=5)
 
     def _add_section_label(self, text):
@@ -142,7 +158,9 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         ctk.CTkLabel(frame, text=label_text, width=200, anchor="w").pack(side="left")
 
         current_val = self._get_config_val(section, option)
-        entry = ctk.CTkEntry(frame)
+        entry = ctk.CTkEntry(
+            frame, fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2)
+        )
         entry.insert(0, current_val)
         entry.pack(side="left", fill="x", expand=True, padx=5)
 
@@ -192,7 +210,15 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 entry.delete(0, "end")
                 entry.insert(0, path)
 
-        ctk.CTkButton(frame, text="参照", width=50, command=browse).pack(side="left")
+        ctk.CTkButton(
+            frame,
+            text="参照",
+            width=50,
+            command=browse,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+        ).pack(side="left")
         return entry
 
     def _add_text_entry(self, label_text, section, option):
@@ -202,7 +228,9 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         ctk.CTkLabel(frame, text=label_text, width=200, anchor="w").pack(side="left")
 
         current_val = self._get_config_val(section, option)
-        entry = ctk.CTkEntry(frame)
+        entry = ctk.CTkEntry(
+            frame, fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2)
+        )
         entry.insert(0, current_val)
         entry.pack(side="left", fill="x", expand=True)
         return entry
@@ -216,7 +244,14 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         is_checked = val_str == "true"
 
         var = ctk.BooleanVar(value=is_checked)
-        chk = ctk.CTkCheckBox(frame, text=label_text, variable=var)
+        chk = ctk.CTkCheckBox(
+            frame,
+            text=label_text,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            checkmark_color=Colors.adjust_brightness(Colors.UI_BASIC, 1.8),
+            variable=var,
+        )
         chk.pack(side="left", padx=5)
         return var
 
@@ -247,6 +282,11 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 "Automation",
                 "auto_append_to_default_db",
                 str(self.var_auto_db.get()).lower(),
+            )
+            self.config.set(
+                "Automation",
+                "create_individual_csv",
+                str(self.var_export_csv.get()).lower(),
             )
 
             # Watchdog (New)
@@ -284,9 +324,15 @@ class ConfigEditorWindow(ctk.CTkToplevel):
 # 動作確認用
 if __name__ == "__main__":
     root = ctk.CTk()
+    root.configure(fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW))
     # テスト用ボタン
     btn = ctk.CTkButton(
-        root, text="設定を開く", command=lambda: ConfigEditorWindow(root, "config.ini")
+        root,
+        text="設定を開く",
+        fg_color=Colors.UI_BASIC,
+        hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+        text_color="black",
+        command=lambda: ConfigEditorWindow(root, "config.ini"),
     )
     btn.pack(pady=20)
     root.mainloop()
