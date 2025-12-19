@@ -1032,29 +1032,6 @@ class BatchEditWindow(ctk.CTkToplevel):
             lbl.configure(text_color="gray")  # グレーアウト
             btn.configure(text="戻す", fg_color="gray", hover_color="#555")
 
-    def remove_tag_from_remove_list(self, tag_to_remove):
-        self.tags_to_remove.remove(tag_to_remove)
-        self.update_remove_tags_display()
-
-    def update_remove_tags_display(self):
-        for widget in self.remove_tags_display_frame.winfo_children():
-            widget.destroy()
-        fg = Colors.UI_BASIC
-        hover = Colors.adjust_brightness(Colors.UI_BASIC)
-        for tag in sorted(self.tags_to_remove):
-            tag_frame = ctk.CTkFrame(self.remove_tags_display_frame)
-            ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
-            ctk.CTkButton(
-                tag_frame,
-                text="×",
-                width=20,
-                fg_color=fg,
-                hover_color=hover,
-                text_color="black",
-                command=lambda t=tag: self.remove_tag_from_remove_list(t),
-            ).pack(side="left", padx=5)
-            tag_frame.pack(anchor="w", pady=2, fill="x")
-
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
             try:
