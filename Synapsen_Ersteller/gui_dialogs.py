@@ -315,7 +315,7 @@ class DataEditorWindow(ctk.CTkToplevel):
         fg = Colors.UI_BASIC
         hover = Colors.adjust_brightness(Colors.UI_BASIC)
         for tag in sorted(self.temp_tags):
-            tag_frame = ctk.CTkFrame(self.tags_frame)
+            tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
                 tag_frame,

@@ -1,8 +1,17 @@
+from pathlib import Path
+import re
+import sys
 import customtkinter as ctk
 from tkinter import messagebox
-import re
 
 import logging
+
+current_dir = Path(__file__).parent
+root_dir = current_dir.parent
+if str(root_dir) not in sys.path:
+    sys.path.append(str(root_dir))
+
+from theme import SemanticColors as Colors  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,9 @@ class NoteEditorWindow(ctk.CTkToplevel):
 
         self.title(f"ノート編集: {self.note_data['title']}")
         self.geometry("1000x700")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.transient(parent)
         self.grab_set()
 
@@ -66,7 +78,16 @@ class NoteEditorWindow(ctk.CTkToplevel):
             row=0, column=0, sticky="w"
         )
         self.cp_key_combo = ctk.CTkComboBox(
-            cp_key_frame, values=self.commonplace_key_options
+            cp_key_frame,
+            values=self.commonplace_key_options,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+            button_color=Colors.adjust_brightness(Colors.UI_SETTING, 1.1),
+            button_hover_color=Colors.UI_SETTING,
+            dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            dropdown_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.15),
+            ),
         )
         self.cp_key_combo.grid(row=0, column=1, sticky="ew")
         self.cp_key_combo.set(self.note_data.get("commonplace_key", ""))
@@ -79,7 +100,10 @@ class NoteEditorWindow(ctk.CTkToplevel):
         ctk.CTkLabel(key_frame, text="ユニークID (Key):", width=150, anchor="w").grid(
             row=0, column=0, sticky="w"
         )
-        self.key_entry = ctk.CTkEntry(key_frame)
+        self.key_entry = ctk.CTkEntry(
+            key_frame,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.key_entry.grid(row=0, column=1, sticky="ew")
         self.key_entry.insert(0, self.note_data.get("key", ""))
         self.key_entry.configure(state="readonly")
@@ -93,7 +117,11 @@ class NoteEditorWindow(ctk.CTkToplevel):
         )
 
         self.summary_entry = ctk.CTkTextbox(
-            summary_outer_frame, height=75, wrap="word", activate_scrollbars=False
+            summary_outer_frame,
+            height=75,
+            wrap="word",
+            activate_scrollbars=False,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
         )
         self.summary_entry.pack(side="top", fill="x", pady=5)
 
@@ -118,7 +146,11 @@ class NoteEditorWindow(ctk.CTkToplevel):
         )
         current_row += 1
 
-        self.memo_textbox = ctk.CTkTextbox(left_frame, height=275)
+        self.memo_textbox = ctk.CTkTextbox(
+            left_frame,
+            height=275,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.memo_textbox.grid(row=current_row, column=0, pady=5, sticky="nsew")
         self.memo_textbox.insert("1.0", self.note_data.get("memo", ""))
         # 行の重み設定を適用するためにダミー行を挿入
@@ -141,7 +173,11 @@ class NoteEditorWindow(ctk.CTkToplevel):
         tag_input_frame.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(tag_input_frame, text="新しいタグ:").grid(row=0, column=0, padx=5)
-        self.tag_entry = ctk.CTkEntry(tag_input_frame, placeholder_text="Enterで追加")
+        self.tag_entry = ctk.CTkEntry(
+            tag_input_frame,
+            placeholder_text="Enterで追加",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.tag_entry.grid(row=0, column=1, padx=5, sticky="ew")
         self.tag_entry.bind("<Return>", self.add_tag_event)
         right_row += 1
@@ -150,15 +186,32 @@ class NoteEditorWindow(ctk.CTkToplevel):
         tag_button_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
         tag_button_frame.grid(row=right_row, column=0, pady=5, sticky="e")
         ctk.CTkButton(
-            tag_button_frame, text="タグを追加", command=self.add_tag_event
+            tag_button_frame,
+            text="タグを追加",
+            command=self.add_tag_event,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            tag_button_frame, text="既存タグから選択", command=self.open_tag_selector
+            tag_button_frame,
+            text="既存タグから選択",
+            command=self.open_tag_selector,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="left", padx=5)
         right_row += 1
 
         # 6. Current Tags Display
-        self.tags_frame = ctk.CTkScrollableFrame(right_frame, label_text="現在のタグ")
+        self.tags_frame = ctk.CTkScrollableFrame(
+            right_frame,
+            label_text="現在のタグ",
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.9),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.1),
+            ),
+        )
         self.tags_frame.grid(row=right_row, column=0, pady=10, sticky="nsew")
         right_row += 1
 
@@ -166,10 +219,19 @@ class NoteEditorWindow(ctk.CTkToplevel):
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_button_frame.pack(pady=10, side="bottom")
         ctk.CTkButton(
-            bottom_button_frame, text="保存", command=self.save_and_close
+            bottom_button_frame,
+            text="保存",
+            command=self.save_and_close,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="left", padx=5)
         ctk.CTkButton(
-            bottom_button_frame, text="キャンセル", command=self.destroy
+            bottom_button_frame,
+            text="キャンセル",
+            command=self.destroy,
+            fg_color=Colors.UI_CANCEL,
+            hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="left", padx=5)
 
         self.update_tags_display()
@@ -269,11 +331,19 @@ class NoteEditorWindow(ctk.CTkToplevel):
     def update_tags_display(self):
         for widget in self.tags_frame.winfo_children():
             widget.destroy()
+        fg = Colors.UI_BASIC
+        hover = Colors.adjust_brightness(Colors.UI_BASIC)
         for tag in sorted(self.temp_tags):
-            tag_frame = ctk.CTkFrame(self.tags_frame)
+            tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
-                tag_frame, text="x", width=20, command=lambda t=tag: self.remove_tag(t)
+                tag_frame,
+                text="×",
+                width=20,
+                command=lambda t=tag: self.remove_tag(t),
+                fg_color=fg,
+                hover_color=hover,
+                text_color="black",
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 
@@ -340,21 +410,34 @@ class TagSelectorWindow(ctk.CTkToplevel):
         self.callback = callback
         self.title("既存のタグを選択")
         self.geometry("300x450")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.transient(parent)
         self.grab_set()
 
-        scroll_frame = ctk.CTkScrollableFrame(self)
+        # --- タグリスト ---
+        scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_HOLLOW),
+        )
         scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # 常に全タグを表示するように変更（連続追加のため）
         tags_to_show = sorted(list(set(all_tags) - set(current_tags)))
 
         for tag in tags_to_show:
             btn = ctk.CTkButton(
                 scroll_frame,
                 text=tag,
-                text_color=("#1F1F1F", "#1F1F1F"),
+                text_color=(
+                    Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.2),
+                    Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.8),
+                ),
                 fg_color="transparent",
+                hover_color=(
+                    Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
+                    Colors.adjust_brightness(Colors.BACKGROUND_DARK_PANEL, 1.2),
+                ),
                 anchor="w",
                 command=lambda t=tag: self.select_tag(t),
             )
