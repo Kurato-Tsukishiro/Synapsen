@@ -311,7 +311,7 @@ class NotePreviewWindow(ctk.CTkToplevel):
             text="編集する",
             command=self.edit_note_action,
             fg_color=Colors.UI_EDIT,
-            hover_color=Colors.adjust_brightness(Colors.UI_EDIT),
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT, 0.6),
         )
         self.edit_button.pack(side="left", padx=5)
 

@@ -612,21 +612,21 @@ class CanvasWindow(BaseSubWindow):
             60,
             self.export_canvas_dialog,
             fg=Colors.UI_EXPORT,
-            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
         )
         self._add_tool_btn(
             "画像出力",
             60,
             self.export_canvas_image_dialog,
             fg=Colors.UI_EXPORT,
-            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
         )
         self._add_tool_btn(
             "Mermaid出力",
             80,
             self.export_canvas_mermaid_dialog,
             fg=Colors.UI_EXPORT,
-            hover=Colors.adjust_brightness(Colors.UI_EXPORT),
+            hover=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
         )
 
         # ズーム系
@@ -717,7 +717,7 @@ class CanvasWindow(BaseSubWindow):
             text="全消去",
             width=60,
             fg_color=Colors.LABEL_DENGER,
-            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
             command=self.clear_canvas,
         ).pack(side="right", padx=5)
 

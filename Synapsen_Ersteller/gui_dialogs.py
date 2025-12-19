@@ -998,7 +998,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                 text="×",
                 width=40,
                 fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
                 command=lambda t=tag: self.toggle_remove_tag(t),
             )
             btn.pack(side="right", padx=5)
@@ -1021,7 +1021,7 @@ class BatchEditWindow(ctk.CTkToplevel):
             btn.configure(
                 text="×",
                 fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
             )
 
         else:

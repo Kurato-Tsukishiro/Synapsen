@@ -165,7 +165,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             text="Webクリップ (URLからPDF化) で正規化",
             command=self.open_webclip_window,
             fg_color=Colors.UI_EXPORT,
-            hover_color=Colors.adjust_brightness(Colors.UI_EXPORT),
+            hover_color=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
         )
         self.webclip_window_button.pack(pady=10, padx=10, fill="x", ipady=10)
 

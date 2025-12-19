@@ -141,7 +141,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             command=self.execute_restore,
             state="disabled",
             fg_color=Colors.LABEL_DENGER,  # 注意を促す
-            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
         )
         self.restore_button.pack(side="left", padx=10)
 

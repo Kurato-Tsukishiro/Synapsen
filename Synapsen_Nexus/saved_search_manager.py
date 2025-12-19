@@ -150,7 +150,7 @@ class ManageSearchesWindow(ctk.CTkToplevel):
                 text="削除 (X)",
                 width=80,
                 fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
                 command=lambda name=search_name: self.confirm_delete(name),
             )
             delete_btn.pack(side="left", padx=(7, 5), pady=7)
