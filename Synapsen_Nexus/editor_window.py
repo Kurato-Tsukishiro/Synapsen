@@ -331,8 +331,12 @@ class NoteEditorWindow(ctk.CTkToplevel):
     def update_tags_display(self):
         for widget in self.tags_frame.winfo_children():
             widget.destroy()
-        fg = Colors.UI_BASIC
-        hover = Colors.adjust_brightness(Colors.UI_BASIC)
+
+        # ボタン色
+        fg = Colors.UI_CANCEL
+        # マウスオーバー時の色 ((Erstellerと異なり)確定済みのタグを削除する為 警告色)
+        hover = Colors.adjust_brightness(Colors.LABEL_DENGER)
+
         for tag in sorted(self.temp_tags):
             tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
@@ -343,7 +347,6 @@ class NoteEditorWindow(ctk.CTkToplevel):
                 command=lambda t=tag: self.remove_tag(t),
                 fg_color=fg,
                 hover_color=hover,
-                text_color="black",
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
 

@@ -310,10 +310,15 @@ class DataEditorWindow(ctk.CTkToplevel):
         self.destroy()
 
     def update_tags_display(self):
+        """個別編集ウィンドウの「現在のタグ」リストの更新を行う"""
         for widget in self.tags_frame.winfo_children():
             widget.destroy()
-        fg = Colors.UI_BASIC
-        hover = Colors.adjust_brightness(Colors.UI_BASIC)
+
+        # ボタン色
+        fg = Colors.UI_CANCEL
+        # マウスオーバー時の色 (デフォルト状態に戻るだけなのでグレー)
+        hover = Colors.adjust_brightness(Colors.UI_CANCEL)
+
         for tag in sorted(self.temp_tags):
             tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
@@ -323,7 +328,6 @@ class DataEditorWindow(ctk.CTkToplevel):
                 width=20,
                 fg_color=fg,
                 hover_color=hover,
-                text_color="black",
                 command=lambda t=tag: self.remove_tag(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
@@ -941,17 +945,26 @@ class BatchEditWindow(ctk.CTkToplevel):
         self.update_add_tags_display()
 
     def update_add_tags_display(self):
+        """「追加するタグ」のリストを管理する"""
         for widget in self.add_tags_display_frame.winfo_children():
             widget.destroy()
+
+        # ボタン色
+        fg = Colors.UI_CANCEL
+        # マウスオーバー時の色 (元の状態に戻す為 基本的なUIカラー)
+        hover = Colors.adjust_brightness(Colors.UI_BASIC)
+
         for tag in sorted(self.tags_to_add):
-            tag_frame = ctk.CTkFrame(self.add_tags_display_frame)
+            tag_frame = ctk.CTkFrame(
+                self.add_tags_display_frame, fg_color="transparent"
+            )
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
                 tag_frame,
                 text="x",
                 width=20,
-                fg_color=Colors.UI_BASIC,
-                hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+                fg_color=fg,
+                hover_color=hover,
                 command=lambda t=tag: self.remove_tag_from_add_list(t),
             ).pack(side="left", padx=5)
             tag_frame.pack(anchor="w", pady=2, fill="x")
@@ -991,14 +1004,19 @@ class BatchEditWindow(ctk.CTkToplevel):
             lbl = ctk.CTkLabel(row, text=tag, anchor="w")
             lbl.pack(side="left", padx=5, fill="x", expand=True)
 
+            # ボタン色
+            fg = Colors.UI_CANCEL
+            # マウスオーバー時の色 (仮登録されている物を削除する為 警告色)
+            hover = Colors.adjust_brightness(Colors.LABEL_DENGER)
+
             # 削除/戻すボタン
             # lambdaで変数をキャプチャする際、デフォルト引数を使うことで現在の値を固定する
             btn = ctk.CTkButton(
                 row,
                 text="×",
                 width=40,
-                fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
+                fg_color=fg,
+                hover_color=hover,
                 command=lambda t=tag: self.toggle_remove_tag(t),
             )
             btn.pack(side="right", padx=5)
@@ -1007,8 +1025,15 @@ class BatchEditWindow(ctk.CTkToplevel):
             self.tag_widgets[tag] = (lbl, btn)
 
     def toggle_remove_tag(self, tag):
-        """タグの削除状態を切り替える (Keep <-> Remove)"""
+        """(一括編集: 含まれているタグ)タグの削除状態を切り替える (Keep <-> Remove)"""
         lbl, btn = self.tag_widgets[tag]
+
+        # ボタン色
+        fg = Colors.UI_CANCEL
+        # "×"ボタンのマウスオーバー時の色 (仮登録されている物を削除する為 警告色)
+        hover_kepe = Colors.adjust_brightness(Colors.LABEL_DENGER)
+        # "戻す"ボタンのマウスオーバー時の色 (仮登録状態に戻す為 基本的なUIカラー)
+        hover_remove = Colors.adjust_brightness(Colors.UI_BASIC)
 
         if tag in self.tags_to_remove:
             # 既に削除対象 -> 元に戻す
@@ -1020,8 +1045,8 @@ class BatchEditWindow(ctk.CTkToplevel):
             )  # デフォルト色
             btn.configure(
                 text="×",
-                fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
+                fg_color=fg,
+                hover_color=hover_kepe,
             )
 
         else:
@@ -1029,8 +1054,8 @@ class BatchEditWindow(ctk.CTkToplevel):
             self.tags_to_remove.append(tag)
 
             # UIを削除待機状態にする
-            lbl.configure(text_color="gray")  # グレーアウト
-            btn.configure(text="戻す", fg_color="gray", hover_color="#555")
+            lbl.configure(text_color=Colors.UI_CANCEL)  # グレーアウト
+            btn.configure(text="戻す", fg_color=fg, hover_color=hover_remove)
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
