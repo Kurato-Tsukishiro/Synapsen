@@ -315,7 +315,7 @@ class DataEditorWindow(ctk.CTkToplevel):
         fg = Colors.UI_BASIC
         hover = Colors.adjust_brightness(Colors.UI_BASIC)
         for tag in sorted(self.temp_tags):
-            tag_frame = ctk.CTkFrame(self.tags_frame)
+            tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
             ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
             ctk.CTkButton(
                 tag_frame,
@@ -490,7 +490,10 @@ class DateInputDialog(ctk.CTkToplevel):
                     logger.error(f"Initial icon set error: {e}")
 
         self.title("年月と表紙画像を指定")
-        self.geometry("400x350")  # 高さを少し拡張
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
+        self.geometry("400x350")
         self.result = None
 
         today = datetime.date.today()
@@ -504,19 +507,27 @@ class DateInputDialog(ctk.CTkToplevel):
         self.date_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.date_frame.pack(pady=5)
 
-        self.year_entry = ctk.CTkEntry(self.date_frame, placeholder_text="年", width=80)
+        self.year_entry = ctk.CTkEntry(
+            self.date_frame,
+            placeholder_text="年",
+            width=80,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.year_entry.pack(side="left", padx=5)
         self.year_entry.insert(0, str(last_month_date.year))
         ctk.CTkLabel(self.date_frame, text="年").pack(side="left")
 
         self.month_entry = ctk.CTkEntry(
-            self.date_frame, placeholder_text="月", width=60
+            self.date_frame,
+            placeholder_text="月",
+            width=60,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
         )
         self.month_entry.pack(side="left", padx=5)
         self.month_entry.insert(0, str(last_month_date.month))
         ctk.CTkLabel(self.date_frame, text="月").pack(side="left")
 
-        # --- 表紙画像選択 (追加) ---
+        # --- 表紙画像選択 ---
         ctk.CTkLabel(self, text="表紙画像 (任意):", text_color="gray").pack(
             pady=(20, 5), padx=10
         )
@@ -525,16 +536,32 @@ class DateInputDialog(ctk.CTkToplevel):
         self.img_frame.pack(pady=0, padx=20, fill="x")
 
         self.img_path_entry = ctk.CTkEntry(
-            self.img_frame, placeholder_text="画像ファイルを選択..."
+            self.img_frame,
+            placeholder_text="画像ファイルを選択...",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
         )
         self.img_path_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
 
         ctk.CTkButton(
-            self.img_frame, text="参照", width=60, command=self.browse_image
+            self.img_frame,
+            text="参照",
+            width=60,
+            command=self.browse_image,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
         ).pack(side="right")
 
         # --- OKボタン ---
-        self.ok_button = ctk.CTkButton(self, text="OK", command=self.on_ok, width=100)
+        self.ok_button = ctk.CTkButton(
+            self,
+            text="OK",
+            command=self.on_ok,
+            width=100,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+        )
         self.ok_button.pack(pady=20)
 
         self.transient(parent)
@@ -971,7 +998,7 @@ class BatchEditWindow(ctk.CTkToplevel):
                 text="×",
                 width=40,
                 fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
                 command=lambda t=tag: self.toggle_remove_tag(t),
             )
             btn.pack(side="right", padx=5)
@@ -994,7 +1021,7 @@ class BatchEditWindow(ctk.CTkToplevel):
             btn.configure(
                 text="×",
                 fg_color=Colors.LABEL_DENGER,
-                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+                hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
             )
 
         else:

@@ -561,7 +561,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             width=28,
             height=28,
             fg_color=Colors.LABEL_DENGER,
-            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
             command=lambda i=item, rf=row_frame: self.remove_staged_item(i, rf),
         )
         delete_btn.pack(side="right")

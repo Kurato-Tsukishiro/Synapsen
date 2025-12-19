@@ -13,13 +13,14 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 # === 3. プロジェクト内モジュールとサードパーティ (E402を抑制) ===
-import customtkinter as ctk                     # noqa: E402
-from tkinter import filedialog, messagebox      # noqa: E402
-import pandas as pd                             # noqa: E402
-import sqlite3                                  # noqa: E402
-from pypdf import PdfReader                     # noqa: E402
-import fitz                                     # noqa: E402
+import customtkinter as ctk  # noqa: E402
+from tkinter import filedialog, messagebox  # noqa: E402
+import pandas as pd  # noqa: E402
+import sqlite3  # noqa: E402
+from pypdf import PdfReader  # noqa: E402
+import fitz  # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
+from theme import SemanticColors as Colors  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ class DBRecoveryWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self.parent = parent
         self.title("DB復旧・再構築ツール")
+        self.configure(
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
+        )
         self.geometry("500x450")
 
         # アイコン設定 (親から継承)
@@ -57,34 +61,61 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             text_color="gray",
         ).grid(row=0, column=0, columnspan=3, padx=10, pady=10, sticky="w")
 
+        # --- ボタン色 ---
+        fg_bc = Colors.UI_BASIC
+        hover_bc = Colors.adjust_brightness(Colors.UI_BASIC)
+        text_color_bc = "black"
+
         # 2. ソースPDF選択
         ctk.CTkLabel(self, text="ソースPDF:").grid(
             row=1, column=0, padx=10, pady=5, sticky="w"
         )
         self.pdf_path_entry = ctk.CTkEntry(
-            self, placeholder_text="メタデータ入りの統合PDFを選択..."
+            self,
+            placeholder_text="メタデータ入りの統合PDFを選択...",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
         )
         self.pdf_path_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        ctk.CTkButton(self, text="参照", width=60, command=self.browse_pdf).grid(
-            row=1, column=2, padx=10, pady=5
-        )
+        ctk.CTkButton(
+            self,
+            text="参照",
+            width=60,
+            fg_color=fg_bc,
+            hover_color=hover_bc,
+            text_color=text_color_bc,
+            command=self.browse_pdf,
+        ).grid(row=1, column=2, padx=10, pady=5)
 
         # 3. ターゲットDB選択
         ctk.CTkLabel(self, text="復旧先DB:").grid(
             row=2, column=0, padx=10, pady=5, sticky="w"
         )
-        self.db_path_entry = ctk.CTkEntry(self, placeholder_text="Synapsen_Master.db")
+        self.db_path_entry = ctk.CTkEntry(
+            self,
+            placeholder_text="Synapsen_Master.db",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.db_path_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
 
         if default_db_path:
             self.db_path_entry.insert(0, str(default_db_path))
 
-        ctk.CTkButton(self, text="参照", width=60, command=self.browse_db).grid(
-            row=2, column=2, padx=10, pady=5
-        )
+        ctk.CTkButton(
+            self,
+            text="参照",
+            width=60,
+            fg_color=fg_bc,
+            hover_color=hover_bc,
+            text_color=text_color_bc,
+            command=self.browse_db,
+        ).grid(row=2, column=2, padx=10, pady=5)
 
         # 4. 情報表示エリア
-        self.info_textbox = ctk.CTkTextbox(self, height=150)
+        self.info_textbox = ctk.CTkTextbox(
+            self,
+            height=150,
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
         self.info_textbox.grid(
             row=3, column=0, columnspan=3, padx=10, pady=10, sticky="nsew"
         )
@@ -96,7 +127,12 @@ class DBRecoveryWindow(ctk.CTkToplevel):
         btn_frame.grid(row=4, column=0, columnspan=3, pady=10)
 
         ctk.CTkButton(
-            btn_frame, text="1. 内容確認 (スキャン)", command=self.scan_pdf
+            btn_frame,
+            text="1. 内容確認 (スキャン)",
+            fg_color=fg_bc,
+            hover_color=hover_bc,
+            text_color=text_color_bc,
+            command=self.scan_pdf,
         ).pack(side="left", padx=10)
 
         self.restore_button = ctk.CTkButton(
@@ -104,8 +140,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             text="2. DBに復元 (実行)",
             command=self.execute_restore,
             state="disabled",
-            fg_color="#D9534F",
-            hover_color="#C9302C",  # 注意を促す赤系
+            fg_color=Colors.LABEL_DENGER,  # 注意を促す
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
         )
         self.restore_button.pack(side="left", padx=10)
 

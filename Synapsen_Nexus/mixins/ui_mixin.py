@@ -242,7 +242,7 @@ class NexusUiMixin:
             width=130,
             fg_color=Colors.UI_EXPORT,
             button_color=Colors.adjust_brightness(Colors.UI_EXPORT),
-            button_hover_color=Colors.adjust_brightness(Colors.UI_EXPORT, 0.6),
+            button_hover_color=Colors.adjust_brightness(Colors.UI_EXPORT, 0.4),
             dropdown_fg_color=Colors.BACKGROUND_PANEL,
             dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
@@ -434,7 +434,7 @@ class NexusUiMixin:
             command=self.open_edit_dialog,
             state="disabled",
             fg_color=Colors.UI_EDIT,
-            hover_color=Colors.adjust_brightness(Colors.UI_EDIT),
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT, 0.6),
         )
         self.edit_button.pack(side="left", padx=5)
         self.delete_button = ctk.CTkButton(
@@ -442,7 +442,7 @@ class NexusUiMixin:
             text="削除",
             command=self.confirm_delete_note,
             fg_color=Colors.LABEL_DENGER,
-            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER),
+            hover_color=Colors.adjust_brightness(Colors.LABEL_DENGER, 0.6),
             state="disabled",
         )
         self.delete_button.pack(side="left", padx=5)
