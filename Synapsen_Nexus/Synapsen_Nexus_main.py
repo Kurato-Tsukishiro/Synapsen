@@ -207,8 +207,13 @@ class Synapsen_Nexus(
         ここで最大化を実行する。
         """
         try:
+            # 一度だけ実行するためイベントを解除
             self.unbind("<Map>")
             self.state("zoomed")
+
+            # 描画安定後に「過去の今日」をチェック (自動実行モード)
+            self.after(500, lambda: self.check_on_this_day(manual_run=False))
+
         except Exception:
             pass
 
@@ -270,6 +275,9 @@ class Synapsen_Nexus(
 
             self.exclude_tags_by_default = self.config_data.get(
                 "exclude_tags_by_default", []
+            )
+            self.enable_on_this_day = (
+                self.config_data.get("enable_on_this_day", "true").lower() == "true"
             )
 
         except FileNotFoundError:
@@ -701,6 +709,105 @@ class Synapsen_Nexus(
         except Exception as e:
             logger.error(f"ランダムノート表示エラー: {e}")
             messagebox.showerror("エラー", f"失敗しました: {e}")
+
+    def check_on_this_day(self, manual_run=False):
+        """
+        今日の月日と同じ過去のノートがあるか確認し、あれば通知/表示
+        manual_run=True: 設定やバックアップ有無を無視して強制実行
+        """
+        import configparser
+        import os
+        import sqlite3
+        import datetime
+        from tkinter import messagebox
+        from pathlib import Path
+
+        try:
+            # 1. 自動実行の場合、Config設定で無効なら終了
+            if not manual_run and not getattr(self, "enable_on_this_day", True):
+                return
+
+            # --- DBパスの取得と検証 ---
+            # self.loaded_db_path があればそれを使い、なければ config_data からフォールバック
+            db_path = getattr(self, "loaded_db_path", None)
+            if not db_path:
+                db_path = self.config_data.get("database_path")
+                if not db_path and os.path.exists("config.ini"):
+                    ini = configparser.ConfigParser()
+                    ini.read("config.ini", encoding="utf-8")
+                    if "Paths" in ini:
+                        db_path = ini["Paths"].get("database_path")
+
+            if isinstance(db_path, Path):
+                db_path = str(db_path)
+            if not db_path or not os.path.exists(db_path):
+                if manual_run:
+                    print("On This Day Error: DB not found.")
+                return
+
+            # 2. 自動実行の場合、今日のバックアップ有無を確認 (1日1回判定)
+            # Synapsenのバックアップ命名規則: {DB名}_{YYYYMMDD}.db
+            # (現在 手動実行は ``date: MM-DD AND date: >YYYY`` で代用できる為実装していないが、判定は残している)
+            if not manual_run:
+                try:
+                    db_path_obj = Path(db_path)
+                    backup_dir = db_path_obj.parent / "db_backups"
+                    today_str = datetime.datetime.now().strftime("%Y%m%d")
+                    expected_backup = backup_dir / f"{db_path_obj.stem}_{today_str}.db"
+
+                    if expected_backup.exists():
+                        # 今日既にバックアップがある = 既に起動済みとみなしてスキップ
+                        return
+                except Exception as e:
+                    print(f"Backup check skipped: {e}")
+
+            # --- 検索実行 (YYYYMMDD形式対応) ---
+            today = datetime.date.today()
+            target_mmdd = today.strftime("%m%d")  # "1221"
+            current_year = today.strftime("%Y")  # "2025"
+
+            # substr(date, 5, 4) -> MMDD を抽出して比較
+            query = """
+            SELECT title, date, key FROM notes
+            WHERE substr(date, 5, 4) = ?
+              AND substr(date, 1, 4) < ?
+            ORDER BY date DESC
+            """
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(query, (target_mmdd, current_year))
+            results = cursor.fetchall()
+            conn.close()
+
+            if results:
+                count = len(results)
+                msg = f"今日は過去の {count} 件のノート作成日です。\n\n"
+                for i, row in enumerate(results[:5]):
+                    msg += f"・{row[0]} ({row[1]})\n"
+                if count > 5:
+                    msg += "...\n"
+
+                if messagebox.askyesno(
+                    "On This Day", f"{msg}\n「過去の今日」のノートを表示しますか？"
+                ):
+                    # Key検索を実行 (確実性重視)
+                    keys_query = " OR ".join([f"key:{row[2]}" for row in results])
+
+                    if hasattr(self, "search_entry"):
+                        self.search_entry.delete(0, "end")
+                        self.search_entry.insert(0, keys_query)
+                        if hasattr(self, "perform_search"):
+                            self.perform_search()
+            else:
+                # 手動実行時のみ、0件だった場合に通知
+                if manual_run:
+                    messagebox.showinfo(
+                        "On This Day", "「過去の今日」に作成されたノートはありません。"
+                    )
+
+        except Exception as e:
+            print(f"On This Day Error: {e}")
 
     def send_selection_to_canvas(self):
         """

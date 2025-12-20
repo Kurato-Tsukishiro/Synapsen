@@ -87,10 +87,17 @@ class ConfigEditorWindow(ctk.CTkToplevel):
             "インク注釈をフラット化", "Automation", "flatten_ink_annotations"
         )
         self.var_auto_db = self._add_checkbox(
-            "DBへの自動追記 (Ersteller => Nexus)", "Automation", "auto_append_to_default_db"
+            "DBへの自動追記 (Ersteller => Nexus)",
+            "Automation",
+            "auto_append_to_default_db",
         )
         self.var_export_csv = self._add_checkbox(
             "統合時のリストCSVの出力", "Automation", "create_individual_csv"
+        )
+        self.var_onthisday = self._add_checkbox(
+            "Nexus起動時に「過去の今日」のノートを通知するか",
+            "Automation",
+            "enable_on_this_day",
         )
 
         # --- [Watchdog] セクション (New) ---
@@ -287,6 +294,11 @@ class ConfigEditorWindow(ctk.CTkToplevel):
                 "Automation",
                 "create_individual_csv",
                 str(self.var_export_csv.get()).lower(),
+            )
+            self.config.set(
+                "Automation",
+                "create_individual_csv",
+                str(self.var_onthisday.get()).lower(),
             )
 
             # Watchdog (New)
