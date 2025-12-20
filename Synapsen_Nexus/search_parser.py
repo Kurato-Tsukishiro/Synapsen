@@ -109,6 +109,20 @@ def _build_term_sql(term, include_full_text=False):
         if range_match:
             return "date BETWEEN ? AND ?", [range_match.group(1), range_match.group(2)]
 
+        # 月日指定 (MM-DD または MM/DD) -> 毎年その月日を検索
+        # ハイフン区切りで入力された場合、"末尾一致" (LIKE '%MMDD') として処理する
+        # これにより、年号部分(先頭4桁)への誤マッチを防ぎ、確実にその日付だけを抽出できる
+        md_match = re.match(r"^(\d{2})[-/](\d{2})$", search_value)
+        if md_match:
+            return "date LIKE ?", [f"%{md_match.group(1)}{md_match.group(2)}"]
+
+        # 月指定 (MM-) -> 毎年その月を検索
+        # "12-" のようにハイフン付きで入力することで、年(4桁)を問わずその月を検索する
+        # SQL: LIKE '____12%' (先頭4文字(年)は任意 + 指定月 + 後ろは任意)
+        month_match = re.match(r"^(\d{2})-$", search_value)
+        if month_match:
+            return "date LIKE ?", [f"____{month_match.group(1)}%"]
+
         # 不等号付き検索 (>, >=, <, <=)
         # 年(4桁), 年月(6桁), 年月日(8桁) に対応
         op_match = re.match(r"^([<>]=?)(\d{4,8})$", search_value)
