@@ -102,24 +102,39 @@ def _build_term_sql(term, include_full_text=False):
 
     # --- カラム別の SQL 生成 ---
 
-    # 1. Date (範囲検索対応)
+    # 1. Date (範囲検索および省略形対応)
     if target_column == "date":
-        # YYYYMMDD-YYYYMMDD
+        # 範囲指定 (YYYYMMDD-YYYYMMDD)
         range_match = re.match(r"^(\d{8})-(\d{8})$", search_value)
         if range_match:
             return "date BETWEEN ? AND ?", [range_match.group(1), range_match.group(2)]
 
-        # >=YYYYMMDD
-        gte_match = re.match(r"^>=(\d{8})$", search_value)
-        if gte_match:
-            return "date >= ?", [gte_match.group(1)]
+        # 不等号付き検索 (>, >=, <, <=)
+        # 年(4桁), 年月(6桁), 年月日(8桁) に対応
+        op_match = re.match(r"^([<>]=?)(\d{4,8})$", search_value)
+        if op_match:
+            operator = op_match.group(1)
+            digits = op_match.group(2)
 
-        # <=YYYYMMDD
-        lte_match = re.match(r"^<=(\d{8})$", search_value)
-        if lte_match:
-            return "date <= ?", [lte_match.group(1)]
+            # 長さが奇数の場合などは無視するか、そのまま処理（ここでは単純にパディング）
+            # 比較のために8桁に正規化
+            # > や <= (上限系) なら '9' で埋める、 < や >= (下限系) なら '0' で埋める
+            # ただし論理的に考えると：
+            # date >= 2024  -> date >= 20240000 (2024年の最初から)
+            # date > 2024   -> date > 20249999  (2024年の最後より後)
+            # date <= 2024  -> date <= 20249999 (2024年の最後まで)
+            # date < 2024   -> date < 20240000  (2024年の最初より前)
 
-        # 部分一致 (LIKE)
+            pad_char = '0'
+            if operator in ('>', '<='):
+                pad_char = '9'
+            elif operator in ('<', '>='):
+                pad_char = '0'
+
+            padded_value = digits.ljust(8, pad_char)
+            return f"date {operator} ?", [padded_value]
+
+        # 部分一致 (LIKE) - デフォルト
         return "date LIKE ?", [f"%{search_value}%"]
 
     # 2. Time (ワイルドカード検索)
