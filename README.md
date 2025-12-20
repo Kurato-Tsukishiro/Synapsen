@@ -283,6 +283,9 @@ ScanSnapなどのスキャナ保存先フォルダを監視し、PDFファイル
     * **MOC (Markdown) 出力:** 選択したノートへのリンク集（Map of Content）をMarkdownファイルとして出力。これをNormalisiererでPDF化することで、目次ノートとしてシステムに取り込むことができます。（取り込み時に `SType_MOC` タグが自動付与されます）
 * **DB直接編集:**
     * ノートのメタデータ（メモ、タグ、Index Key）をDBに直接書き込み・編集・削除する機能。
+* **過去の今日:**
+    * その日の初回起動時に、過去の今日のノートを通知する機能。
+    * 初回起動時にしか通知されませんが、``date: MM-DD AND date: <YYYY(今年)``という検索クエリで、同様の検索結果が表示できます。
 
 * **補遺:**
     * アプリは `config.ini` で指定された**マスターDB**を自動で読み込みます。
@@ -634,6 +637,10 @@ auto_append_to_default_db =
 ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
 create_individual_csv = 
 
+; ---Nexus 設定 ---
+
+; Nexus起動時に、「過去の今日のノート」の通知を表示するか
+enable_on_this_day = 
 
 ; ------------------------------------------------------------------------------
 ; [Extraction] 読み取り設定
@@ -798,6 +805,10 @@ auto_append_to_default_db = true
 ; 統合PDF生成時、目次情報(リストCSVとして再読込可能)を個別CSVとして「保存」するか (true/false)
 create_individual_csv = false
 
+; ---Nexus 設定 ---
+
+; Nexus起動時に、「過去の今日のノート」の通知を表示するか
+enable_on_this_day = true
 
 ; ------------------------------------------------------------------------------
 ; [Extraction] 読み取り設定
