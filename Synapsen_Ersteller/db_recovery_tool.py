@@ -2,7 +2,6 @@
 import sys
 from pathlib import Path
 import json
-import unicodedata
 from textwrap import dedent
 import logging
 
@@ -11,6 +10,8 @@ current_dir = Path(__file__).parent
 root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
+if str(current_dir) not in sys.path:
+    sys.path.append(str(current_dir))
 
 # === 3. プロジェクト内モジュールとサードパーティ (E402を抑制) ===
 import customtkinter as ctk  # noqa: E402
@@ -21,6 +22,7 @@ from pypdf import PdfReader  # noqa: E402
 import fitz  # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
 from theme import SemanticColors as Colors  # noqa: E402
+import pdf_processor  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -337,8 +339,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
                     # Unicode正規化 (NFKC) を実行
                     if full_text:
-                        normalized_text = unicodedata.normalize("NFKC", full_text)
-                        return normalized_text.strip()
+                        return pdf_processor.clean_ocr_text(full_text)
 
                     return ""
 
