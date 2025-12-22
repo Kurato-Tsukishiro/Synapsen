@@ -3,7 +3,6 @@ from enum import Enum, auto
 import shutil
 import datetime
 import io
-import re
 import sqlite3
 from pathlib import Path
 import sys
@@ -656,20 +655,6 @@ class ExportManager:
             key = row.get("key")
             if key:
                 text = full_text_map.get(key, "")
-
-                # --- ここから整形処理 ---
-                if text:
-                    # 1. 文末記号の直後に改行を挿入
-                    #    句点、疑問符などはそのまま改行 ([。？！」])
-                    #    半角の疑問符と感嘆符及びピリオドが連続している場合、最後の記号の直後のみ改行 (\.+(?!\.))
-                    text = re.sub(r"([。？！」]|\.+(?!\.))\n*", r"\1\n", text)
-
-                    # 2. 連続する空白やタブを単一スペースに置換
-                    text = re.sub(r"[ \t]+", " ", text)
-
-                    # 3. 連続する改行を2つまでに制限
-                    text = re.sub(r"\n{3,}", "\n\n", text)
-                # --- 整形処理ここまで ---
 
                 with open(text_dir / f"{key}.txt", "w", encoding="utf-8") as f:
                     f.write(text)

@@ -795,10 +795,11 @@ class Synapsen_Ersteller(ctk.CTk):
             if (info := Process.get_note_info(pdf_file, self.key_rect))
         ]
 
-        # ノート情報に 'summary' がなければ追加（get_note_infoで取得できた場合は維持）
         for info in self.all_notes_info:
             if "summary" not in info:
                 info["summary"] = ""
+            if "memo" not in info:
+                info["memo"] = ""
 
         side_note_suffix = "_Note"
 
@@ -1382,19 +1383,21 @@ class Synapsen_Ersteller(ctk.CTk):
                 try:
                     metadata_to_embed = []
                     for note in updated_notes_info:
+                        # get() で取得した値が None の場合、or "" で空文字に変換します。
+                        # これにより JSON 上で null にならず、確実に文字列フィールドとして保存されます。
                         clean_note = {
-                            "key": note.get("key"),
-                            "title": note.get("title"),
-                            "date": note.get("date"),
-                            "time": note.get("time"),
-                            "tags": note.get("tags"),
-                            "memo": note.get("memo"),
-                            "commonplace_key": note.get("commonplace_key"),
-                            "pages": note.get("pages"),
+                            "key": note.get("key") or "",
+                            "title": note.get("title") or "",
+                            "date": note.get("date") or "",
+                            "time": note.get("time") or "",
+                            "tags": note.get("tags") or [],
+                            "memo": note.get("memo") or "",  # 修正: None回避
+                            "commonplace_key": note.get("commonplace_key") or "",
+                            "pages": note.get("pages") or 0,
                             "merged_start_page": note.get("merged_start_page"),
                             "merged_pdf_filename": note.get("merged_pdf_filename"),
-                            "summary": note.get("summary"),
-                            "updated_at": note.get("updated_at"),
+                            "summary": note.get("summary") or "",  # 修正: None回避
+                            "updated_at": note.get("updated_at") or "",
                         }
                         metadata_to_embed.append(clean_note)
 
@@ -1917,10 +1920,19 @@ class Synapsen_Ersteller(ctk.CTk):
                     # 新しいメタデータを作成
                     metadata_to_embed = []
                     for note in notes:
-                        # 不要なNoneを空文字に変換等のクリーンアップ
+                        # 不要なNoneを空文字に変換しつつ、'full_text' を除外する
                         clean_note = {
-                            k: (v if v is not None else "") for k, v in note.items()
+                            k: (v if v is not None else "")
+                            for k, v in note.items()
+                            if k != "full_text"  # full_textキーを除外
                         }
+
+                        # 必須フィールドの補完
+                        if "memo" not in clean_note:
+                            clean_note["memo"] = ""
+                        if "summary" not in clean_note:
+                            clean_note["summary"] = ""
+
                         metadata_to_embed.append(clean_note)
 
                     new_data_structure = {
@@ -1936,7 +1948,6 @@ class Synapsen_Ersteller(ctk.CTk):
                         new_data_structure, ensure_ascii=False, indent=2
                     ).encode("utf-8")
 
-                    # ★修正ポイント: bytearrayに変換し、削除→追加の手順をとる
                     # 既存があれば削除
                     if doc.embfile_info(target_filename):
                         doc.embfile_del(target_filename)

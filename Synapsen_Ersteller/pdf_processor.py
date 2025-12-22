@@ -340,8 +340,7 @@ def get_full_text(pdf_path: Path) -> str:
 
         # 抽出したfull_text全体も正規化する
         if full_text:
-            normalized_text = unicodedata.normalize("NFKC", full_text)
-            return normalized_text.strip()
+            return clean_ocr_text(full_text)
         else:
             return ""
 
@@ -354,3 +353,67 @@ def get_full_text(pdf_path: Path) -> str:
     finally:
         if doc:
             doc.close()
+
+
+# ==============================================================================
+# テキスト補正関数
+# ==============================================================================
+def clean_ocr_text(text: str) -> str:
+    """
+    OCR由来のテキストに含まれる不要な空白やノイズを除去し、読みやすく整形する。
+    """
+    if not text:
+        return ""
+
+    # 0. 改行コードを LF (\n) に統一
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # --- ヘッダー・フッター除去処理 ---
+    # 構成: icon日付 Titel(x/y)z  (zは改行されている場合や無い場合も考慮)
+    # 対応パターン例:
+    # 1. 1行: icon日付 Titel(x/y)z
+    # 2. 2行: icon日付 Titel\n(x/y)z
+    # 3. 3行: icon日付 Titel\n(x/y)\nz
+
+    text = re.sub(
+        (
+            r"^.*?\d{4}/\d{2}/\d{2}"    # 行頭から日付まで
+            r".*?"                      # タイトル (改行の手前まで)
+            r"(?:\n|\s+)"               # 区切り (改行 または 空白)
+            r"\(\s*\d+\s*/\s*\d+\s*\)"  # (元のページ/元の総ページ)
+            r"(?:(?:\n|\s+)\d+)?"       # オプションのフッターz (改行/空白 + 数字)
+            r".*?$\n?"                  # 残りの余分な文字と、削除後の詰め用改行
+        ),
+        "",
+        text,
+        flags=re.MULTILINE,
+    )
+    # ---------------------------------------------
+
+    # 1. Unicode正規化 (NFKC)
+    text = unicodedata.normalize("NFKC", text)
+
+    # 2. 前後の空白削除
+    text = text.strip()
+
+    # 3. 日本語文字間の不要な半角スペースを除去
+    text = re.sub(r"([ぁ-んァ-ン一-龥])\s+([ぁ-んァ-ン一-龥])", r"\1\2", text)
+
+    # 4. 文中の不要な改行を削除して連結
+    #    削除条件:
+    #    1. 直前が句読点等ではない (?<=[^。！？…])
+    #    2. 直後に改行が続かない   (?!\n)
+    #    3. 直後がリスト記号ではない (?:- |・|\* |\d+\. )
+    #       (ハイフン、中黒、アスタリスク、数字+ドット+空白)
+    text = re.sub(r"(?<=[^。！？…])\n(?!\n)(?!\s*(?:- |・|\* |\d+\. ))", "", text)
+
+    # 5. 文末記号の直後に改行を挿入
+    text = re.sub(r"([。？！」]|(?<!\d)\.+(?!\.))\n*", r"\1\n", text)
+
+    # 6. 連続する空白やタブを単一スペースに置換
+    text = re.sub(r"[ \t]+", " ", text)
+
+    # 7. 連続する改行を2つまでに制限 (無駄に広すぎる行間を詰める)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    return text

@@ -2,7 +2,6 @@
 import sys
 from pathlib import Path
 import json
-import unicodedata
 from textwrap import dedent
 import logging
 
@@ -11,6 +10,8 @@ current_dir = Path(__file__).parent
 root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
+if str(current_dir) not in sys.path:
+    sys.path.append(str(current_dir))
 
 # === 3. プロジェクト内モジュールとサードパーティ (E402を抑制) ===
 import customtkinter as ctk  # noqa: E402
@@ -21,6 +22,7 @@ from pypdf import PdfReader  # noqa: E402
 import fitz  # noqa: E402
 from Synapsen_Nexus import utils as NexusUtils  # noqa: E402
 from theme import SemanticColors as Colors  # noqa: E402
+import pdf_processor  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +264,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             "実行確認",
             f"{len(self.extracted_data)} 件のデータを以下のDBに復元します。\n\n"
             f"復元先: {Path(db_path).name}\n\n"
-            "既存のデータがある場合、Keyが重複するノートは無視(スキップ)されます。\n"
+            "既存のデータがある場合、Keyが重複するノートはスキップされますが、\n"
+            "リンク情報(note_links)はすべてのノートについて更新されます。\n"
             "実行しますか？",
         )
         if not ans:
@@ -286,7 +289,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             return  # doc が None のまま finally に進み、安全に終了
 
         try:
-            # DataFrameに変換 (self.extracted_data は scan_pdf で生成済み)
+            # DataFrameに変換
             df = pd.DataFrame(self.extracted_data)
 
             # 統合PDFファイル名の上書き
@@ -326,7 +329,6 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                     if start_idx >= len(doc):
                         return ""
 
-                    # 指定範囲のページからテキストを結合
                     full_text = ""
 
                     # end_idx は len(doc) を超えないように制限
@@ -337,8 +339,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
                     # Unicode正規化 (NFKC) を実行
                     if full_text:
-                        normalized_text = unicodedata.normalize("NFKC", full_text)
-                        return normalized_text.strip()
+                        return pdf_processor.clean_ocr_text(full_text)
 
                     return ""
 
@@ -362,8 +363,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
-            # 1. 'notes' テーブル
-            #    'key' を PRIMARY KEY に明示 (FTS連携に重要)
+            # テーブル作成 (notes, FTS, triggers, links)
             create_table_sql = """
             CREATE TABLE IF NOT EXISTS notes (
                 "date" TEXT, "time" TEXT, "title" TEXT, "pages" INTEGER,
@@ -375,17 +375,10 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             """
             cursor.execute(create_table_sql)
 
-            # 2. 'notes_fts' FTS5 仮想テーブル
             create_fts_sql = """
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                key,
-                title,
-                memo,
-                tags,
-                full_text,
-                summary,
-                content='notes',
-                content_rowid='key'
+                key, title, memo, tags, full_text, summary,
+                content='notes', content_rowid='key'
             );
             """
             cursor.execute(create_fts_sql)
@@ -446,7 +439,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
             conn.commit()
 
-            # 重複チェックとインサート
+            # 重複チェック
             existing_keys = set()
             try:
                 existing = pd.read_sql("SELECT key FROM notes", conn)
@@ -459,8 +452,8 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             skipped_count = len(df) - len(df_to_insert)
             insert_count = len(df_to_insert)
 
+            # --- 1. ノート本体(notesテーブル)への追記 ---
             if insert_count > 0:
-                # ターゲットカラムを明示 (updated_at 含む)
                 target_columns = [
                     "date",
                     "time",
@@ -487,28 +480,42 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                         df_final[col] = ""
 
                 df_final.to_sql("notes", conn, if_exists="append", index=False)
-
-                # リンクテーブル書き込み
-                logger.info(
-                    f"{len(df_to_insert)} 件の復元ノートのリンクを解析・登録します..."
-                )
-                for _, row in df_to_insert.iterrows():
-                    source_key = row.get("key")
-                    memo_text = row.get("memo", "")
-                    if source_key and memo_text:
-                        NexusUtils._update_note_links(cursor, source_key, memo_text)
-
-                conn.commit()
                 self.log(f"[完了] {insert_count} 件を追記しました。")
             else:
                 self.log("[完了] 新規データはありませんでした (すべて重複)。")
 
+            # --- 2. リンクテーブル(note_links)の更新 ---
+            # 新規・既存を問わず、読み込んだ全データ(df)に対してリンク更新を実行する
+            self.log("リンク情報の更新中...")
+            logger.info(f"{len(df)} 件のノートのリンク情報を解析・登録します...")
+
+            count_links_processed = 0
+            for _, row in df.iterrows():
+                source_key = row.get("key")
+                memo_text = row.get("memo", "")
+
+                # memoがNoneの場合の対策
+                if memo_text is None:
+                    memo_text = ""
+
+                if source_key:
+                    # _update_note_links は 指定キーの既存リンクを削除してINSERTする
+                    NexusUtils._update_note_links(cursor, source_key, memo_text)
+                    count_links_processed += 1
+
+            conn.commit()
+            self.log(
+                f"[リンク更新] 全 {count_links_processed} 件のリンク情報を反映しました。"
+            )
+
             if skipped_count > 0:
-                self.log(f"(重複のためスキップ: {skipped_count} 件)")
+                self.log(
+                    f"(重複のためnotesテーブルへの追記はスキップ: {skipped_count} 件)"
+                )
 
             messagebox.showinfo(
                 "完了",
-                "データベースの復元が完了しました。\n(本文テキストもunicode正規化されました)",
+                "データベースの復元が完了しました。\n(リンク情報も更新されました)",
             )
             self.destroy()
 
