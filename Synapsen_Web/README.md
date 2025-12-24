@@ -1,5 +1,12 @@
 # Synapsen Web (Web Server Mode)
 
+<p align="center">
+  <em>
+    "静寂は揺るぎない礎となり、知を支える。<br>
+    途切れぬ繋がりは愛となり、空間を越えて知恵を分かち合う。"
+  </em>
+</p>
+
 ## 概要
 
 **Synapsen Web** は、PC上で稼働している Synapsen (Nexus) のデータベースを、同一Wi-Fiネットワーク内のスマートフォン、タブレット、または他のPCから閲覧可能にするための軽量Webサーバーモジュールです。
