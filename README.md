@@ -346,6 +346,11 @@ Nexusから起動し、ノートをホワイトボード上に自由に配置し
   * ノートの冒頭（約3000文字）を読み込み、内容の要約とキーワード生成を行います。
   * 詳細は、Synapsen_AI_Taggerの [README](Extras/Synapsen_AI_Tagger/README.md) を確認してください。
 
+* **Synapsen Web (Webサーバーモード)**
+  * PC上のNexusデータベースを、**同一Wi-Fiネットワーク内にあるスマートフォンやタブレット**から閲覧するための軽量Webサーバー機能です。
+  * ソファでくつろぎながら過去のノートを読み返したり、別室で資料を検索したりするのに最適です。
+  * 詳細は、Synapsen_Webの[README](Synapsen_Web\README.md) を確認してください。
+
 ## キーボードショートカット一覧
 
 Synapsen Nexus/Canvas は、キーボード中心の操作で効率的に情報を整理できるように設計されています。
@@ -909,6 +914,7 @@ Python環境を構築せず、配布された `Synapsen.exe` を使用する方�
 * `Synapsen.exe --normalisierer` : Normalisierer (正規化) を起動
 * `Synapsen.exe --ersteller` : Ersteller (統合・編集) を起動
 * `Synapsen.exe --watchdog` : Watchdog (フォルダ監視) を起動
+* `Synapsen.exe --server` : Server (Webサーバーモード) を起動
 
 ### B. ソースコード (スクリプト) から実行する場合 (高速起動)
 Python環境を構築し、スクリプトを直接実行する方法です。

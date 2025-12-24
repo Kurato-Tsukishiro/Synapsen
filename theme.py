@@ -44,6 +44,9 @@ class Colors:
     KACIIKAESHI: Final[str] = "#203744"
     """ 褐返色 """
 
+    SABIASAGI: Final[str] = "#5C9291"
+    """ 錆浅葱色 """
+
     # Base
     WHITE: Final[str] = "#FFFFFF"
     BLACK: Final[str] = "#000000"
@@ -181,6 +184,9 @@ class SemanticColors:
 
     CANVAS: Final[str] = Colors.HIMAWARI
     """ Canvas : 向日葵色 """
+
+    SERVER: Final[str] = Colors.SABIASAGI
+    """ Serber : 錆浅葱色 (鯖の様な色) """
 
     # --- Backgrounds ---
     BACKGROUND_PANEL: Final[str] = blend_colors(
