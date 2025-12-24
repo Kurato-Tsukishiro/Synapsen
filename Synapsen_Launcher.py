@@ -28,7 +28,12 @@ if str(INTERNAL_DIR) not in sys.path:
 
 # 3. 各ツールのサブフォルダも sys.path に追加
 # これにより、各ツール内の "import dnd_window" 等のローカルインポートが解決されます
-tool_subdirs = ["Synapsen_Normalisierer", "Synapsen_Ersteller", "Synapsen_Nexus"]
+tool_subdirs = [
+    "Synapsen_Normalisierer",
+    "Synapsen_Ersteller",
+    "Synapsen_Nexus",
+    "Synapsen_Web",
+]
 
 for subdir in tool_subdirs:
     # EXE内では INTERNAL_DIR 配下にフォルダが存在します
@@ -62,7 +67,7 @@ class SynapsenLauncher(ctk.CTk):
         super().__init__()
 
         self.title("Synapsen Launcher")
-        self.geometry("600x550")
+        self.geometry("600x555")
         self.configure(
             fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
         )
@@ -149,6 +154,43 @@ class SynapsenLauncher(ctk.CTk):
             ),
         ]
 
+        # --- Web Server の解放チェック ---
+        show_server_button = False
+        try:
+            # 1. Flaskライブラリの存在チェック
+            import flask  # noqa:F401
+
+            # 2. config.ini の設定チェック ([Network] enable_server = true)
+            import configparser
+
+            config_path = self.base_path / "config.ini"
+            if config_path.exists():
+                parser = configparser.ConfigParser()
+                parser.read(config_path, encoding="utf-8")
+
+                # [Network] セクションが存在し、かつ enable_server が true の場合のみ許可
+                if parser.has_section("Network"):
+                    if parser.getboolean("Network", "enable_server", fallback=False):
+                        show_server_button = True
+
+        except ImportError:
+            pass  # Flaskが入っていない場合は非表示
+        except Exception:
+            pass  # 設定読み込みエラー時なども非表示（安全側に倒す）
+
+        # 条件を満たした場合のみボタンリストに追加
+        if show_server_button:
+            tools.append(
+                (
+                    "Web Server",
+                    "共有: 同一Wi-Fi内で閲覧・検索",
+                    "--server",
+                    Colors.SERVER,
+                    True,  # use_console=True (ログが見えるようにコンソールを表示する)
+                )
+            )
+
+        # ボタン生成ループ
         for i, (name, desc, arg_flag, color, use_console) in enumerate(tools):
             row = i // 2 + 1
             col = i % 2
@@ -199,12 +241,22 @@ class SynapsenLauncher(ctk.CTk):
             cwd_path = str(self.base_path.resolve())
 
             if sys.platform == "win32":
-                creation_flags = (
-                    subprocess.CREATE_NEW_CONSOLE if use_console else 0x08000000
+                # CREATE_NEW_CONSOLE ではなく DETACHED_PROCESS (0x00000008) を使用
+                # これにより親プロセスから完全に切り離します
+                creation_flags = 0x00000008 if use_console else 0
+
+                subprocess.Popen(
+                    cmd,
+                    cwd=cwd_path,
+                    creationflags=creation_flags,
+                    close_fds=True,
+                    # 【重要】標準入出力を切断しないとハンドルが残り、親の終了時にエラーになる
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
-                subprocess.Popen(cmd, cwd=cwd_path, creationflags=creation_flags)
             else:
-                subprocess.Popen(cmd, cwd=cwd_path)
+                subprocess.Popen(cmd, cwd=cwd_path, close_fds=True)
 
             logger.info(f"Launched sub-process: {cmd}")
         except Exception as e:
@@ -294,6 +346,39 @@ if __name__ == "__main__":
                 from Synapsen_Normalisierer import Synapsen_Watchdog
 
                 Synapsen_Watchdog.main()
+
+            elif mode == "--server":
+                # コンソールを自分自身で割り当てる (AllocConsole)
+                if sys.platform == "win32":
+                    import ctypes
+
+                    try:
+                        # 自分で黒い画面を作る
+                        ctypes.windll.kernel32.AllocConsole()
+                        # 標準出力をその画面に繋ぎ直す
+                        sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+                        sys.stderr = open("CONOUT$", "w", encoding="utf-8")
+                        # タイトル設定
+                        ctypes.windll.kernel32.SetConsoleTitleW("Synapsen Web Server")
+                    except Exception:
+                        pass
+
+                close_splash()
+
+                # エラー時にウィンドウがすぐ消えないようにガードする
+                try:
+                    from Synapsen_Web import server
+
+                    server.run_server()
+                except Exception as e:
+                    print(f"\n{'='*30}")
+                    print(f"CRITICAL ERROR: {e}")
+                    print(f"{'='*30}\n")
+
+                    traceback.print_exc()
+                    print("\n")
+                    # ユーザーがEnterを押すまで閉じない
+                    input("Press Enter to exit...")
 
             else:
                 # 不明な引数の場合はランチャー
