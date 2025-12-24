@@ -21,7 +21,9 @@
     * 導入方法は、こちらの解説記事などを参考にしてください。<br>
         → **[最新 LLM をお手軽に実行！ollamaを使おう](https://qiita.com/hiyoko1729/items/4fa92e1e88ddd68d4e30)**
 2. **LLMモデル**: `gemma2:2b` や `gemma3:4b` などのモデルが `ollama pull` 済みであること。
-3. **Pythonライブラリ**: `pip install ollama` が実行済みであること。
+3. **Pythonライブラリ**: `ollama` が導入済みであること。
+   * `pip install ollama` を使用する事で、導入する事が出来ます。
+   * また、`Synaosen_AI_Tagger`フォルダ下で、`pip install -r requirements.txt` を使用する事で、導入する事も出来ます。
 
 ## 使用方法
 1. `Extras/Synapsen_AI_Tagger/Synapsen_AI_Tagger.py` をテキストエディタで開きます。
@@ -106,6 +108,16 @@ CPUを70%近く消費し、全体の使用率が100%になっています。<br>
   "summary": "提供されたテキストは、文字、記号、言語、コードといった要素を含む、意味不明な文字列の組み合わせです。特に「ベリ」という単語が複数回出現しており、その意味や文脈は不明です。このテキストは、おそらく何らかのデータやメッセージの一部である可能性があります。"
 }
 ```
+
+---
+
+## 謝辞 (Acknowledgements)
+本ツールは、以下の優れたオープンソースソフトウェアによって実現されました。<br><br>
+また、このプロジェクトの設計、およびドキュメント整備は、GoogleのAIである **Gemini** の支援を受けて行われました。
+
+* **[ollama-python](https://github.com/ollama/ollama-python)**
+    * License: [MIT License](https://github.com/ollama/ollama-python/blob/main/LICENSE)
+    * Copyright (c) 2024 Ollama
 
 ---
 
