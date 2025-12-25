@@ -13,6 +13,7 @@ from flask import (
     url_for,
     redirect,
     Response,
+    send_from_directory,
 )
 
 # --- パスの設定 ---
@@ -157,6 +158,21 @@ def linkify_key_filter(s):
 
 
 # --- ルーティング ---
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """ブラウザが自動要求するアイコンファイルを返す"""
+    if getattr(sys, "frozen", False):
+        # EXE化されている場合
+        static_dir = Path(sys._MEIPASS) / "Synapsen_Web" / "static"
+    else:
+        # スクリプト実行の場合
+        static_dir = Path(__file__).parent / "static"
+
+    return send_from_directory(
+        static_dir, "favicon.ico", mimetype="image/vnd.microsoft.icon"
+    )
 
 
 @app.route("/")
