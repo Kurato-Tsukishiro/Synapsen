@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<style>
+    .btn-sort {
+        padding: 5px 15px; 
+        margin-right: 5px; 
+        font-size: 0.9rem;
+        border: 1px solid #5C9291;
+        transition: background-color 0.2s, color 0.2s;
+    }
+    
+    /* 選択中: 塗りつぶし */
+    .btn-sort.active {
+        background-color: #5C9291; 
+        color: white;
+    }
+    
+    /* 非選択: 透明背景 (文字色だけテーマ色) */
+    .btn-sort.inactive {
+        background-color: transparent; 
+        color: #5C9291;
+    }
+
+    /* タグのボタンスタイル */
+    .tag-link {
+        text-decoration: none; 
+        color: #333; 
+        background: #e9ecef; 
+        padding: 5px 12px; 
+        border-radius: 20px; 
+        font-size: 0.9rem; 
+        transition: background 0.2s;
+    }
+    .tag-link:hover {
+        background: #dee2e6;
+    }
+    .tag-count-badge {
+        background: #adb5bd; 
+        color: #fff; 
+        border-radius: 10px; 
+        padding: 0 6px; 
+        font-size: 0.8rem; 
+        margin-left: 5px;
+    }
+</style>
+
+<div style="margin-bottom: 1rem;">
+    <a href="javascript:history.back()" class="btn btn-secondary">&lt; 戻る</a>
+</div>
+
+<div class="card">
+    <h2 style="margin-top: 0; padding-bottom: 10px;">🏷️ Tags List</h2>
+
+    <div style="margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+        <span style="margin-right: 10px; font-weight: bold; color: #666; font-size: 0.9rem;">Sort:</span>
+        
+        <a href="{{ url_for('tag_list', sort='count') }}" 
+           class="btn btn-sort {% if sort_mode == 'count' %}active{% else %}inactive{% endif %}">
+           件数 ▼
+        </a>
+
+        <a href="{{ url_for('tag_list', sort='name') }}" 
+           class="btn btn-sort {% if sort_mode == 'name' %}active{% else %}inactive{% endif %}">
+           名前 ▲
+        </a>
+    </div>
+
+    <p style="color: #666; font-size: 0.9rem;">タグをクリックすると検索します</p>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        {% for tag, count in tags %}
+            <a href="{{ url_for('index', q='tag:' + tag) }}" class="tag-link">
+               {{ tag }} <span class="tag-count-badge">{{ count }}</span>
+            </a>
+        {% endfor %}
+    </div>
+    
+    {% if not tags %}
+        <p>タグが見つかりませんでした。</p>
+    {% endif %}
+</div>
+{% endblock %}

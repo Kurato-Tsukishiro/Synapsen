@@ -28,6 +28,7 @@ from Synapsen_Nexus.utils import (  # noqa: E402
     fetch_notes_from_db,
     find_file_in_paths,
     count_notes_from_db,
+    get_all_tags_with_count,
 )
 from Synapsen_Nexus.search_parser import parse_query_to_sql  # noqa: E402
 
@@ -209,6 +210,27 @@ def random_note():
         return redirect(url_for("view_note", key=row["key"]))
     else:
         return redirect(url_for("index"))
+
+
+@app.route("/tags")
+@requires_auth
+def tag_list():
+    """タグ一覧ページ"""
+    # URLパラメータ ?sort=count または ?sort=name を取得 (デフォルトは count)
+    sort_mode = request.args.get("sort", "count")
+
+    conn = get_db_connection()
+    try:
+        # utilsの関数はデフォルトで「件数降順 -> 名前昇順」で返します
+        tags = get_all_tags_with_count(conn)
+    finally:
+        conn.close()
+
+    # 名前順が指定された場合のみ、タグ名(x[0])で再ソート(昇順)
+    if sort_mode == "name":
+        tags.sort(key=lambda x: x[0])
+
+    return render_template("tags.html", tags=tags, sort_mode=sort_mode)
 
 
 @app.route("/view/<key>")
