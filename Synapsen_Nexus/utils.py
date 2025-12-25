@@ -1052,3 +1052,31 @@ def get_pdf_page_image_from_doc(
     except Exception as e:
         logger.error(f"[utils] PDFの画像化に失敗 (Page {page_index}): {e}")
         return None
+
+
+def get_all_tags_with_count(conn):
+    """
+    DB内の全ノートからタグを集計し、(タグ名, 件数) のリストを返す
+    件数の多い順にソートされます。
+    """
+    cursor = conn.cursor()
+    # タグが入っているカラムのみ取得 (空ではないもの)
+    cursor.execute("SELECT tags FROM notes WHERE tags IS NOT NULL AND tags != ''")
+
+    tag_counts = {}
+
+    for row in cursor.fetchall():
+        tag_string = row[0]
+        if not tag_string:
+            continue
+
+        # セミコロン区切りを分割
+        for tag in tag_string.split(";"):
+            t = tag.strip()
+            if t:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+
+    # 件数降順(多い順) -> 名前昇順 でソート
+    sorted_tags = sorted(tag_counts.items(), key=lambda x: (-x[1], x[0]))
+
+    return sorted_tags

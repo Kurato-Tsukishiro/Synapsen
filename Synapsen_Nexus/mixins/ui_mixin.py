@@ -31,6 +31,7 @@ class NexusUiMixin:
 
         self._create_left_buttons(row1)
         self._create_smart_search_buttons(row1)  # 右端を先に配置
+        self._create_search_list_callup_buttons(row1)
         self._create_search_bar(row1)  # 残りを埋める
 
         # --- 2段目: ツールバー ---
@@ -116,6 +117,28 @@ class NexusUiMixin:
         )
         self.saved_search_combo.pack(side="left", padx=0)
         self.saved_search_combo.set("保存済み検索...")
+
+    def _create_search_list_callup_buttons(self, parent: ctk.CTkFrame) -> None:
+        """
+        検索に使用するリストウィンドウを呼び出すボタンを生成する。
+
+        Args:
+            parent (ctk.CTkFrame): 親として設定するフレーム。
+        """
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(side="right", padx=(5, 0))
+
+        # タグリスト
+        self.callup_tag_list_button = ctk.CTkButton(
+            frame,
+            text="Tag",
+            command=self.open_tag_window,
+            width=30,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color=Colors.adjust_brightness(Colors.UI_BASIC, factor=0.2),
+        )
+        self.callup_tag_list_button.pack(side="left", padx=0)
 
     def _create_search_bar(self, parent):
         search_container = ctk.CTkFrame(parent, fg_color="transparent")
