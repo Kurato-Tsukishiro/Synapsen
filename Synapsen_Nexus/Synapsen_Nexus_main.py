@@ -421,6 +421,10 @@ class Synapsen_Nexus(
         self.bind("<Control-f>", self._focus_search)
         self.bind("<Control-F>", self._focus_search)
 
+        # Ctrl+T: タグリストを呼び出す
+        self.bind("<Control-t>", lambda e: self.open_tag_window())
+        self.bind("<Control-T>", lambda e: self.open_tag_window())
+
         # --- 3. リスト操作用ショートカット ---
         self.setup_navigation_shortcuts()  # ListNavigatorMixin
 

@@ -158,4 +158,4 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
         bool: 成功した場合はTrue、失敗した場合はFalse
     """
     ...
-
+```

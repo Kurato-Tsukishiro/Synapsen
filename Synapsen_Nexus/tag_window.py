@@ -139,6 +139,20 @@ class TagWindow(ctk.CTkToplevel):
 
         # 初期読み込み
         self.fetch_tags()
+        self._setup_shortcuts()
+
+    def _setup_shortcuts(self):
+        """キーボードショートカットをバインドする"""
+        # Tab: 検索条件の切り替え
+        self.bind("<Tab>", lambda e: self.toggle_operator_mode())
+
+        # Alt+S: ソートオーダー(ソート順)切替
+        self.bind("<Alt-s>", lambda e: self.toggle_sort_desc())
+        self.bind("<Alt-S>", lambda e: self.toggle_sort_desc())
+
+        # Alt+M: ソートキー(ソート条件)切替
+        self.bind("<Alt-m>", lambda e: self.toggle_sort_mode())
+        self.bind("<Alt-M>", lambda e: self.toggle_sort_mode())
 
     def fetch_tags(self):
         """DBからタグを取得してキャッシュする"""
@@ -152,6 +166,19 @@ class TagWindow(ctk.CTkToplevel):
 
         except Exception as e:
             ctk.CTkLabel(self.scroll_frame, text=f"エラー: {e}").pack()
+
+    def toggle_sort_desc(self) -> None:
+        """ソートの昇順/降順を反転する (ショートカット用)"""
+        self.sort_desc = not self.sort_desc
+        self.render_tags()
+
+    def toggle_sort_mode(self) -> None:
+        """ソートの条件を切り替える (ショートカット用)"""
+        if self.sort_mode == "count":
+            self.sort_mode = "name"
+        else:
+            self.sort_mode = "count"
+        self.render_tags()
 
     def toggle_sort_count(self):
         """件数ソート切り替え"""
@@ -176,6 +203,16 @@ class TagWindow(ctk.CTkToplevel):
             self.sort_desc = False
 
         self.render_tags()
+
+    def toggle_operator_mode(self) -> None:
+        """
+        "AND"と"OR"の切り替えを行う
+        """
+        operator = self.mode_var.get()
+        if (operator == "AND"):
+            self.mode_var.set("OR")
+        else:
+            self.mode_var.set("AND")
 
     def update_sort_buttons_ui(self):
         """ボタンの見た目（アクティブ状態・矢印）を更新"""
