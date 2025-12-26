@@ -325,7 +325,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 "create_individual_csv": "false",
             }
             config["Search"] = {
-                "include_all_tags_for_autocomplete": "true",
+                "include_all_tags_from_db": "true",
                 "exclude_tags_by_default": "Status_Archive",
             }
             config["Watchdog"] = {

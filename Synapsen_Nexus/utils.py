@@ -43,7 +43,7 @@ def load_app_config(base_path):
                 'commonplace_keys_options',
                 'predefined_tags',
                 'default_csv_path',
-                'include_all_tags_for_autocomplete')
+                'include_all_tags_from_db')
 
     Raises:
         FileNotFoundError: config.ini が見つからない場合。
@@ -142,8 +142,8 @@ def load_app_config(base_path):
 
         # [Search]
         if parser.has_section("Search"):
-            config_data["include_all_tags_for_autocomplete"] = parser.getboolean(
-                "Search", "include_all_tags_for_autocomplete", fallback=True
+            config_data["include_all_tags_from_db"] = parser.getboolean(
+                "Search", "include_all_tags_from_db", fallback=True
             )
             exclude_tags_str = parser.get(
                 "Search", "exclude_tags_by_default", fallback=""
@@ -153,7 +153,7 @@ def load_app_config(base_path):
             ]
         else:
             # セクションがない場合のデフォルト値
-            config_data["include_all_tags_for_autocomplete"] = True
+            config_data["include_all_tags_from_db"] = True
             config_data["exclude_tags_by_default"] = []
 
         # [ReportLab]

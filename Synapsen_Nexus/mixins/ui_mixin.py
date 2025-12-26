@@ -43,9 +43,6 @@ class NexusUiMixin:
         self._create_extra_tools(row2)
 
         # --- パネル構成 ---
-        # オートコンプリート用の非表示フレーム
-        self.autocomplete_frame = ctk.CTkScrollableFrame(self, label_text="")
-
         # 左パネル
         self.left_panel = ctk.CTkFrame(self, fg_color="transparent")
         self.left_panel.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
@@ -121,9 +118,6 @@ class NexusUiMixin:
     def _create_search_list_callup_buttons(self, parent: ctk.CTkFrame) -> None:
         """
         検索に使用するリストウィンドウを呼び出すボタンを生成する。
-
-        Args:
-            parent (ctk.CTkFrame): 親として設定するフレーム。
         """
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(side="right", padx=(5, 0))
@@ -149,13 +143,11 @@ class NexusUiMixin:
         )
         self.search_entry.pack(fill="x", expand=True)
 
-        # イベントバインド (SearchMixinのメソッド)
+        # イベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
-        self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
-        self.search_entry.bind("<Down>", self.navigate_suggestions)
-        self.search_entry.bind("<Up>", self.navigate_suggestions)
-        self.search_entry.bind("<Return>", self.confirm_suggestion)
+
+        # Enterキーは直接検索実行へバインド
+        self.search_entry.bind("<Return>", lambda e: self._trigger_search_now())
 
     def _create_view_tools(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -724,7 +716,7 @@ Esc : 入力欄からフォーカスを外す
   (例: `[[20240101090000: タイトル]]` は `20240101090000` のみヒット)
 
 `tag: (キーワード)` (エイリアス: `tags:`)
-- タグを検索します (部分一致)。入力補完 (`tag:`) が利用可能です。
+- タグを検索します (部分一致)。
 
 `ikey: (キーワード)` (エイリアス: `cpkey:`, `indexkey:`)
 - Index Key (コモンプレイスキー) を検索します (部分一致)。
