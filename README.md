@@ -363,7 +363,7 @@ Nexusから起動し、ノートをホワイトボード上に自由に配置し
 * **Synapsen Web (Webサーバーモード)**
   * PC上のNexusデータベースを、**同一Wi-Fiネットワーク内にあるスマートフォンやタブレット**から閲覧するための軽量Webサーバー機能です。
   * ソファでくつろぎながら過去のノートを読み返したり、別室で資料を検索したりするのに最適です。
-  * 詳細は、Synapsen_Webの[README](Synapsen_Web\README.md) を確認してください。
+  * 詳細は、Synapsen_Webの[README](Synapsen_Web/README.md) を確認してください。
 
 ## キーボードショートカット一覧
 
