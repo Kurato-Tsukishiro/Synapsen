@@ -69,7 +69,7 @@ AIアシスタントや開発者が陥りやすい、避けるべき実装パタ
     ```
 2.  **ビルド:** 以下のコマンドをルートディレクトリで実行してください。
     ```bash
-    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
     ```
 3.  **配置:** `dist` フォルダに生成された `Synapsen.exe` をルートディレクトリに移動して使用します。
 
@@ -79,8 +79,7 @@ AIアシスタントや開発者が陥りやすい、避けるべき実装パタ
 ご自身の環境で使用する場合、以下のように **`--onedir`** オプションを使用してビルドすることで、展開処理を省略し、**スクリプト実行並みの高速起動**を実現できます。
 
 ```bash
-# --onefile を --onedir に変更して実行
-pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
 ```
 
 **注意点:**
@@ -158,4 +157,4 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
         bool: 成功した場合はTrue、失敗した場合はFalse
     """
     ...
-
+```

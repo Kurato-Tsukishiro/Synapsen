@@ -31,6 +31,7 @@ class NexusUiMixin:
 
         self._create_left_buttons(row1)
         self._create_smart_search_buttons(row1)  # 右端を先に配置
+        self._create_search_list_callup_buttons(row1)
         self._create_search_bar(row1)  # 残りを埋める
 
         # --- 2段目: ツールバー ---
@@ -42,9 +43,6 @@ class NexusUiMixin:
         self._create_extra_tools(row2)
 
         # --- パネル構成 ---
-        # オートコンプリート用の非表示フレーム
-        self.autocomplete_frame = ctk.CTkScrollableFrame(self, label_text="")
-
         # 左パネル
         self.left_panel = ctk.CTkFrame(self, fg_color="transparent")
         self.left_panel.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
@@ -117,6 +115,25 @@ class NexusUiMixin:
         self.saved_search_combo.pack(side="left", padx=0)
         self.saved_search_combo.set("保存済み検索...")
 
+    def _create_search_list_callup_buttons(self, parent: ctk.CTkFrame) -> None:
+        """
+        検索に使用するリストウィンドウを呼び出すボタンを生成する。
+        """
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(side="right", padx=(5, 0))
+
+        # タグリスト
+        self.callup_tag_list_button = ctk.CTkButton(
+            frame,
+            text="Tag",
+            command=self.open_tag_window,
+            width=30,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color=Colors.adjust_brightness(Colors.UI_BASIC, factor=0.2),
+        )
+        self.callup_tag_list_button.pack(side="left", padx=0)
+
     def _create_search_bar(self, parent):
         search_container = ctk.CTkFrame(parent, fg_color="transparent")
         search_container.pack(side="left", fill="x", expand=True, padx=5)
@@ -126,13 +143,11 @@ class NexusUiMixin:
         )
         self.search_entry.pack(fill="x", expand=True)
 
-        # イベントバインド (SearchMixinのメソッド)
+        # イベントバインド
         self.search_entry.bind("<KeyRelease>", self.handle_keyrelease)
-        self.search_entry.bind("<FocusOut>", self.hide_autocomplete)
-        self.search_entry.bind("<FocusIn>", self.schedule_suggestions)
-        self.search_entry.bind("<Down>", self.navigate_suggestions)
-        self.search_entry.bind("<Up>", self.navigate_suggestions)
-        self.search_entry.bind("<Return>", self.confirm_suggestion)
+
+        # Enterキーは直接検索実行へバインド
+        self.search_entry.bind("<Return>", lambda e: self._trigger_search_now())
 
     def _create_view_tools(self, parent):
         frame = ctk.CTkFrame(parent, fg_color="transparent")
@@ -701,7 +716,7 @@ Esc : 入力欄からフォーカスを外す
   (例: `[[20240101090000: タイトル]]` は `20240101090000` のみヒット)
 
 `tag: (キーワード)` (エイリアス: `tags:`)
-- タグを検索します (部分一致)。入力補完 (`tag:`) が利用可能です。
+- タグを検索します (部分一致)。
 
 `ikey: (キーワード)` (エイリアス: `cpkey:`, `indexkey:`)
 - Index Key (コモンプレイスキー) を検索します (部分一致)。

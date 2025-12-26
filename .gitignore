@@ -209,7 +209,7 @@ marimo/_lsp/
 __marimo__/
 
 # Products
-*.html
+synapsen_graph.html
 saved_searches.json
 Synapsen_Nexus/canvas_data.json
 

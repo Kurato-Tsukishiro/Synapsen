@@ -61,6 +61,7 @@ try:
         from Synapsen_Nexus.canvas_window import CanvasWindow
         from Synapsen_Nexus.preview_window import NotePreviewWindow
         from Synapsen_Nexus.editor_window import NoteEditorWindow
+        from Synapsen_Nexus.tag_window import TagWindow
         from theme import SemanticColors as Colors
 
     except ImportError:
@@ -84,6 +85,7 @@ try:
         from canvas_window import CanvasWindow
         from preview_window import NotePreviewWindow
         from editor_window import NoteEditorWindow
+        from tag_window import TagWindow
         from theme import SemanticColors as Colors
 
 except ImportError as e:
@@ -127,7 +129,7 @@ class Synapsen_Nexus(
         self.key_colors = {}
         self.commonplace_keys_options = []
         self.predefined_tags = []
-        self.include_all_tags_for_autocomplete = True
+        self.include_all_tags_from_db = True
         self.exclude_tags_by_default = []
 
         self.config_data = {}  # Canvas等から参照される設定辞書
@@ -269,8 +271,8 @@ class Synapsen_Nexus(
             )
             self.predefined_tags = self.config_data.get("predefined_tags", [])
 
-            self.include_all_tags_for_autocomplete = self.config_data.get(
-                "include_all_tags_for_autocomplete", True
+            self.include_all_tags_from_db = self.config_data.get(
+                "include_all_tags_from_db", True
             )
 
             self.exclude_tags_by_default = self.config_data.get(
@@ -418,6 +420,10 @@ class Synapsen_Nexus(
         # Ctrl+F: 検索バーへフォーカス (Find)
         self.bind("<Control-f>", self._focus_search)
         self.bind("<Control-F>", self._focus_search)
+
+        # Ctrl+T: タグリストを呼び出す
+        self.bind("<Control-t>", lambda e: self.open_tag_window())
+        self.bind("<Control-T>", lambda e: self.open_tag_window())
 
         # --- 3. リスト操作用ショートカット ---
         self.setup_navigation_shortcuts()  # ListNavigatorMixin
@@ -572,7 +578,7 @@ class Synapsen_Nexus(
         # 1. 事前定義タグでセットを初期化
         tags_set = set(self.predefined_tags)
 
-        if self.include_all_tags_for_autocomplete and self.db_conn:
+        if self.include_all_tags_from_db and self.db_conn:
             try:
                 # DISTINCT tags を取得して分解
                 cursor = self.db_conn.cursor()
@@ -585,6 +591,7 @@ class Synapsen_Nexus(
             except Exception as e:
                 logger.error(f"Tags refresh error: {e}")
 
+        # 編集ウィンドウで「既存タグ」として使用するリストの生成
         self.all_unique_tags = sorted(list(tags_set))
 
     def _reload_db(self):
@@ -709,6 +716,22 @@ class Synapsen_Nexus(
         except Exception as e:
             logger.error(f"ランダムノート表示エラー: {e}")
             messagebox.showerror("エラー", f"失敗しました: {e}")
+
+    def open_tag_window(self):
+        """タグ一覧ウィンドウを開く"""
+        # DBがロードされていない場合は開かない
+        if not self.loaded_db_path:
+            messagebox.showwarning("データなし", "データベースが読み込まれていません。")
+            return
+
+        # self.config["..."] ではなく self.loaded_db_path (現在開いているDBパス) を渡す
+        TagWindow(self, self.loaded_db_path, self.search_by_tag)
+
+    def search_by_tag(self, query):
+        """タグウィンドウからのコールバック用"""
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, query)
+        self.perform_search()
 
     def check_on_this_day(self, manual_run=False):
         """
@@ -2148,11 +2171,6 @@ class Synapsen_Nexus(
         if self.search_timer:
             self.after_cancel(self.search_timer)
             self.search_timer = None
-
-        # 予測変換のタイマー
-        if self.suggestion_timer:
-            self.after_cancel(self.suggestion_timer)
-            self.suggestion_timer = None
 
         # 本体の検索を実行
         self.perform_search()

@@ -43,7 +43,7 @@ def load_app_config(base_path):
                 'commonplace_keys_options',
                 'predefined_tags',
                 'default_csv_path',
-                'include_all_tags_for_autocomplete')
+                'include_all_tags_from_db')
 
     Raises:
         FileNotFoundError: config.ini が見つからない場合。
@@ -142,8 +142,8 @@ def load_app_config(base_path):
 
         # [Search]
         if parser.has_section("Search"):
-            config_data["include_all_tags_for_autocomplete"] = parser.getboolean(
-                "Search", "include_all_tags_for_autocomplete", fallback=True
+            config_data["include_all_tags_from_db"] = parser.getboolean(
+                "Search", "include_all_tags_from_db", fallback=True
             )
             exclude_tags_str = parser.get(
                 "Search", "exclude_tags_by_default", fallback=""
@@ -153,7 +153,7 @@ def load_app_config(base_path):
             ]
         else:
             # セクションがない場合のデフォルト値
-            config_data["include_all_tags_for_autocomplete"] = True
+            config_data["include_all_tags_from_db"] = True
             config_data["exclude_tags_by_default"] = []
 
         # [ReportLab]
@@ -1052,3 +1052,31 @@ def get_pdf_page_image_from_doc(
     except Exception as e:
         logger.error(f"[utils] PDFの画像化に失敗 (Page {page_index}): {e}")
         return None
+
+
+def get_all_tags_with_count(conn):
+    """
+    DB内の全ノートからタグを集計し、(タグ名, 件数) のリストを返す
+    件数の多い順にソートされます。
+    """
+    cursor = conn.cursor()
+    # タグが入っているカラムのみ取得 (空ではないもの)
+    cursor.execute("SELECT tags FROM notes WHERE tags IS NOT NULL AND tags != ''")
+
+    tag_counts = {}
+
+    for row in cursor.fetchall():
+        tag_string = row[0]
+        if not tag_string:
+            continue
+
+        # セミコロン区切りを分割
+        for tag in tag_string.split(";"):
+            t = tag.strip()
+            if t:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+
+    # 件数降順(多い順) -> 名前昇順 でソート
+    sorted_tags = sorted(tag_counts.items(), key=lambda x: (-x[1], x[0]))
+
+    return sorted_tags

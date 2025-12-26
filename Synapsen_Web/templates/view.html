@@ -1,0 +1,44 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div style="margin-bottom: 1rem;">
+    <a href="javascript:history.back()" class="btn btn-secondary">&lt; 戻る</a>
+</div>
+
+<div class="card">
+    <div class="meta">Key: {{ note.key }}</div>
+    <h1 style="font-size: 1.5rem; margin-top: 0;">{{ note.title }}</h1>
+    
+    <div style="margin-bottom: 1rem;">
+        <strong>Date:</strong> {{ note.date }} {{ note.time }}<br>
+        <strong>Index:</strong> {{ note.commonplace_key }}
+    </div>
+
+    {% if note.tags %}
+    <div style="margin-bottom: 1rem;">
+        {% for t in note.tags.split(';') if t %}
+            <span class="tag">{{ t }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <hr style="border: 0; border-top: 1px solid #eee;">
+
+    <div style="line-height: 1.6; word-wrap: break-word;">
+        {{ note.memo | nl2br | linkify_key | safe }}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Attached PDF</h3>
+    {% if note.merged_pdf_filename or note.filepath %}
+        <p>
+            ファイル: {{ note.merged_pdf_filename if note.merged_pdf_filename else note.filepath }}<br>
+            ページ: {{ note.merged_start_page if note.merged_start_page else 1 }}
+        </p>
+        <a href="{{ url_for('view_pdf', key=note.key) }}#page={{ note.merged_start_page if note.merged_start_page else 1 }}" class="btn" target="_blank">PDFを開く</a>
+    {% else %}
+        <p style="color: gray;">PDFファイルが見つかりません</p>
+    {% endif %}
+</div>
+{% endblock %}

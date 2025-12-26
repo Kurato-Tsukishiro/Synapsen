@@ -261,8 +261,8 @@ class ListNavigatorMixin:
     def _handle_up_key(self, event, range_select=False):
         """上矢印キーのハンドラ"""
         if self._is_search_entry_focused():
-            # 検索バーにいる場合、オートコンプリート操作へ委譲
-            self.navigate_suggestions(event)
+            # 検索バーにいる場合は何もしない (リストへは移動させない)
+            return
         else:
             # それ以外ならリスト移動
             is_ctrl = self._is_ctrl_pressed(event)  # Ctrlキーの状態を確認して渡す
@@ -272,24 +272,20 @@ class ListNavigatorMixin:
     def _handle_down_key(self, event, range_select=False):
         """下矢印キーのハンドラ"""
         if self._is_search_entry_focused():
-            # 検索バーにいる場合
-            if self.autocomplete_frame.winfo_ismapped():
-                # オートコンプリートが出ていればそちらを操作
-                self.navigate_suggestions(event)
-            else:
-                # オートコンプリートが出ていなければリストへフォーカス移動
-                self.focus_set()  # 検索バーからフォーカスを外す
-                # Ctrlキーの状態を確認して渡す
-                is_ctrl = self._is_ctrl_pressed(event)
+            # 検索バーにいる場合、リストへフォーカス移動
+            self.focus_set()  # 検索バーからフォーカスを外す(メインウィンドウへ)
 
-                # 現在のカーソル位置が有効なら、そこを維持（もしくは +1）する
-                target_index = 0
-                if self.list_cursor_index != -1:
-                    target_index = self.list_cursor_index
+            # Ctrlキーの状態を確認して渡す
+            is_ctrl = self._is_ctrl_pressed(event)
 
-                self._set_list_cursor(
-                    target_index, do_range_select=range_select, keep_existing=is_ctrl
-                )
+            # 現在のカーソル位置が有効なら、そこを維持（もしくは +1）する
+            target_index = 0
+            if self.list_cursor_index != -1:
+                target_index = self.list_cursor_index
+
+            self._set_list_cursor(
+                target_index, do_range_select=range_select, keep_existing=is_ctrl
+            )
         else:
             # リスト移動
             is_ctrl = self._is_ctrl_pressed(event)  # Ctrlキーの状態を確認して渡す
@@ -299,8 +295,7 @@ class ListNavigatorMixin:
     def _handle_enter_key(self, event, pdf_mode=False):
         """Enterキーのハンドラ"""
         if self._is_search_entry_focused():
-            # 検索バーなら検索実行またはオートコンプリート確定 (既存処理に任せる)
-            # confirm_suggestion がバインドされているためここでは何もしないか、検索実行
+            # 検索バーでのEnterは、SearchMixin側(ui_mixinバインド)で処理されるため何もしない
             pass
         else:
             # リスト操作
@@ -318,10 +313,9 @@ class ListNavigatorMixin:
             return "break"
 
     def _handle_home_key(self, event, range_select=False):
-        """Enterキーのハンドラ"""
-        if (
-            self._is_search_entry_focused()
-        ):  # 検索バーなら検索実行またはオートコンプリート確定
+        """Homeキーのハンドラ"""
+        if self._is_search_entry_focused():
+            # 検索バー内でのカーソル移動を阻害しないためリターン
             return
 
         # リスト操作
@@ -330,10 +324,9 @@ class ListNavigatorMixin:
         return "break"
 
     def _handle_end_key(self, event, range_select=False):
-        """Spaceキーのハンドラ"""
-        if (
-            self._is_search_entry_focused()
-        ):  # 検索バーなら文字入力 (スペース) なので何もしない
+        """Endキーのハンドラ"""
+        if self._is_search_entry_focused():
+            # 検索バー内でのカーソル移動を阻害しないためリターン
             return
 
         is_ctrl = self._is_ctrl_pressed(event)
