@@ -1117,9 +1117,14 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
 ## ライセンス
 
 ### ソースコード (AGPL-3.0)
-このプロジェクトの**ソースコード**（(`PDF_Templates` 内の生成スクリプトも含む)`.py` ファイル）は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。<br><br>
+このプロジェクトの**ソースコード**は、**GNU Affero General Public License v3.0 (AGPL-3.0)** の下でライセンスされています。
+
+対象となるファイルは以下の通りです：
+* すべての **Pythonスクリプト** (`.py` ファイル)
+* Webサーバー機能で使用される **HTMLテンプレートおよびスタイルシート** (`Synapsen_Web` 内の `.html`, `.css` など)
+
 これは、`Synapsen` の中核機能において、AGPL-3.0 ライセンスである `PyMuPDF (fitz)` ライブラリ を使用しているためです。<br>
-AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体も同じライセンスに従います。<br><br>
+AGPL-3.0の条項に基づき、このライブラリを利用する本アプリケーション全体（Webインターフェースを含む）も同じライセンスに従います。<br><br>
 詳細は、同梱されている [`LICENSE` ファイル](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE) 及び [動作環境・依存関係](#動作環境依存関係)の**Pythonライブラリ**の項目を参照してください。
 
 ---
@@ -1127,9 +1132,9 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 ### ドキュメントおよびグラフィックアセット (CC BY-SA 4.0)
 このリポジトリに含まれる以下のコンテンツは、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
 
-* **`assets/` フォルダ**: すべてのアイコン、ロゴ、画像ファイル、および `.gvdesign` ソースファイル。
-* **`README.md` および `docs/`**: ドキュメント、マニュアル。
-* **`samples/`**: 上記ドキュメントから生成されたサンプルPDFファイル。
+* **画像アセット**: アプリケーションおよびWebサーバーで使用されるアイコン、ロゴ、画像ファイル（`assets/` フォルダおよび `static/` 内の画像）、および `.gvdesign` ソースファイル。
+* **ドキュメント**: `README.md`、マニュアル、および `docs/` フォルダ内の文書。
+* **サンプル**: `samples/` フォルダ内の生成されたPDFファイル。
 
 詳細は、同梱されている [`LICENSE-ASSETS.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE-ASSETS.md) ファイルを参照してください。
 
