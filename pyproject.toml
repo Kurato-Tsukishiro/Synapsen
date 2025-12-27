@@ -1,6 +1,6 @@
 [project]
 name = "Synapsen"
-version = "0.8.1"
+version = "0.8.2"
 description = "スキャンPDFや電子ノートを統合・データベース化し、高度な検索とキャンバス機能で知識を体系化するZettelkasten風ノート管理システム。"
 authors = [
     {name = "Kurato-Tsukishiro",email = "kurato.snr7@gmail.com"}
