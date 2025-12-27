@@ -1,4 +1,4 @@
-import pytest  # noqa: F401
+# import pytest  # TODO: プッシュ時にはコメントアウト
 import sys
 import os
 
