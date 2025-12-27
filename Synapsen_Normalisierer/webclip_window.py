@@ -178,7 +178,7 @@ class WebClipWindow(ctk.CTkToplevel):
             messagebox.showerror(
                 "ライブラリ不足エラー",
                 "Webクリップ機能に必要な 'playwright' ライブラリが見つかりません。\n\n"
-                "この機能を使用する場合は、`install_option.bat` 又は `install.bat`を使用して、"
+                "この機能を使用する場合は、`install_option.bat` 又は `Install_Poetry.bat`を使用して、"
                 " 'playwright' ライブラリをインストールして下さい\n"
                 "詳細は READMEの「実行方法」の項目をご参照ください。",
                 parent=parent_app,

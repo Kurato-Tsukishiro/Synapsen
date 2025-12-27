@@ -1,0 +1,58 @@
+[project]
+name = "Synapsen"
+version = "0.8.1"
+description = "スキャンPDFや電子ノートを統合・データベース化し、高度な検索とキャンバス機能で知識を体系化するZettelkasten風ノート管理システム。"
+authors = [
+    {name = "Kurato-Tsukishiro",email = "kurato.snr7@gmail.com"}
+]
+license = {text = "AGPL-3.0-only AND CC-BY-SA-4.0 AND CC0-1.0"}
+readme = "README.md"
+packages = [
+    {include = "Synapsen_Nexus"},
+    {include = "Synapsen_Ersteller"},
+    {include = "Synapsen_Normalisierer"}
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13.7,<3.15"
+
+# --- Main Requirements (Core) ---
+customtkinter = "^5.2.2"
+networkx = "*"
+numpy = "*"
+pandas = "*"
+Pillow = "*"
+playwright = "*"
+PyMuPDF = "^1.26.6"
+pypdf = "^6.0.0"
+pytesseract = "*"
+pyvis = "*"
+pyzbar = "*"
+qrcode = "*"
+reportlab = "^4.4.4"
+tkinterdnd2 = "*"
+watchdog = "*"
+
+# --- Optional Dependencies (Extras) ---
+ollama = { version = "^0.6.1", optional = true }
+Flask = { version = "^3.1.2", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.2"
+pytest-cov = "^7.0.0"
+black = "^25.12.0"
+flake8 = "^6.1.0"
+pyinstaller = "^6.16.0"
+
+
+[tool.poetry.extras]
+ai = ["ollama"]
+web = ["Flask"]
+full = ["ollama", "Flask"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88

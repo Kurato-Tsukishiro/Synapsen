@@ -38,7 +38,7 @@ Synapsen Web は、デフォルトでは「無効（隠し機能）」になっ�
 ``pip install Flask``を使用するか、コマンドプロンプトで `Synapsen_Web` フォルダ（このファイルがある場所）を開き、以下のコマンドを実行してください。
 
 ```bash
-pip install -r requirements.txt
+poetry install --no-root --extras web
 ```
 
 ### 2. 設定ファイルの編集

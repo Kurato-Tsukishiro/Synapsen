@@ -493,7 +493,10 @@ Synapsenでは、以下のフローで手書きノートを運用することで
 
 ## 動作環境・依存関係
 
-* **Python 3.x**
+* **Python 3.13+**
+* **Poetry**
+    * 本プロジェクトは依存関係管理に **Poetry** を使用しています。
+    * 開発者やソースコードから実行するユーザーは、Poetryのインストールが必要です。
 * **(オプション) Tesseract OCR**
     * `Normalisierer` で画像PDFのOCR（本文テキスト抽出）機能 を使う場合に必要です。
     * インストール後、`pytesseract` が認識できるようPATHを通してください。
@@ -501,14 +504,14 @@ Synapsenでは、以下のフローで手書きノートを運用することで
         → **[画像から文字を瞬時に読み取る！Tesseractとpytesseractの驚異の力【Python】](https://qiita.com/ryome/items/16fc42854fe93de78a2f)**
 * **(オプション) Pandoc**
     * `Normalisierer` でMarkdown (.md) ファイルのPDF変換機能を使う場合に必要です。
-    * `Install.bat` により、`winget` を使用して自動インストールを試みます。
+    * `Install_Poetry.bat` により、`winget` を使用して自動インストールを試みます。
     * 導入方法は、こちらの公式ページなどを参考にしてください。<br>
         → **[Pandoc - Installing](https://pandoc.org/installing.html)**
 * **(オプション) pyzbar**
     * `Synapsen Ersteller` でQRコード（`Normalisierer` が埋め込んだIndex Key/Key）を読み取るために使用します。
     * このライブラリが**ない場合でも、Erstellerは座標ベースのテキスト抽出で動作します**が、QRコードによる高精度なキー読み取りが有効化されません。
-    * `Install.bat` または `pip install pyzbar` でインストールを推奨します。
-* **Pythonライブラリ**: ( `requirements.txt` 参照)
+    * `Install_Poetry.bat` または `poetry install --no-root --without dev` でインストールされます。
+* **Pythonライブラリ**: ( `pyproject.toml` 参照)
     * [**customtkinter**](https://github.com/TomSchimansky/CustomTkinter) (MIT License) - GUI構築用
     * [**pandas**](https://github.com/pandas-dev/pandas) (BSD-3-Clause License) - 索引データの管理・検索用
     * [**NumPy**](https://github.com/numpy/numpy) (BSD-3-Clause License) - 画像補正（射影変換）の計算処理用
@@ -920,12 +923,11 @@ Python環境を構築せず、配布された `Synapsen.exe` を使用する方�
 
 1.  **ダウンロード:** [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から最新の `Synapsen.exe` をダウンロードします。
 2.  **準備:**
-    * [動作環境・依存関係](#動作環境依存関係)で、オプションと記載しているMarkdown変換とWebクリップ機能を使用したい場合は、同梱している `install_option.bat` を実行しライブラリとブラウザをインストールしてください。
-    * ただし、OCR機能を使用したい場合は[動作環境・依存関係](#動作環境依存関係)の項を読み、`Tesseract OCR` を手動でインストールしてください。
+    * **Markdown変換機能** (Pandoc) を使用したい場合は、同梱されている `install_option.bat` を実行してインストールしてください。
+    * **Webクリップ機能** (URLのPDF化) を使用したい場合は、別途 Python 環境と Playwright の導入が必要です。(`install_option.bat` はPython環境がある場合のみブラウザをインストールします)
+    * **OCR機能** を使用したい場合は、[動作環境・依存関係](#動作環境依存関係)の項を参考に、`Tesseract OCR` を手動でインストールしてください。
 3.  **起動:** `Synapsen.exe` をダブルクリックして起動します。
     * **注意**: `Synapsen.exe` と同階層に `config.ini` と `assets` フォルダが置かれているか確認してください。
-    * 統合ランチャーが立ち上がり、そこから各ツールへアクセスできます。
-    * ※ 初回起動時はセキュリティソフトのスキャン等により時間がかかる場合があります。
 
 #### コマンドライン引数による直接起動
 `Synapsen.exe` に以下の引数を渡すことで、ランチャーを経由せずにツールを直接起動できます。
@@ -942,10 +944,12 @@ Python環境を構築し、スクリプトを直接実行する方法です。
 EXEファイルの展開プロセスがないため、**最も高速に起動します。** 開発やカスタマイズを行う方にも適しています。
 
 1.  **ダウンロード:** [Releasesページ](https://github.com/Kurato-Tsukishiro/Synapsen/releases) から最新の `Source code (zip)` をダウンロードします。
-2.  **準備:** 同梱されている **`Install.bat`** を実行し、必要なライブラリとブラウザをインストールしてください。
+2.  **準備:** 同梱されている **`Install_Poetry.bat`** を実行してください。
+    * Poetry環境の構築、ライブラリのインストールを自動で行います。
+    * インストール中、**AI機能** (Ollama連携) や **外部ツール** (Playwright/Pandoc) のインストールの有無を選択できます。
 3.  **起動:** 以下のいずれかの方法で起動します。
     * **`Run_Launcher.bat`** から実行 (推奨)
-    * コマンドプロンプトで `python Synapsen_Launcher.py` を実行。
+    * コマンドプロンプトで `poetry run python Synapsen_Launcher.py` を実行。
 
 ---
 
@@ -1070,12 +1074,12 @@ Index Keyの選択肢（タグ）、フォント、レイアウトなどを変�
 
 2.  **ライブラリの確認:**
     * テンプレートの生成には `PyMuPDF` ライブラリ が必要です。
-    * セットアップ時に `Install.bat` を実行済みであれば、必要なライブラリはすでにインストールされています。
+    * `poetry install --no-root --without dev` (または `Install_Poetry.bat`) を実行済みであれば、必要なライブラリはすでにインストールされています。
 
 3.  **生成スクリプトの実行例:**
     * コマンドプロンプト（ターミナル）で `PDF_Templates/DotLegalPad/` フォルダに移動します。
-    * `python Generate_DotLegalPad_Form_Template.py` を実行すると、フォーム付きのPDFが生成されます。
-    * `python Generate_DotLegalPad.py` を実行すると、フォーム無しの（ページ追加用）PDFが生成されます。
+    * `poetry run python Generate_DotLegalPad_Form_Template.py` を実行すると、フォーム付きのPDFが生成されます。
+    * `poetry run python Generate_DotLegalPad.py` を実行すると、フォーム無しの（ページ追加用）PDFが生成されます。
 
 > **重要:**
 > `DotLegalPad_Config.py` の `OPTIONS` を変更した場合、Synapsen本体の `config.ini` の `[CommonplaceKeys]` セクションにある `options = ...` の内容も、必ず一致させてください。
@@ -1173,5 +1177,7 @@ OCR機能を実現する **Pillow** と **pytesseract**、<br>
 D&D機能を実現する **tkinterdnd2**、<br>
 メタデータQRコードの生成と読み取りを実現する **qrcode** と **pyzbar**、<br>
 Webクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc**、<br>
-そしてフォルダ監視による自動化を実現する **watchdog** の開発者コミュニティに心から感謝申し上げます。<br><br>
+フォルダ監視による自動化を実現する **watchdog**、<br>
+依存関係管理を支える **Poetry**、<br>
+そして、堅牢なテスト環境を提供する **pytest** の開発者コミュニティに心から感謝申し上げます。<br><br>
 また、このプロジェクトの設計、コード作成、リファクタリング、およびドキュメント整備は、GoogleのAIである **Gemini** の支援を受けて行われました。
