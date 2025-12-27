@@ -1,3 +1,3 @@
 @echo off
 cd /d %~dp0
-start /b pythonw Synapsen_Launcher.py
+start "" poetry run pythonw Synapsen_Launcher.py

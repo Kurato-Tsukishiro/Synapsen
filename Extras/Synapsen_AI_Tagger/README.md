@@ -23,7 +23,7 @@
 2. **LLMモデル**: `gemma2:2b` や `gemma3:4b` などのモデルが `ollama pull` 済みであること。
 3. **Pythonライブラリ**: `ollama` が導入済みであること。
    * `pip install ollama` を使用する事で、導入する事が出来ます。
-   * また、`Synaosen_AI_Tagger`フォルダ下で、`pip install -r requirements.txt` を使用する事で、導入する事も出来ます。
+   * また、`Synaosen_AI_Tagger`フォルダ下で、`poetry install --no-root --extras ai` を使用する事で、導入する事も出来ます。
 
 ## 使用方法
 1. `Extras/Synapsen_AI_Tagger/Synapsen_AI_Tagger.py` をテキストエディタで開きます。

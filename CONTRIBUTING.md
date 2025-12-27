@@ -59,19 +59,37 @@ AIアシスタントや開発者が陥りやすい、避けるべき実装パタ
 
 ---
 
+## 🛠 開発環境の構築
+
+README.md に記載されている導入手順は、一般ユーザー向けの実行環境を構築するためのものです。[^1]
+開発を行う場合は、以下のコマンドを使用して、開発用ツール（Linter, Formatter, Test等）を含む全依存関係をインストールしてください。
+
+```bash
+poetry install --no-root --extras full
+```
+
+---
+
 ## 🏗 EXEのビルド方法
 
 ソースコードを変更した場合など、自分で `Synapsen.exe` をビルドし直す手順です。
 
-1.  **準備:** `Install.bat` の実行に加え、PyInstallerをインストールします。
-    ```bash
-    pip install pyinstaller
-    ```
+1.  **準備:** [開発環境の構築](#-開発環境の構築)を行ってください。
 2.  **ビルド:** 以下のコマンドをルートディレクトリで実行してください。
     ```bash
-    pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+    poetry run pyinstaller --noconsole --onefile --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
     ```
 3.  **配置:** `dist` フォルダに生成された `Synapsen.exe` をルートディレクトリに移動して使用します。
+
+### Tips: 配布用 `Synapsen.exe` のビルド環境について
+公式リリースの `Synapsen.exe` は、AI機能やWeb機能を含まない状態でビルドされています。
+これを再現するには、以下のコマンドで仮想環境を同期（Sync）させ、余分なライブラリを削除してからビルドを実行してください。
+
+1. **環境の同期:** `poetry install --no-root --sync`
+   * これにより、`extras` (AI/Web) が削除され、基本機能と開発ツールのみの環境になります。
+2. **ビルド:** 上記の [EXEのビルド方法](#-exeのビルド方法) を実行
+
+※ 環境には `dev` グループ（PyInstaller, pytest等）が含まれますが、Synapsenのソースコードがこれらをインポートしていないため、PyInstallerの仕様により EXE ファイル内には混入しません。
 
 ### Tips: 起動速度の改善 (--onedir ビルド)
 配布用の `Synapsen.exe` は、利便性を優先して1つのファイルにまとめる `--onefile` 形式でビルドされていますが、これは起動時に一時フォルダへファイルを展開するため、起動に数秒の時間を要します。
@@ -79,7 +97,7 @@ AIアシスタントや開発者が陥りやすい、避けるべき実装パタ
 ご自身の環境で使用する場合、以下のように **`--onedir`** オプションを使用してビルドすることで、展開処理を省略し、**スクリプト実行並みの高速起動**を実現できます。
 
 ```bash
-pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
+poetry run pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --splash "assets/synapsen_banner.png" --collect-all customtkinter --collect-all tkinterdnd2 --collect-all pyzbar --hidden-import="PIL._tkinter_finder" --paths="Synapsen_Normalisierer" --paths="Synapsen_Ersteller" --paths="Synapsen_Nexus" --paths="Synapsen_Web" --add-data="Synapsen_Web/templates;Synapsen_Web/templates" --add-data="Synapsen_Web/static;Synapsen_Web/static" --hidden-import="flask" --hidden-import="dnd_window" --hidden-import="webclip_window" --hidden-import="image_editor" --hidden-import="pdf_utils" --hidden-import="Synapsen_Watchdog" --hidden-import="pdf_processor" --hidden-import="reportlab_generator" --hidden-import="gui_dialogs" --hidden-import="db_recovery_tool" --hidden-import="config_editor" --hidden-import="PDFMargeHelper" --hidden-import="canvas_window" --hidden-import="preview_window" --hidden-import="editor_window" --hidden-import="export_manager" --hidden-import="graph_manager" --hidden-import="list_navigator" --hidden-import="saved_search_manager" --hidden-import="search_parser" --hidden-import="utils" --hidden-import="mixins" Synapsen_Launcher.py
 ```
 
 **注意点:**
@@ -88,6 +106,7 @@ pyinstaller --noconsole --onedir --name Synapsen --icon=assets/synapsen.ico --sp
 - `config.ini` や `assets` フォルダは、`Synapsen.exe` があるフォルダ（dist/Synapsen/ の中）に配置してください。
   - `assets` フォルダの中身は、`synapsen.ico` と `synapsen_banner.png` のみで動作します。
 
+---
 
 ## 📏 開発ルール・規約
 
@@ -158,3 +177,7 @@ def normalize_pdf(input_path: str, output_path: str) -> bool:
     """
     ...
 ```
+
+---
+
+[^1]: [README.md の導入手順](README.md#b-ソースコード-スクリプト-から実行する場合-高速起動) では `--without dev` オプションを使用しているため、開発に必要なパッケージが含まれません。

@@ -1181,7 +1181,7 @@ def convert_document_to_pdf(
         # finallyブロックで一時MDファイルが削除されるよう、エラーを再送出
         raise Exception(
             "Playwright (Chromium) でのHTML->PDF変換に失敗しました。\n"
-            + "Install.bat を実行して Playwright が正しくインストールされているか確認してください。\n"
+            + "Install_Poetry.bat を実行して Playwright が正しくインストールされているか確認してください。\n"
             + f"エラー: {e}"
         )
     except Exception as e:
