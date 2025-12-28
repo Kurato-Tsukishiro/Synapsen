@@ -200,6 +200,17 @@ class NexusUiMixin:
         )
         self.selection_info_label.pack(side="left", padx=(0, 5))
 
+        self.select_all_matches_button = ctk.CTkButton(
+            frame,
+            text="All",
+            command=self.select_all_matches,
+            width=30,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black"
+        )
+        self.select_all_matches_button.pack(side="left", padx=(0, 2))
+
         self.clear_selection_button = ctk.CTkButton(
             frame,
             text="×",
@@ -231,6 +242,17 @@ class NexusUiMixin:
             dropdown_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
         )
         self.graph_menu.pack(side="left", padx=(0, 5))
+
+        self.batch_edit_button = ctk.CTkButton(
+            frame,
+            text="一括編集",
+            command=self.open_batch_edit_dialog,
+            width=80,
+            fg_color=Colors.UI_EDIT,
+            hover_color=Colors.adjust_brightness(Colors.UI_EDIT),
+            state="disabled"
+        )
+        self.batch_edit_button.pack(side="left", padx=(0, 5))
 
         self.copy_links_button = ctk.CTkButton(
             frame,
