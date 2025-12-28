@@ -361,6 +361,16 @@ class Synapsen_Nexus(
         self.bind("<Control-e>", lambda e: self._handle_shortcut(self.open_edit_dialog))
         self.bind("<Control-E>", lambda e: self._handle_shortcut(self.open_edit_dialog))
 
+        # Ctrl+Shift+E: 一括編集 (Edit)
+        self.bind(
+            "<Control-Shift-e>",
+            lambda e: self._handle_shortcut(self.open_batch_edit_dialog),
+        )
+        self.bind(
+            "<Control-Shift-E>",
+            lambda e: self._handle_shortcut(self.open_batch_edit_dialog),
+        )
+
         # F5: 再読み込み (Reload)
         self.bind("<F5>", lambda e: self._handle_shortcut(self._reload_db))
 
@@ -382,9 +392,19 @@ class Synapsen_Nexus(
             "<Control-B>", lambda e: self._handle_shortcut(self.toggle_details_panel)
         )
 
-        # Ctrl+A: すべて選択
+        # Ctrl+A: すべて選択 (ページ)
         self.bind("<Control-a>", lambda e: self._handle_shortcut(self.select_all_notes))
         self.bind("<Control-A>", lambda e: self._handle_shortcut(self.select_all_notes))
+
+        # Ctrl+Shift+A: すべて選択 (検索)
+        self.bind(
+            "<Control-Shift-a>",
+            lambda e: self._handle_shortcut(self.select_all_matches),
+        )
+        self.bind(
+            "<Control-Shift-A>",
+            lambda e: self._handle_shortcut(self.select_all_matches),
+        )
 
         # Ctrl+D: 選択解除 (Deselect)
         self.bind("<Control-d>", lambda e: self._handle_shortcut(self.clear_selection))
@@ -903,18 +923,38 @@ class Synapsen_Nexus(
         count = len(self.selected_keys)
         self.selection_info_label.configure(text=f"選択: {count}")
 
-        # リンクコピーボタンの制御
-        if count > 0:
-            # 選択がある時は強調色（黄色/オレンジ系）にする
+        # Pythonの一般的な慣習とは異なる(C#的なアプローチだ)が、
+        # 後でコードを見返した際の可読性と理解しやすさを優先し、ローカル関数形式を採用
+
+        # 有効状態の処理
+        def enable():
+            # リンクコピーボタン
             self.selection_info_label.configure(
                 text_color=Colors.adjust_brightness(Colors.LABEL_WARNING)
-            )
-            self.copy_links_button.configure(state="normal")
+            )  # 選択がある時は強調色（黄色/オレンジ系）にする
             # 選択グラフも有効化されていることを視覚的に示すため、メニューは常に有効のまま
-        else:
+            self.copy_links_button.configure(state="normal")
+
+            # 一括編集ボタン
+            if hasattr(self, "batch_edit_button"):
+                self.batch_edit_button.configure(state="normal")
+
+        # 無効状態の処理
+        def disable():
+            # リンクコピーボタン
             # 0件の時はグレーアウト
             self.selection_info_label.configure(text_color="gray")
             self.copy_links_button.configure(state="disabled")
+
+            # 一括編集ボタン
+            if hasattr(self, "batch_edit_button"):
+                self.batch_edit_button.configure(state="disabled")
+
+        # 選択数に応じた制御
+        if count > 0:
+            enable()
+        else:
+            disable()
 
     def copy_selected_links(self):
         """
@@ -2192,6 +2232,225 @@ class Synapsen_Nexus(
         self.search_entry.delete(0, "end")
         self.search_entry.insert(0, query)
         self.perform_search()
+
+    # -------------------------------------------------------------------------
+    # 一括編集関連のメソッド (クラス内に追加)
+    # -------------------------------------------------------------------------
+
+    def select_all_matches(self):
+        """
+        検索条件にヒットするすべてのノートを選択状態にする（ページネーション無視）。
+        """
+        if not self.db_conn:
+            return
+
+        try:
+            # 現在の検索条件 (WHERE句) を取得
+            where_clause = self.current_where_clause
+            params = list(self.current_params) if self.current_params else []
+
+            # 全件のKeyを取得するSQL
+            sql = "SELECT key FROM notes"
+            if where_clause:
+                sql += f" WHERE {where_clause}"
+
+            cursor = self.db_conn.cursor()
+            cursor.execute(sql, params)
+
+            # 全キーを取得してセットに追加
+            all_keys = [row[0] for row in cursor.fetchall()]
+
+            if not all_keys:
+                messagebox.showinfo("情報", "選択するノートがありません。")
+                return
+
+            self.selected_keys.update(all_keys)
+
+            # UI更新
+            self.update_selection_ui_state()
+            # リスト表示更新 (チェックボックスの見た目を同期)
+            if self.filtered_df_cache:
+                self.update_results_list(self.filtered_df_cache)
+
+            messagebox.showinfo(
+                "全件選択", f"検索結果 {len(all_keys)} 件すべてを選択しました。"
+            )
+
+        except Exception as e:
+            logger.error(f"全件選択エラー: {e}")
+            messagebox.showerror("エラー", f"全件選択に失敗しました: {e}")
+
+    def open_batch_edit_dialog(self):
+        """
+        一括編集ダイアログを開く
+        """
+        if not self.selected_keys:
+            messagebox.showinfo("情報", "編集するノートが選択されていません。")
+            return
+
+        # 必要なモジュールの遅延インポート (循環参照回避)
+        try:
+            from Synapsen_Nexus.batch_edit_window import BatchEditWindow
+        except ImportError:
+            try:
+                from batch_edit_window import BatchEditWindow
+            except ImportError:
+                messagebox.showerror(
+                    "エラー", "batch_edit_window.py が見つかりません。"
+                )
+                return
+
+        # 1. 全タグの収集 (DBから)
+        self.refresh_unique_tags()  # self.all_unique_tags を更新
+
+        # 2. 選択中のノートに含まれるタグの収集 (DBクエリで正確に取得)
+        tags_in_selection = set()
+        try:
+            if self.selected_keys:
+                placeholders = ",".join("?" * len(self.selected_keys))
+                sql = f"SELECT tags FROM notes WHERE key IN ({placeholders})"
+                cursor = self.db_conn.cursor()
+                cursor.execute(sql, list(self.selected_keys))
+                for (tags_str,) in cursor.fetchall():
+                    if tags_str:
+                        for t in tags_str.split(";"):
+                            if t.strip():
+                                tags_in_selection.add(t.strip())
+        except Exception as e:
+            logger.error(f"タグ収集エラー: {e}")
+
+        # 3. ダイアログを開く
+        dialog = BatchEditWindow(
+            self,
+            len(self.selected_keys),
+            self.all_unique_tags,
+            sorted(list(tags_in_selection)),
+            self.commonplace_keys_options,
+        )
+
+        result = dialog.get_input()
+
+        if result:
+            self.apply_batch_edits(result)
+
+    def apply_batch_edits(self, edit_data):
+        """
+        一括編集の適用処理
+        """
+        if not self.selected_keys:
+            return
+
+        index_key = edit_data.get("index_key")
+        tags_to_add = edit_data.get("tags_to_add", [])
+        tags_to_remove = set(edit_data.get("tags_to_remove", []))
+        memo_text = edit_data.get("memo_text")
+
+        # 変更がない場合は終了
+        if (
+            index_key is None
+            and not tags_to_add
+            and not tags_to_remove
+            and memo_text is None
+        ):
+            return
+
+        conn = None
+        updated_count = 0
+        try:
+            conn = sqlite3.connect(self.loaded_db_path)
+            cursor = conn.cursor()
+
+            from datetime import datetime
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            # 選択中のキーに対してループ処理
+            for key in self.selected_keys:
+                # 現在のデータを取得
+                cursor.execute(
+                    "SELECT tags, memo, commonplace_key FROM notes WHERE key = ?",
+                    (key,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    continue
+
+                curr_tags_str, curr_memo, curr_ikey = row
+                curr_tags = set(t for t in (curr_tags_str or "").split(";") if t)
+                curr_memo = curr_memo or ""
+
+                changes_made = False
+
+                # 1. Index Key
+                new_ikey = curr_ikey
+                if index_key is not None:
+                    new_ikey = index_key
+                    changes_made = True
+
+                # 2. Tags
+                if tags_to_add or tags_to_remove:
+                    # 追加 (階層タグ対応: Parent_Child -> Parent, Parent_Child)
+                    for t in tags_to_add:
+                        parts = t.split("_")
+                        for i in range(len(parts)):
+                            curr_tags.add("_".join(parts[: i + 1]))
+
+                    # 削除
+                    curr_tags.difference_update(tags_to_remove)
+                    changes_made = True
+
+                new_tags_str = ";".join(sorted(list(curr_tags)))
+
+                # 3. Memo
+                new_memo = curr_memo
+                if memo_text is not None:
+                    if curr_memo.strip():
+                        new_memo = curr_memo.strip() + "\n\n" + memo_text
+                    else:
+                        new_memo = memo_text
+                    changes_made = True
+
+                if changes_made:
+                    cursor.execute(
+                        """
+                        UPDATE notes
+                        SET tags = ?, memo = ?, commonplace_key = ?, updated_at = ?
+                        WHERE key = ?
+                    """,
+                        (new_tags_str, new_memo, new_ikey, now_str, key),
+                    )
+
+                    # リンクテーブル等の更新 (utilsのヘルパーを活用)
+                    if memo_text is not None:
+                        _update_note_links(cursor, key, new_memo)
+
+                    updated_count += 1
+
+            conn.commit()
+
+            messagebox.showinfo(
+                "完了", f"{updated_count} 件のノートを一括更新しました。"
+            )
+
+            # リロード
+            self.perform_search()  # 現在の条件で再検索
+
+            # 詳細表示中なら更新
+            if (
+                self.current_selected_row
+                and self.current_selected_row.get("key") in self.selected_keys
+            ):
+                # 簡易的に再取得して表示更新
+                self.show_details(self.current_selected_row)
+
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logger.error(f"一括編集エラー: {e}")
+            messagebox.showerror("エラー", f"一括編集に失敗しました: {e}")
+        finally:
+            if conn:
+                conn.close()
 
 
 if __name__ == "__main__":
