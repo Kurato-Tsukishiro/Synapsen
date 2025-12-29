@@ -215,7 +215,6 @@ class WebClipWindow(ctk.CTkToplevel):
             input_frame,
             placeholder_text="https://...",
             fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
-            text_color=Colors.BACKGROUND_HOLLOW,
         )
         self.url_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=5, sticky="ew")
 
