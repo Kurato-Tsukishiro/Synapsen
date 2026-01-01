@@ -1155,7 +1155,7 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 このリポジトリに含まれる以下のコンテンツは、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
 
 * **画像アセット**: アプリケーションおよびWebサーバーで使用されるアイコン、ロゴ、画像ファイル（`assets/` フォルダおよび `static/` 内の画像）、および `.gvdesign` ソースファイル。
-* **ドキュメント**: `README.md`、マニュアル、および `docs/` フォルダ内の文書。
+* **ドキュメント**: `README.md`、マニュアル、および `docs/` フォルダ内の文書。又、ドキュメントに使用されている画像。
 * **サンプル**: `samples/` フォルダ内の生成されたPDFファイル。
 
 詳細は、同梱されている [`LICENSE-ASSETS.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE-ASSETS.md) ファイルを参照してください。
