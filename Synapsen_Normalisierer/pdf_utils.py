@@ -13,6 +13,12 @@ import subprocess
 import qrcode
 import json
 
+# ollamaのインポート (未導入に対応)
+try:
+    import ollama
+except ImportError:
+    ollama = None
+
 # Playwrightのインポート (エラーハンドリング付き)
 try:
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
@@ -741,27 +747,80 @@ def normalize_pdf_to_papersize(
         raise
 
 
+# ==============================================================================
+# OCR処理 (Tesseract / Ollama)
+# ==============================================================================
+
+
+def _run_ollama_ocr(img_data: bytes, model: str, url: str) -> str:
+    """
+    Ollamaライブラリを使用して画像からテキストを抽出します。
+    """
+    if not ollama:
+        logger.error(
+            "ollamaパッケージがインストールされていません。OCRを実行できません。"
+        )
+        return ""
+
+    try:
+        # クライアントの初期化
+        # config.iniで "http://localhost:11434/api/generate" と書かれていても
+        # "http://localhost:11434" だけでも動くように整形します。
+        host = url.split("/api/")[0]
+
+        client = ollama.Client(host=host)
+
+        # 画像OCRの実行
+        response = client.chat(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "この画像に書かれている文字をすべて書き起こしてください。出力は書き起こしたテキストのみにしてください。",
+                    "images": [img_data],
+                }
+            ],
+            options={
+                "temperature": 0.0,
+            },
+        )
+
+        if "message" in response and "content" in response["message"]:
+            return response["message"]["content"].strip()
+        return ""
+
+    except Exception as e:
+        logger.error(f"Ollama OCR Error: {e}")
+        return ""
+
+
 def embed_ocr_text_in_pdf(
     pdf_path_str: str,
-    enable_tesseract: bool,
+    enable_ocr: bool,
     font_path: str,
+    ocr_engine: str = "tesseract",
+    ollama_config: dict = None,
     lang: str = "jpn+jpn_vert",
 ) -> None:
     """
     PDFを解析し、既存のテキストレイヤーが存在しない場合、
-    かつ `enable_tesseract` が True の場合にのみ Tesseract OCRを実行し、
-    結果を「透明なテキストレイヤー」としてPDF自体（指定されたパス）に上書き保存します。
+    OCRを実行して結果を透明テキストレイヤーとして埋め込みます。
 
     Args:
         pdf_path_str (str): 処理対象のPDFファイルパス（読み書きされる）。
-        enable_tesseract (bool): Tesseract OCR (低速) を実行するかどうか。
+        enable_ocr (bool): Tesseract OCR (低速) を実行するかどうか。
         font_path (str): 埋め込む日本語フォントファイルのパス。
+        ocr_engine (str): "tesseract" または "ollama"。
         lang (str): Tesseractが使用する言語。
+        ollama_config (dict): Ollamaの設定辞書。
 
     Raises:
         Exception: Tesseract-OCRが見つからない場合。
                    その他、ファイルの上書き保存に失敗した場合。
     """
+    if not enable_ocr:
+        return
+
     doc = None
     # 一時ファイルへの保存パスを定義
     temp_output_path = pdf_path_str + "._temp_ocr.pdf"
@@ -771,138 +830,161 @@ def embed_ocr_text_in_pdf(
         doc = fitz.open(pdf_path_str)
         if doc.is_encrypted:
             logger.info(
-                f"暗号化されたPDFはスキップします: {Path(pdf_path_str).name}",
-                extra={"sensitive": True},
-            )
+                f"暗号化されたPDFはスキップ: {Path(pdf_path_str).name}",
+                extra={"sensitive": True},)
             return
 
         # 1. 高速なテキスト抽出を試みる
         meaningful_text_threshold = 10
-
-        if not enable_tesseract:
-            logger.info("Tesseract OCR 無効のためスキップ")
-            return
+        pages_processed_count = 0
 
         logger.info(
-            f"Tesseract OCR 実行中: {Path(pdf_path_str).name}",
+            f"OCR処理開始 (Engine: {ocr_engine}): {Path(pdf_path_str).name}",
             extra={"sensitive": True},
         )
 
-        pages_processed_count = 0
-
         for page_num, page in enumerate(doc):
-
-            # 1. ページごとに既存テキストをチェック
+            # 既存テキストチェック
             page_text = page.get_text("text", sort=True).strip()
             if len(page_text) > meaningful_text_threshold:
-                logger.info(f"Page {page_num + 1} には既存テキストがあるためスキップ。")
+                logger.debug(f"Page {page_num + 1}: 既存テキストありのためスキップ")
                 continue
 
-            # --- 既存テキストがないページのみ、以下を実行 ---
-            logger.info(
-                f"Tesseract OCR を実行中 (Page {page_num + 1})...",
-                extra={"sensitive": True},
-            )
             pages_processed_count += 1
 
+            # ページを画像化
+            pix = page.get_pixmap(dpi=300)
+            img_data = pix.tobytes("png")
+
             try:
-                # 6. 高解像度 (DPI=300) でページを画像(Pixmap)にレンダリング
-                pix = page.get_pixmap(dpi=300)
-                img_data = pix.tobytes("png")
-                img = Image.open(io.BytesIO(img_data))
-
-                # 7. Tesseract OCR の実行 (TSVデータとして取得)
-                tsv_data = pytesseract.image_to_data(
-                    img, lang=lang, output_type=Output.STRING
-                )
-
-                if not tsv_data or len(tsv_data.strip()) == 0:
-                    continue
-
-                # 8. TesseractのTSVデータを解析
-                df = pd.read_csv(
-                    io.StringIO(tsv_data),
-                    sep="\t",
-                    quoting=csv.QUOTE_NONE,
-                    on_bad_lines="skip",
-                )
-                df = df.dropna(subset=["conf", "text"])
-                df = df[df["conf"] > 30]  # 信頼度が低いものは除外
-
-                if df.empty:
-                    logger.info(
-                        "Tesseract OCR は実行されましたが、"
-                        "埋め込み可能なテキスト(conf > 30)が見つかりませんでした "
-                        f"(Page {page_num + 1})。"
-                    )
-                    continue
-
-                # 9. ページに日本語フォントを登録
                 try:
                     page.insert_font(fontname=OCR_FONT_NAME, fontfile=font_path)
                 except Exception:
                     pass
 
-                # 10. 透明テキストを挿入
+                # === エンジン別処理 ===
+                if ocr_engine == "ollama":
+                    # --- Ollama (Package) ---
+                    if not ollama_config or not ollama_config.get("model"):
+                        logger.warning("Ollama設定が不足しています。")
+                        continue
 
-                dpi_scale = 72 / 300
-                for _, row in df.iterrows():
-                    x0, y0, w, h = (
-                        row["left"],
-                        row["top"],
-                        row["width"],
-                        row["height"],
-                    )
-                    rect = fitz.Rect(
-                        x0 * dpi_scale,
-                        y0 * dpi_scale,
-                        (x0 + w) * dpi_scale,
-                        (y0 + h) * dpi_scale,
-                    )
-                    fs = max(h * dpi_scale * 0.8, 6.0)
-                    page.insert_text(
-                        rect.bottom_left,
-                        str(row["text"]),
-                        fontname=OCR_FONT_NAME,
-                        fontsize=fs,
-                        render_mode=3,
-                        rotate=0,
+                    logger.info(f"Ollama OCR実行中 (Page {page_num + 1})...")
+
+                    extracted_text = _run_ollama_ocr(
+                        img_data, ollama_config.get("model"), ollama_config.get("url")
                     )
 
-            except pytesseract.TesseractNotFoundError:
-                raise Exception("Tesseract-OCRが見つかりません。")
-            except Exception as ocr_err:
-                logger.warning(f"OCRエラー (Page {page_num + 1}): {ocr_err}")
+                    if extracted_text:
+                        pass
+                    else:
+                        logger.warning(
+                            f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
+                        )
+
+                else:
+                    # --- Tesseract ---
+                    img = Image.open(io.BytesIO(img_data))
+                    logger.info(f"Tesseract OCR実行中 (Page {page_num + 1})...")
+                    tsv_data = pytesseract.image_to_data(
+                        img, lang=lang, output_type=Output.STRING
+                    )
+
+                    if not tsv_data or len(tsv_data.strip()) == 0:
+                        continue
+
+                    df = pd.read_csv(
+                        io.StringIO(tsv_data),
+                        sep="\t",
+                        quoting=csv.QUOTE_NONE,
+                        on_bad_lines="skip",
+                    )
+                    df = df.dropna(subset=["conf", "text"])
+                    df = df[df["conf"] > 30]
+
+                    if df.empty:
+                        continue
+
+                    dpi_scale = 72 / 300
+                    for _, row in df.iterrows():
+                        x0, y0, w, h = (
+                            row["left"],
+                            row["top"],
+                            row["width"],
+                            row["height"],
+                        )
+                        rect = fitz.Rect(
+                            x0 * dpi_scale,
+                            y0 * dpi_scale,
+                            (x0 + w) * dpi_scale,
+                            (y0 + h) * dpi_scale,
+                        )
+                        fs = max(h * dpi_scale * 0.8, 6.0)
+
+                        page.insert_text(
+                            rect.bottom_left,
+                            str(row["text"]),
+                            fontname=OCR_FONT_NAME,
+                            fontsize=fs,
+                            render_mode=3,
+                            rotate=0,
+                        )
+
+            except Exception as e_page:
+                logger.error(f"Page {page_num + 1} 処理エラー: {e_page}")
                 continue
 
-        if pages_processed_count == 0:
-            logger.info("OCRが実行されたページはありませんでした。")
-            return
+        # タグ付け (Ollamaのみ)
+        if ocr_engine == "ollama" and pages_processed_count > 0:
+            current_metadata = doc.metadata
+            keywords = current_metadata.get("keywords", "")
+            ocr_tag = "Synapsen:OCR_Method=Ollama"
 
-        # 11. 変更を「一時ファイル」に保存
-        doc.save(
-            temp_output_path, garbage=4, deflate=True, encryption=fitz.PDF_ENCRYPT_NONE
-        )
-        logger.info(
-            f"テキスト埋め込み完了 (一時ファイル): {Path(temp_output_path).name}",
-            extra={"sensitive": True},
-        )
+            if ocr_tag not in keywords:
+                new_keywords = f"{keywords}; {ocr_tag}" if keywords else ocr_tag
+                new_metadata = current_metadata.copy()
+                new_metadata["keywords"] = new_keywords
+                doc.set_metadata(new_metadata)
+
+        # 処理が行われた場合のみ保存
+        if pages_processed_count > 0:
+            doc.save(
+                temp_output_path,
+                garbage=4,
+                deflate=True,
+                encryption=fitz.PDF_ENCRYPT_NONE,
+            )
+            doc.close()
+            doc = None
+
+            # 元ファイルへの上書き (Windowsではclose後に移動必須)
+            shutil.move(temp_output_path, pdf_path_str)
+            logger.info(f"OCR完了・上書き保存: {Path(pdf_path_str).name}")
+        else:
+            logger.info("OCR対象ページがなかったため、保存をスキップしました。")
+            doc.close()
+            doc = None  # ★重要
 
     except Exception as e:
-        logger.error(
-            f"OCR処理中にエラー ({pdf_path_str}): {e}", extra={"sensitive": True}
-        )
+        logger.error(f"OCR処理全体エラー ({pdf_path_str}): {e}")
+
+        # doc.close() は finally に任せるためここでは削除するか、
+        # ここで行うなら doc = None が必要ですが、削除推奨です。
+
         if Path(temp_output_path).is_file():
             try:
                 Path(temp_output_path).unlink()
             except Exception:
                 pass
-        if doc:
-            doc.close()
         raise
+
     finally:
+        # docが None でない（＝まだ閉じられていない）場合のみ閉じる
         if doc:
-            doc.close()
+            try:
+                doc.close()
+            except Exception:
+                pass  # 万が一の閉鎖エラーは無視
 
     # 12. 正常終了した場合のみ、ファイルのリネーム（上書き）
     if Path(temp_output_path).is_file():

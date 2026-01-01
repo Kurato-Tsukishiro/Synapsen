@@ -274,6 +274,16 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
             self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
 
+            self.ollama_model = config.get("Automation", "ollama_model", fallback="")
+            self.ollama_api_url = config.get(
+                "Automation",
+                "ollama_api_url",
+                fallback="http://localhost:11434/api/generate",
+            )
+
+            self.config_data["ollama_model"] = self.ollama_model
+            self.config_data["ollama_api_url"] = self.ollama_api_url
+
             # 4. インク注釈のフラット化設定
             self.flatten_ink = config.getboolean(
                 "Automation", "flatten_ink_annotations", fallback=True
@@ -567,17 +577,45 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # --- [ステップ4: OCR埋め込み] ---
+                # 1. OCRモードの判定
+                # ファイル名の末尾でOllamaの使用を判定 (例: Note_2024_hand.pdf)
+                use_ollama = False
+                if isinstance(base_name, str):
+                    lower_name = base_name.lower()
+                    if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
+                        use_ollama = True
+
+                # 2. パラメータの決定
+                current_ocr_engine = "tesseract"
+                should_run_ocr = self.enable_tesseract_ocr
+
+                # Ollamaフラグがある場合、設定が有効なら強制ON、無効ならスキップ(安全策)
+                if use_ollama:
+                    if self.ollama_model:
+                        current_ocr_engine = "ollama"
+                        should_run_ocr = True
+                    else:
+                        logger.warning(
+                            f"Ollamaフラグ({base_name})を検出しましたが、"
+                            "configにモデル設定がないためOCRをスキップします。"
+                        )
+                        should_run_ocr = False
+
                 self.status_label.configure(
-                    text=f"{status_prefix} OCR埋込処理中...: {base_name}"
+                    text=f"{status_prefix} OCR処理中({current_ocr_engine})...: {base_name}"
                 )
                 self.update_idletasks()
 
-                # embed_ocr_text_in_pdf は final_output_pdf を直接上書き変更する
+                # 3. OCR実行
                 embed_ocr_text_in_pdf(
-                    str(final_output_pdf),
-                    self.enable_tesseract_ocr,
-                    self.font_path,
-                    "jpn+jpn_vert",
+                    pdf_path_str=str(final_output_pdf),
+                    enable_ocr=should_run_ocr,
+                    font_path=self.font_path,
+                    ocr_engine=current_ocr_engine,
+                    ollama_config={
+                        "model": self.ollama_model,
+                        "url": self.ollama_api_url,
+                    },
                 )
 
                 # --- [ステップ5: 処理済みフラグ (メタデータ) 埋め込み] ---

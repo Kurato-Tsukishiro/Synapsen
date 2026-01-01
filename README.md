@@ -142,7 +142,12 @@
     * 又、**最終ページ（新規追加）にコメント・書誌情報・引用Key情報を持つQRコード**が挿入されます。
 * **テキスト抽出 (OCR):**
     * PDFに埋め込まれた**既存のテキストレイヤー（テキストベースPDF）を抽出**します。
-    * (オプション) `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
+    * (オプション)
+      *  `config.ini` で `enable_tesseract_ocr = true` に設定すると、テキストレイヤーが存在しない**画像PDF**（画像クリップやスキャンPDF）に対し、Tesseract OCR を使用してテキストを抽出し、検索可能な「透明テキストレイヤー」としてPDFに埋め込みます。
+    * (オプション)
+      * ローカルLLMを使用して、検索可能な「透明テキストレイヤー」を埋め込む事も出来ます。
+      * この方法の場合、実際の文字位置には埋め込まれない為、注意してください。
+      * 詳細は[Local LLMによるOCR機能のドキュメント](docs\Feature_Local_LLM_OCR\Feature_Local_LLM_OCR.md)を確認して下さい。
 
 #### 自動監視・正規化ツール (Watchdog)
 
@@ -1150,8 +1155,8 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 このリポジトリに含まれる以下のコンテンツは、ソースコードとは別に **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)** の下でライセンスされています。
 
 * **画像アセット**: アプリケーションおよびWebサーバーで使用されるアイコン、ロゴ、画像ファイル（`assets/` フォルダおよび `static/` 内の画像）、および `.gvdesign` ソースファイル。
-* **ドキュメント**: `README.md`、マニュアル、および `docs/` フォルダ内の文書。
-* **サンプル**: `samples/` フォルダ内の生成されたPDFファイル。
+* **ドキュメント**: `README.md`、マニュアル、および `docs/` フォルダ内の文書。又、ドキュメントに使用されている画像。
+* **サンプル**: `samples/` フォルダ内の生成されたPDFファイル、および生成元のファイル(`.md`サンプルファイル等)。
 
 詳細は、同梱されている [`LICENSE-ASSETS.md`](https://github.com/Kurato-Tsukishiro/Synapsen/blob/main/LICENSE-ASSETS.md) ファイルを参照してください。
 

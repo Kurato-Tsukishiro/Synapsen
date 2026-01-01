@@ -7,9 +7,6 @@ from ollama import Client
 
 # --- 設定 ---
 # タイムアウト対策: Client側でタイムアウトを長めに設定する(必要であれば)
-# ローカルホストのデフォルトポート
-OLLAMA_HOST = "http://localhost:11434"
-MODEL_NAME = "gemma3:4b"
 
 # システムプロンプト（役割定義のみ）
 SYSTEM_PROMPT = """
@@ -28,7 +25,7 @@ def clean_json_text(text):
     return cleaned.strip()
 
 
-def get_ai_metadata(client, text, model=MODEL_NAME):
+def get_ai_metadata(client, text, model):
     """Ollama ライブラリを使用してメタデータを取得"""
     if not text or len(text) < 10:
         return None
@@ -87,23 +84,39 @@ def get_ai_metadata(client, text, model=MODEL_NAME):
 
 def main():
     config = configparser.ConfigParser()
-    # 読み込み失敗対策
-    if not config.read("config.ini", encoding="utf-8"):
-        print("config.iniが見つかりません。パスを確認してください。")
-        # デフォルトパス（必要に応じて書き換えてください）
+
+    # 読み込み (カレントディレクトリ または 2階層上(ルート)を探すようにすると親切です)
+    read_files = config.read(["config.ini", "../../config.ini"], encoding="utf-8")
+
+    if not read_files:
+        print(
+            "config.iniが見つかりません。デフォルト設定で続行、もしくはパスを確認してください。"
+        )
+        # config.iniがない場合の完全なフォールバック
         db_path = "Synapsen.db"
+        api_url = "http://localhost:11434"
+        model = "hf.co/unsloth/gemma-3-4b-it-qat-GGUF:Q4_K_M"
     else:
-        try:
-            db_path = config["Paths"]["database_path"]
-        except KeyError:
-            print(
-                "config.iniの形式が正しくありません。[Paths] database_path を確認してください。"
-            )
-            return
+
+        # db_path: 必須に近いですが、なければデフォルトを使用
+        # config.iniがあっても [Paths] セクションがない場合のエラーハンドリングも兼ねる
+        db_path = config.get("Paths", "database_path", fallback="Synapsen.db")
+
+        # api_url: 設定がなければデフォルト値を使用
+        api_url = config.get(
+            "Automation", "ollama_api_url", fallback="http://localhost:11434"
+        )
+
+        # model: 設定がなければデフォルト値を使用
+        model = config.get(
+            "Automation",
+            "ollama_tagger_model",
+            fallback="hf.co/unsloth/gemma-3-4b-it-qat-GGUF:Q4_K_M",
+        )
 
     # Ollamaクライアントの初期化
     try:
-        client = Client(host=OLLAMA_HOST)
+        client = Client(host=api_url)
     except Exception as e:
         print(f"Ollamaへの接続に失敗しました: {e}")
         return
@@ -134,7 +147,7 @@ def main():
         conn.close()
         return
 
-    proceed = input(f"モデル '{MODEL_NAME}' を使用して処理を開始しますか？ (y/n): ")
+    proceed = input(f"モデル '{model}' を使用して処理を開始しますか？ (y/n): ")
     if proceed.lower() != "y":
         conn.close()
         return
@@ -155,7 +168,7 @@ def main():
             )
 
             start_time = time.time()
-            ai_data = get_ai_metadata(client, note["full_text"])
+            ai_data = get_ai_metadata(client, note["full_text"], model)
             elapsed = time.time() - start_time
 
             if ai_data:
