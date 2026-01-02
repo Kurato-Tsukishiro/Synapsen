@@ -274,7 +274,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
             self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
 
-            self.ollama_model = config.get("Automation", "ollama_model", fallback="")
+            self.ollama_model = config.get(
+                "Automation", "ollama_ocr_model", fallback=""
+            )
             self.ollama_api_url = config.get(
                 "Automation",
                 "ollama_api_url",

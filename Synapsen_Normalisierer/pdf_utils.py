@@ -877,7 +877,14 @@ def embed_ocr_text_in_pdf(
                     )
 
                     if extracted_text:
-                        pass
+                        # 座標情報がないため、ページの左上に透明テキストとして埋め込みます。
+                        page.insert_text(
+                            fitz.Point(10, 10),
+                            extracted_text,
+                            fontname=OCR_FONT_NAME,
+                            fontsize=8,
+                            render_mode=3,
+                        )
                     else:
                         logger.warning(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
@@ -968,9 +975,6 @@ def embed_ocr_text_in_pdf(
 
     except Exception as e:
         logger.error(f"OCR処理全体エラー ({pdf_path_str}): {e}")
-
-        # doc.close() は finally に任せるためここでは削除するか、
-        # ここで行うなら doc = None が必要ですが、削除推奨です。
 
         if Path(temp_output_path).is_file():
             try:
