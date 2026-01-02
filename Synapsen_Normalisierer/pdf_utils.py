@@ -831,7 +831,8 @@ def embed_ocr_text_in_pdf(
         if doc.is_encrypted:
             logger.info(
                 f"暗号化されたPDFはスキップ: {Path(pdf_path_str).name}",
-                extra={"sensitive": True},)
+                extra={"sensitive": True},
+            )
             return
 
         # 1. 高速なテキスト抽出を試みる
@@ -876,7 +877,14 @@ def embed_ocr_text_in_pdf(
                     )
 
                     if extracted_text:
-                        pass
+                        # 座標情報がないため、ページの左上に透明テキストとして埋め込みます。
+                        page.insert_text(
+                            fitz.Point(10, 10),
+                            extracted_text,
+                            fontname=OCR_FONT_NAME,
+                            fontsize=8,
+                            render_mode=3,
+                        )
                     else:
                         logger.warning(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
@@ -967,9 +975,6 @@ def embed_ocr_text_in_pdf(
 
     except Exception as e:
         logger.error(f"OCR処理全体エラー ({pdf_path_str}): {e}")
-
-        # doc.close() は finally に任せるためここでは削除するか、
-        # ここで行うなら doc = None が必要ですが、削除推奨です。
 
         if Path(temp_output_path).is_file():
             try:
@@ -1122,6 +1127,7 @@ def convert_document_to_pdf(
     Pandoc (MD, TXT, DOCX等) と Playwright (HTML->PDF) を使用して ドキュメント を PDF に変換します。
     Pandoc と Playwright (chromium) がインストールされている必要があります。
     変換前に <details> を <details open> に置換します。
+    又、CSSリセットを適用し、Playwright生成時の余白を排除します。
 
     Args:
         input_path (Path): 入力ファイルのパス。
@@ -1137,7 +1143,7 @@ def convert_document_to_pdf(
 
     file_suffix = input_path.suffix.lower()
 
-    # デフォルトマージンの設定
+    # デフォルトマージンの設定 (Playwright用)
     if pdf_margins is None:
         pdf_margins = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
 
@@ -1146,22 +1152,48 @@ def convert_document_to_pdf(
         with open(input_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # Markdownの場合のみ <details> を置換
+        # Markdownの場合のみ特殊処理
         if file_suffix == ".md":
+            # 1. <details> を <details open> に置換
             modified_content = re.sub(
                 r"<details(?![^>]*\bopen\b)",
                 "<details open",
                 content,
                 flags=re.IGNORECASE,
             )
-        # テキストファイルの場合、改行を維持するために <pre> タグで囲む
+
+            # 手動レイアウト用の「<br>直後の全角スペース」は、自動レイアウト(Grid)の邪魔になるため削除。
+            modified_content = re.sub(
+                r"(<br\s*/?>)\s*[　]+", r"\1", modified_content, flags=re.IGNORECASE
+            )
+
+            # --- 台本形式(定義リスト)への変換 ---
+            # Pandocの解釈に頼らず、正規表現で「話者\n: セリフ」のパターンを検出し、
+            # 直接HTMLの定義リストタグに変換します。
+            # パターン: 行頭の文字列(話者) -> 改行 -> : で始まる行(セリフ)
+            def dialogue_replacer(match):
+                speaker = match.group(1).strip()
+                speech = match.group(2).strip()
+                return (
+                    f'<dl class="dialogue-row"><dt>{speaker}</dt><dd>{speech}</dd></dl>'
+                )
+
+            # マルチラインモードで検索・置換
+            modified_content = re.sub(
+                r"^([^\n#<]+?)\n:\s+(.+)$",
+                dialogue_replacer,
+                modified_content,
+                flags=re.MULTILINE,
+            )
+
+        # テキストファイルの場合
         elif file_suffix == ".txt":
             import html
 
             escaped = html.escape(content)
-            # preタグで囲み、CSSでフォントと言語を指定 (font-familyはシステムのsans-serifに依存させます)
+            # preタグで囲むことで改行とフォントを維持
             modified_content = (
-                "<pre style='white-space: pre-wrap; font-family: sans-serif;'>"
+                "<pre style='white-space: pre-wrap; font-family: monospace;'>"
                 f"{escaped}</pre>"
             )
         else:
@@ -1191,6 +1223,10 @@ def convert_document_to_pdf(
     # --- ステップ 2: Pandoc で HTML (一時ファイル) に変換 ---
     # マッピング辞書から入力フォーマットを取得
     input_format = PANDOC_INPUT_FORMATS.get(file_suffix, "gfm")  # 不明な場合はgfm扱い
+
+    # .txtファイルの場合、自分で<pre>タグでHTML化しているので、入力形式を'html'として扱う
+    if file_suffix == ".txt":
+        input_format = "html"
 
     pandoc_cmd = [
         "pandoc",
@@ -1232,6 +1268,143 @@ def convert_document_to_pdf(
             f"{error_details}"
         )
 
+    # --- 生成されたHTMLにCSSを注入 ---
+    reset_css = """
+    <style>
+        /* 1. 全称セレクタ(*)による一括リセットを廃止し、安全なリセットを行います */
+        * {
+            box-sizing: border-box;
+        }
+
+        /* 2. ページ全体とコンテナの設定 */
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background-color: white !important;
+        }
+
+        /* Pandocのデフォルトスタイル(max-width制限)を解除 */
+        body, main, article, div, .markdown-body, .main-content {
+            max-width: none !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
+        }
+
+        /* 本文領域には適度な余白を与える */
+        body {
+            padding: 1.5rem !important;
+        }
+
+        /* 3. テキスト要素の挙動設定 */
+        p, th, td, h1, h2, h3, h4, h5, h6 {
+            max-width: none !important;
+            word-break: break-all !important; /* 日本語の改行優先 */
+            line-break: strict !important;
+            text-align: justify !important;   /* 両端揃え */
+        }
+
+        /* 段落の余白調整 */
+        p {
+            margin-top: 0.5em !important;
+            margin-bottom: 0.5em !important;
+        }
+
+        /* 4. リスト(ul, ol)の修正 - ここが重要 */
+        ul, ol {
+            /* マーカーを表示するための左余白を確保 */
+            padding-left: 2em !important;
+            margin-top: 0.5em !important;
+            margin-bottom: 0.5em !important;
+            margin-left: 0 !important;
+            /* width: 100% を強制しない (インデント崩れの原因になるため) */
+            width: auto !important;
+            list-style-position: outside !important; /* マーカーをボックスの外に */
+        }
+
+        /* リスト項目 */
+        li {
+            display: list-item !important; /* 確実にリストアイテムとして扱う */
+            text-align: left !important;   /* リストは左揃えの方が見やすい */
+            padding-left: 0.2em !important;
+        }
+
+        /* リスト内のpタグの修正 */
+        /* Pandocはリスト内を <p> で囲むことがあるため、余計な余白を消す */
+        li > p {
+            margin: 0 !important;
+            display: block !important;
+        }
+
+        /* 入れ子のリスト */
+        ul ul, ol ul, ul ol, ol ol {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        /* 5. 画像 */
+        img {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+
+        /* 6. 中央揃えの復活 */
+        *[align="center"], .center, .text-center {
+            text-align: center !important;
+            display: block !important;
+            width: 100% !important;
+        }
+        *[align="center"] > *, .center > * {
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+
+        /* 7. 台本形式(定義リスト)用CSS */
+        .dialogue-row {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            column-gap: 1.5em;
+            margin-bottom: 1.0em;
+            width: 100% !important;
+            align-items: start;
+        }
+        .dialogue-row dt {
+            grid-column: 1;
+            font-weight: bold;
+            white-space: nowrap;
+            color: #333;
+            margin: 0 !important;
+        }
+        .dialogue-row dd {
+            grid-column: 2;
+            margin: 0 !important;
+            word-break: break-all !important;
+            line-break: strict !important;
+            text-align: justify !important;
+            /* 通常のテキストルールを継承 */
+        }
+    </style>
+    """
+
+    try:
+        with open(temp_html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        # </head> の直前に CSS を挿入
+        if "</head>" in html_content:
+            html_content = html_content.replace("</head>", f"{reset_css}\n</head>")
+        else:
+            # headがない場合は先頭に追加
+            html_content = reset_css + html_content
+
+        with open(temp_html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+    except Exception as e:
+        logger.warning(f"CSS注入に失敗しましたが続行します: {e}")
+
     # --- ステップ 3: Playwright で HTML を PDF に変換 ---
     playwright_paper_format = paper_size_str.upper()
 
@@ -1247,8 +1420,10 @@ def convert_document_to_pdf(
         browser = pw_instance.chromium.launch()
         page = browser.new_page()
 
+        # HTMLファイルを開く
         page.goto(temp_html_path.as_uri(), wait_until="networkidle")
 
+        # PDF保存
         page.pdf(
             path=str(output_pdf_path),
             format=playwright_paper_format,
@@ -1278,7 +1453,7 @@ def convert_document_to_pdf(
         if pw_instance:
             pw_instance.stop()
 
-        # 一時HTMLファイル と 一時処理ファイルを両方削除
+        # 一時ファイルの削除
         if temp_html_path.is_file():
             try:
                 temp_html_path.unlink()
