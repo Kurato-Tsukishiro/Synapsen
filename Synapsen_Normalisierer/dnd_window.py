@@ -901,6 +901,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
         enable_tesseract = config_data.get("enable_tesseract_ocr", False)
+
+        # Ollama設定を取得
+        ollama_model = config_data.get("ollama_model", "")
+        ollama_api_url = config_data.get("ollama_api_url", "")
+
         flatten_ink = config_data.get("flatten_ink_annotations", True)
         paper_size_str = self.parent_app.config_data.get("paper_size", "A4")
 
@@ -1046,6 +1051,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     paper_width,
                     paper_height,
                     enable_tesseract,
+                    ollama_model,
+                    ollama_api_url,
                     paper_size_str,
                     key_rect_tuple,
                     index_key_to_embed,
@@ -1068,6 +1075,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     paper_width,
                     paper_height,
                     enable_tesseract,
+                    ollama_model,
+                    ollama_api_url,
                     paper_size_str,
                     key_rect_tuple,
                     index_key_to_embed,
@@ -1103,6 +1112,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_width,
         paper_height,
         enable_tesseract,
+        ollama_model,
+        ollama_api_url,
         paper_size_str,
         key_rect_tuple,
         index_key_to_embed,
@@ -1172,12 +1183,41 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 4: OCR ---
+            # OCR設定の判定 (ファイル名末尾によるLocal LLM判定)
+            use_ollama = False
+            if isinstance(base_name, str):
+                lower_name = base_name.lower()
+                if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
+                    use_ollama = True
+
+            current_ocr_engine = "tesseract"
+            should_run_ocr = enable_tesseract
+
+            if use_ollama:
+                if ollama_model:
+                    current_ocr_engine = "ollama"
+                    should_run_ocr = True
+                else:
+                    logger.warning(
+                        f"Ollamaフラグ({base_name})を検出しましたが、"
+                        "configにモデル設定がないためOCRをスキップします。"
+                    )
+                    should_run_ocr = False
+
             self.parent_app.status_label.configure(
-                text=f"{status_prefix} OCR埋込処理中: {base_name}"
+                text=f"{status_prefix} OCR埋込処理中({current_ocr_engine}): {base_name}"
             )
             self.parent_app.update_idletasks()
+
             embed_ocr_text_in_pdf(
-                str(final_output_pdf), enable_tesseract, font_path, "jpn+jpn_vert"
+                str(final_output_pdf),
+                should_run_ocr,
+                font_path,
+                ocr_engine=current_ocr_engine,
+                ollama_config={
+                    "model": ollama_model,
+                    "url": ollama_api_url,
+                },
             )
 
             # --- 5: メタデータ追記 ---
@@ -1219,6 +1259,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         paper_width,
         paper_height,
         enable_tesseract,
+        ollama_model,  # Arg Added
+        ollama_api_url,  # Arg Added
         paper_size_str,
         key_rect_tuple,
         index_key_to_embed,
@@ -1258,7 +1300,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             item_data, base_name, original_type = item_tuple
 
             status_prefix = f"統合準備中 ({i+1}/{total_files}):"
+
+            # self.staged_items はD&Dウィンドウで管理されている元のリスト
+            # ここから元のファイル名/表示名を取得してOllama判定に使用する
+            # (統合時は出力ファイル名 base_name が統一されてしまうため)
             item_original_name = self.staged_items[i]["original_name"]
+
             self.parent_app.status_label.configure(
                 text=f"{status_prefix} {item_original_name}"
             )
@@ -1325,12 +1372,47 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 4: OCR (normalized_part_pdf に対して実行) ---
+            # OCR設定の判定 (元のファイル名末尾によるLocal LLM判定)
+            use_ollama = False
+            # 統合モードでは base_name は全て同じ名前になっているため、
+            # item_original_name (D&Dされた元のファイル名) を使用して判定する
+            if isinstance(item_original_name, str):
+                p_original = Path(item_original_name)
+                stem_original = p_original.stem.lower()
+                if stem_original.endswith("_hand") or stem_original.endswith("_llm"):
+                    use_ollama = True
+
+            current_ocr_engine = "tesseract"
+            should_run_ocr = enable_tesseract
+
+            if use_ollama:
+                if ollama_model:
+                    current_ocr_engine = "ollama"
+                    should_run_ocr = True
+                else:
+                    logger.warning(
+                        f"Ollamaフラグ({item_original_name})を検出しましたが、"
+                        "configにモデル設定がないためOCRをスキップします。"
+                    )
+                    should_run_ocr = False
+
             self.parent_app.status_label.configure(
-                text=f"{status_prefix} OCR埋込処理中: {item_original_name}"
+                text=(
+                    f"{status_prefix} OCR埋込処理中({current_ocr_engine}): "
+                    f"{item_original_name}"
+                )
             )
             self.parent_app.update_idletasks()
+
             embed_ocr_text_in_pdf(
-                str(normalized_part_pdf), enable_tesseract, font_path, "jpn+jpn_vert"
+                str(normalized_part_pdf),
+                should_run_ocr,
+                font_path,
+                ocr_engine=current_ocr_engine,
+                ollama_config={
+                    "model": ollama_model,
+                    "url": ollama_api_url,
+                },
             )
 
             # 連結リストに追加
