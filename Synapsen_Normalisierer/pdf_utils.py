@@ -831,7 +831,8 @@ def embed_ocr_text_in_pdf(
         if doc.is_encrypted:
             logger.info(
                 f"暗号化されたPDFはスキップ: {Path(pdf_path_str).name}",
-                extra={"sensitive": True},)
+                extra={"sensitive": True},
+            )
             return
 
         # 1. 高速なテキスト抽出を試みる
@@ -1122,6 +1123,7 @@ def convert_document_to_pdf(
     Pandoc (MD, TXT, DOCX等) と Playwright (HTML->PDF) を使用して ドキュメント を PDF に変換します。
     Pandoc と Playwright (chromium) がインストールされている必要があります。
     変換前に <details> を <details open> に置換します。
+    又、CSSリセットを適用し、Playwright生成時の余白を排除します。
 
     Args:
         input_path (Path): 入力ファイルのパス。
@@ -1137,7 +1139,7 @@ def convert_document_to_pdf(
 
     file_suffix = input_path.suffix.lower()
 
-    # デフォルトマージンの設定
+    # デフォルトマージンの設定 (Playwright用)
     if pdf_margins is None:
         pdf_margins = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
 
@@ -1154,14 +1156,15 @@ def convert_document_to_pdf(
                 content,
                 flags=re.IGNORECASE,
             )
-        # テキストファイルの場合、改行を維持するために <pre> タグで囲む
+
+        # テキストファイルの場合
         elif file_suffix == ".txt":
             import html
 
             escaped = html.escape(content)
-            # preタグで囲み、CSSでフォントと言語を指定 (font-familyはシステムのsans-serifに依存させます)
+            # preタグで囲むことで改行とフォントを維持
             modified_content = (
-                "<pre style='white-space: pre-wrap; font-family: sans-serif;'>"
+                "<pre style='white-space: pre-wrap; font-family: monospace;'>"
                 f"{escaped}</pre>"
             )
         else:
@@ -1191,6 +1194,10 @@ def convert_document_to_pdf(
     # --- ステップ 2: Pandoc で HTML (一時ファイル) に変換 ---
     # マッピング辞書から入力フォーマットを取得
     input_format = PANDOC_INPUT_FORMATS.get(file_suffix, "gfm")  # 不明な場合はgfm扱い
+
+    # .txtファイルの場合、自分で<pre>タグでHTML化しているので、入力形式を'html'として扱う
+    if file_suffix == ".txt":
+        input_format = "html"
 
     pandoc_cmd = [
         "pandoc",
@@ -1232,6 +1239,75 @@ def convert_document_to_pdf(
             f"{error_details}"
         )
 
+    # --- 生成されたHTMLにCSSを注入 ---
+    reset_css = """
+    <style>
+        /* 全要素のボックスサイズ計算を統一 */
+        * {
+            box-sizing: border-box;
+        }
+
+        /* html, body の幅を100%にし、余白を除去 */
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background-color: white !important;
+        }
+
+        /* Pandoc等の幅制限解除 & 日本語改行ルールの適用 */
+        body, main, article, div, .markdown-body, .main-content, p, li, dd, dt, th, td {
+            max-width: none !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
+
+            /* ★変更点: 日本語の「原稿用紙」的な挙動にする設定 */
+            word-break: break-all !important; /* 単語の途中でも文字数に合わせて改行 */
+            line-break: strict !important;    /* 句読点や括弧が行頭に来ないよう厳格に処理 */
+            text-align: justify !important;   /* 両端揃え（行末を揃える） */
+        }
+
+        /* 本文に適度なパディングを設定 */
+        body {
+            padding: 1.5rem !important;
+        }
+
+        /* コードブロック等は折り返しつつ、英単語の途中では切らない方が読みやすい場合も多いが
+           今回は全体の統一感を優先して break-all に設定（必要に応じて break-word に戻せます） */
+        pre, code, pre code {
+            white-space: pre-wrap !important;
+            word-break: break-all !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+        }
+
+        /* 画像調整 */
+        img {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+    </style>
+    """
+
+    try:
+        with open(temp_html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        # </head> の直前に CSS を挿入
+        if "</head>" in html_content:
+            html_content = html_content.replace("</head>", f"{reset_css}\n</head>")
+        else:
+            # headがない場合は先頭に追加
+            html_content = reset_css + html_content
+
+        with open(temp_html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+    except Exception as e:
+        logger.warning(f"CSS注入に失敗しましたが続行します: {e}")
+
     # --- ステップ 3: Playwright で HTML を PDF に変換 ---
     playwright_paper_format = paper_size_str.upper()
 
@@ -1247,8 +1323,10 @@ def convert_document_to_pdf(
         browser = pw_instance.chromium.launch()
         page = browser.new_page()
 
+        # HTMLファイルを開く
         page.goto(temp_html_path.as_uri(), wait_until="networkidle")
 
+        # PDF保存
         page.pdf(
             path=str(output_pdf_path),
             format=playwright_paper_format,
@@ -1278,7 +1356,7 @@ def convert_document_to_pdf(
         if pw_instance:
             pw_instance.stop()
 
-        # 一時HTMLファイル と 一時処理ファイルを両方削除
+        # 一時ファイルの削除
         if temp_html_path.is_file():
             try:
                 temp_html_path.unlink()
