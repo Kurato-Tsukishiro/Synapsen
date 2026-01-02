@@ -1148,13 +1148,38 @@ def convert_document_to_pdf(
         with open(input_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # Markdownの場合のみ <details> を置換
+        # Markdownの場合のみ特殊処理
         if file_suffix == ".md":
+            # 1. <details> を <details open> に置換
             modified_content = re.sub(
                 r"<details(?![^>]*\bopen\b)",
                 "<details open",
                 content,
                 flags=re.IGNORECASE,
+            )
+
+            # 手動レイアウト用の「<br>直後の全角スペース」は、自動レイアウト(Grid)の邪魔になるため削除。
+            modified_content = re.sub(
+                r"(<br\s*/?>)\s*[　]+", r"\1", modified_content, flags=re.IGNORECASE
+            )
+
+            # --- 台本形式(定義リスト)への変換 ---
+            # Pandocの解釈に頼らず、正規表現で「話者\n: セリフ」のパターンを検出し、
+            # 直接HTMLの定義リストタグに変換します。
+            # パターン: 行頭の文字列(話者) -> 改行 -> : で始まる行(セリフ)
+            def dialogue_replacer(match):
+                speaker = match.group(1).strip()
+                speech = match.group(2).strip()
+                return (
+                    f'<dl class="dialogue-row"><dt>{speaker}</dt><dd>{speech}</dd></dl>'
+                )
+
+            # マルチラインモードで検索・置換
+            modified_content = re.sub(
+                r"^([^\n#<]+?)\n:\s+(.+)$",
+                dialogue_replacer,
+                modified_content,
+                flags=re.MULTILINE,
             )
 
         # テキストファイルの場合
@@ -1242,12 +1267,12 @@ def convert_document_to_pdf(
     # --- 生成されたHTMLにCSSを注入 ---
     reset_css = """
     <style>
-        /* 全要素のボックスサイズ計算を統一 */
+        /* 1. 全称セレクタ(*)による一括リセットを廃止し、安全なリセットを行います */
         * {
             box-sizing: border-box;
         }
 
-        /* html, body の幅を100%にし、余白を除去 */
+        /* 2. ページ全体とコンテナの設定 */
         html, body {
             margin: 0 !important;
             padding: 0 !important;
@@ -1256,37 +1281,105 @@ def convert_document_to_pdf(
             background-color: white !important;
         }
 
-        /* Pandoc等の幅制限解除 & 日本語改行ルールの適用 */
-        body, main, article, div, .markdown-body, .main-content, p, li, dd, dt, th, td {
+        /* Pandocのデフォルトスタイル(max-width制限)を解除 */
+        body, main, article, div, .markdown-body, .main-content {
             max-width: none !important;
             margin-left: 0 !important;
             margin-right: 0 !important;
             width: 100% !important;
-
-            /* ★変更点: 日本語の「原稿用紙」的な挙動にする設定 */
-            word-break: break-all !important; /* 単語の途中でも文字数に合わせて改行 */
-            line-break: strict !important;    /* 句読点や括弧が行頭に来ないよう厳格に処理 */
-            text-align: justify !important;   /* 両端揃え（行末を揃える） */
         }
 
-        /* 本文に適度なパディングを設定 */
+        /* 本文領域には適度な余白を与える */
         body {
             padding: 1.5rem !important;
         }
 
-        /* コードブロック等は折り返しつつ、英単語の途中では切らない方が読みやすい場合も多いが
-           今回は全体の統一感を優先して break-all に設定（必要に応じて break-word に戻せます） */
-        pre, code, pre code {
-            white-space: pre-wrap !important;
-            word-break: break-all !important;
-            max-width: 100% !important;
-            margin: 0 !important;
+        /* 3. テキスト要素の挙動設定 */
+        p, th, td, h1, h2, h3, h4, h5, h6 {
+            max-width: none !important;
+            word-break: break-all !important; /* 日本語の改行優先 */
+            line-break: strict !important;
+            text-align: justify !important;   /* 両端揃え */
         }
 
-        /* 画像調整 */
+        /* 段落の余白調整 */
+        p {
+            margin-top: 0.5em !important;
+            margin-bottom: 0.5em !important;
+        }
+
+        /* 4. リスト(ul, ol)の修正 - ここが重要 */
+        ul, ol {
+            /* マーカーを表示するための左余白を確保 */
+            padding-left: 2em !important;
+            margin-top: 0.5em !important;
+            margin-bottom: 0.5em !important;
+            margin-left: 0 !important;
+            /* width: 100% を強制しない (インデント崩れの原因になるため) */
+            width: auto !important;
+            list-style-position: outside !important; /* マーカーをボックスの外に */
+        }
+
+        /* リスト項目 */
+        li {
+            display: list-item !important; /* 確実にリストアイテムとして扱う */
+            text-align: left !important;   /* リストは左揃えの方が見やすい */
+            padding-left: 0.2em !important;
+        }
+
+        /* リスト内のpタグの修正 */
+        /* Pandocはリスト内を <p> で囲むことがあるため、余計な余白を消す */
+        li > p {
+            margin: 0 !important;
+            display: block !important;
+        }
+
+        /* 入れ子のリスト */
+        ul ul, ol ul, ul ol, ol ol {
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        /* 5. 画像 */
         img {
             max-width: 100% !important;
             height: auto !important;
+        }
+
+        /* 6. 中央揃えの復活 */
+        *[align="center"], .center, .text-center {
+            text-align: center !important;
+            display: block !important;
+            width: 100% !important;
+        }
+        *[align="center"] > *, .center > * {
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+
+        /* 7. 台本形式(定義リスト)用CSS */
+        .dialogue-row {
+            display: grid;
+            grid-template-columns: max-content 1fr;
+            column-gap: 1.5em;
+            margin-bottom: 1.0em;
+            width: 100% !important;
+            align-items: start;
+        }
+        .dialogue-row dt {
+            grid-column: 1;
+            font-weight: bold;
+            white-space: nowrap;
+            color: #333;
+            margin: 0 !important;
+        }
+        .dialogue-row dd {
+            grid-column: 2;
+            margin: 0 !important;
+            word-break: break-all !important;
+            line-break: strict !important;
+            text-align: justify !important;
+            /* 通常のテキストルールを継承 */
         }
     </style>
     """
