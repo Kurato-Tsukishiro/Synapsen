@@ -5,6 +5,7 @@ import configparser
 from tkinter import filedialog, messagebox
 from pathlib import Path
 import customtkinter as ctk
+import re
 
 # --- ローカルモジュールのインポート ---
 # ロギング設定
@@ -474,9 +475,22 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.status_label.configure(text=f"{status_prefix} {base_name}")
                 self.update_idletasks()
 
-                # --- [ファイル名生成ロジック] ---
-                output_filename = f"{base_name}.pdf"
+                # --- [ファイル名生成ロジック変更] ---
+                # 1. OCRモードの判定 (先に判定しておく: 元のbase_nameを使用)
+                use_ollama = False
+                if isinstance(base_name, str):
+                    lower_name = base_name.lower()
+                    if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
+                        use_ollama = True
+
+                # 2. 出力ファイル名からフラグを削除 (base_name -> output_base_name)
+                output_base_name = re.sub(
+                    r"(_hand|_llm)$", "", base_name, flags=re.IGNORECASE
+                )
+
+                output_filename = f"{output_base_name}.pdf"
                 final_output_pdf = dest_path / output_filename
+
                 # フラット化後の一時ファイルパス
                 temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
 
@@ -579,14 +593,6 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # --- [ステップ4: OCR埋め込み] ---
-                # 1. OCRモードの判定
-                # ファイル名の末尾でOllamaの使用を判定 (例: Note_2024_hand.pdf)
-                use_ollama = False
-                if isinstance(base_name, str):
-                    lower_name = base_name.lower()
-                    if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
-                        use_ollama = True
-
                 # 2. パラメータの決定
                 current_ocr_engine = "tesseract"
                 should_run_ocr = self.enable_tesseract_ocr
@@ -622,7 +628,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 # --- [ステップ5: 処理済みフラグ (メタデータ) 埋め込み] ---
                 self.status_label.configure(
-                    text=f"{status_prefix} 処理済フラグ埋込: {base_name}"
+                    text=f"{status_prefix} 処理済フラグ埋込: {output_base_name}"
                 )
                 self.update_idletasks()
 

@@ -1133,7 +1133,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.parent_app.status_label.configure(text=f"{status_prefix} {base_name}")
             self.parent_app.update_idletasks()
 
-            final_output_pdf = dest_path / f"{base_name}.pdf"
+            # OCR設定の判定 (ファイル名末尾によるLocal LLM判定)
+            use_ollama = False
+            if isinstance(base_name, str):
+                lower_name = base_name.lower()
+                if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
+                    use_ollama = True
+
+            # 出力ファイル名からフラグを削除
+            output_base_name = re.sub(
+                r"(_hand|_llm)$", "", base_name, flags=re.IGNORECASE
+            )
+            final_output_pdf = (
+                dest_path / f"{output_base_name}.pdf"
+            )
+
             temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
             temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
             path_to_flatten: Path
@@ -1183,13 +1197,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 4: OCR ---
-            # OCR設定の判定 (ファイル名末尾によるLocal LLM判定)
-            use_ollama = False
-            if isinstance(base_name, str):
-                lower_name = base_name.lower()
-                if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
-                    use_ollama = True
-
             current_ocr_engine = "tesseract"
             should_run_ocr = enable_tesseract
 
@@ -1222,7 +1229,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
             # --- 5: メタデータ追記 ---
             self.parent_app.status_label.configure(
-                text=f"{status_prefix} メタデータを追記中: {base_name}"
+                text=f"{status_prefix} メタデータを追記中: {output_base_name}"
             )
             self.parent_app.update_idletasks()
 
@@ -1237,7 +1244,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 comment_to_embed,
                 sist_string_formal,
                 sist_string_readable,
-                base_name=base_name,
+                base_name=output_base_name,
                 cited_keys_list=cited_keys_list,
                 refs_qr_size_pt=refs_qr_size_pt,
                 extra_keywords=extra_keywords,
@@ -1287,7 +1294,13 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
             return
 
-        final_output_pdf = dest_path / f"{merged_base_name}.pdf"
+        # ★ 出力ファイル名からフラグを削除
+        output_merged_name = re.sub(
+            r"(_hand|_llm)$", "", merged_base_name, flags=re.IGNORECASE
+        )
+        final_output_pdf = (
+            dest_path / f"{output_merged_name}.pdf"
+        )
 
         # 正規化済みPDFを格納する一時サブフォルダ
         normalized_parts_dir = temp_dir / "normalized_parts"
@@ -1461,7 +1474,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             comment_to_embed,
             sist_string_formal,
             sist_string_readable,
-            base_name=base_name,
+            base_name=output_merged_name,
             cited_keys_list=cited_keys_list,
             refs_qr_size_pt=refs_qr_size_pt,
             extra_keywords=extra_keywords,
