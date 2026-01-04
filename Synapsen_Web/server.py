@@ -14,6 +14,7 @@ from flask import (
     redirect,
     Response,
     send_from_directory,
+    flash,  # メッセージ表示用
 )
 
 # --- パスの設定 ---
@@ -80,6 +81,8 @@ if getattr(sys, "frozen", False):
 else:
     app = Flask(__name__)
 
+app.secret_key = "synapsen_secret_key"
+
 # --- 設定の読み込み ---
 try:
     if getattr(sys, "frozen", False):
@@ -91,6 +94,21 @@ try:
     DB_PATH = config_data["database_path"]
     PDF_ROOT = config_data["pdf_root_folder"]
     PDF_ARCHIVE = config_data["pdf_archive_folder"]
+
+    # Watchdogの監視先(Inbox)パスを取得
+    import configparser
+
+    if getattr(sys, "frozen", False):
+        # .exe実行の場合（config.ini は .exe と同じフォルダ）
+        config_path = base_path / "config.ini"
+    else:
+        # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
+        config_path = base_path.parent / "config.ini"
+
+    cfg = configparser.ConfigParser()
+    cfg.read(config_path, encoding="utf-8")
+    WATCH_DIR = cfg.get("Watchdog", "watch_dir", fallback=None)
+    print(f"{WATCH_DIR}")
 
 except Exception as e:
     logger.error(f"設定の読み込みに失敗しました: {e}")
@@ -155,6 +173,14 @@ def linkify_key_filter(s):
         return f'<a href="{url_for("view_note", key=key)}">[[{content}]]</a>'
 
     return re.sub(r"\[\[(.*?)\]\]", replacer, s)
+
+
+# --- アップロード許可設定 ---
+ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "md", "txt"}
+
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 # --- ルーティング ---
@@ -247,6 +273,68 @@ def tag_list():
         tags.sort(key=lambda x: x[0])
 
     return render_template("tags.html", tags=tags, sort_mode=sort_mode)
+
+
+@app.route("/upload", methods=["GET", "POST"])
+@requires_auth
+def upload():
+    """ファイルアップロード画面"""
+    if request.method == "POST":
+        # ファイルリストを取得
+        if "file" not in request.files:
+            flash("ファイルが選択されていません。", "error")
+            return redirect(request.url)
+
+        # getlist で複数のファイルを取得
+        files = request.files.getlist("file")
+
+        # 空送信チェック (ファイル未選択の場合、空のファイルオブジェクトが1つ入ることがある)
+        if not files or (len(files) == 1 and files[0].filename == ""):
+            flash("ファイルが選択されていません。", "error")
+            return redirect(request.url)
+
+        if not WATCH_DIR or not os.path.exists(WATCH_DIR):
+            flash(
+                f"監視フォルダ(Watchdog)が見つかりません設定を確認してください。\nPath: {WATCH_DIR}",
+                "error",
+            )
+            return redirect(request.url)
+
+        success_count = 0
+        error_count = 0
+
+        try:
+            for file in files:
+                if file and allowed_file(file.filename):
+                    # ファイル名保護 (日本語対応簡易版)
+                    filename = os.path.basename(file.filename)
+                    save_path = Path(WATCH_DIR) / filename
+
+                    file.save(str(save_path))
+                    logger.info(f"Uploaded: {filename} -> {WATCH_DIR}")
+                    success_count += 1
+                else:
+                    # 許可されていない拡張子など
+                    error_count += 1
+                    logger.warning(f"Skipped invalid file: {file.filename}")
+
+            # 結果メッセージの作成
+            if success_count > 0:
+                msg = f"{success_count} 個のファイルをInboxに送信しました。"
+                if error_count > 0:
+                    msg += f" (失敗/除外: {error_count} 個)"
+                flash(msg, "success")
+                return redirect(url_for("index"))
+            else:
+                flash("アップロード可能なファイルがありませんでした。", "error")
+                return redirect(request.url)
+
+        except Exception as e:
+            logger.error(f"Upload Error: {e}")
+            flash(f"エラーが発生しました: {e}", "error")
+            return redirect(request.url)
+
+    return render_template("upload.html")
 
 
 @app.route("/view/<key>")

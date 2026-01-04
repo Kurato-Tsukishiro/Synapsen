@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block title %}Upload - Synapsen{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h3 style="margin-top: 0;">Inboxへアップロード</h3>
+    <p style="color: #666; font-size: 0.9rem;">
+        ファイル (PDF, JPG, PNG, MD) を選択してアップロードしてください。<br>
+        PC上の監視フォルダ(Watchdog)に保存され、自動的に正規化されます。<br>
+        <strong>※ 複数のファイルを一度に選択可能です。</strong>
+    </p>
+
+    <form method="post" enctype="multipart/form-data" style="margin-top: 1rem;">
+        <div style="margin-bottom: 1rem;">
+            <input type="file" name="file" multiple required style="padding: 10px; background: #f9f9f9;">
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="btn">アップロード開始</button>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">キャンセル</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
