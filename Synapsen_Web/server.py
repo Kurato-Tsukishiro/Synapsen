@@ -108,15 +108,16 @@ try:
     cfg = configparser.ConfigParser()
     cfg.read(config_path, encoding="utf-8")
     WATCH_DIR = cfg.get("Watchdog", "watch_dir", fallback=None)
-    print(f"{WATCH_DIR}")
+
+    # デフォルト値を設定
+    SERVER_HOST = cfg.get("Server", "host", fallback="0.0.0.0")
+    SERVER_PORT = cfg.getint("Server", "port", fallback=5000)  # getintで整数として取得
+    USERNAME = cfg.get("Server", "username", fallback="admin")
+    PASSWORD = cfg.get("Server", "password", fallback="password")
 
 except Exception as e:
     logger.error(f"設定の読み込みに失敗しました: {e}")
     sys.exit(1)
-
-# --- 認証設定 ---
-USERNAME = "admin"
-PASSWORD = "password"
 
 
 def check_auth(username, password):
@@ -411,11 +412,12 @@ def run_server():
 
     print("=" * 50)
     print(" Synapsen Web Server Running...")
-    print(" Access URL: http://<This-PC-IP>:5000/")
+    # 設定値を表示に反映
+    print(f" Access URL: http://{SERVER_HOST}:{SERVER_PORT}/")
     print("=" * 50)
 
-    # use_reloader=False は必須 (EXE内でリロード監視が動くとエラーになる/プロセスが増えるため)
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    # configから読み込んだホストとポートを使用
+    app.run(host=SERVER_HOST, port=SERVER_PORT, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":

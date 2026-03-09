@@ -160,7 +160,7 @@ class SynapsenLauncher(ctk.CTk):
             # 1. Flaskライブラリの存在チェック
             import flask  # noqa:F401
 
-            # 2. config.ini の設定チェック ([Network] enable_server = true)
+            # 2. config.ini の設定チェック ([Server] enable_server = true)
             import configparser
 
             config_path = self.base_path / "config.ini"
@@ -168,9 +168,9 @@ class SynapsenLauncher(ctk.CTk):
                 parser = configparser.ConfigParser()
                 parser.read(config_path, encoding="utf-8")
 
-                # [Network] セクションが存在し、かつ enable_server が true の場合のみ許可
-                if parser.has_section("Network"):
-                    if parser.getboolean("Network", "enable_server", fallback=False):
+                # [Server] セクションが存在し、かつ enable_server が true の場合のみ許可
+                if parser.has_section("Server"):
+                    if parser.getboolean("Server", "enable_server", fallback=False):
                         show_server_button = True
 
         except ImportError:
