@@ -133,7 +133,8 @@ try:
 
     cfg = configparser.ConfigParser(interpolation=None)  # 環境変数の利用を可能にする
     cfg.read(config_path, encoding="utf-8")
-    WATCH_DIR = cfg.get("Watchdog", "watch_dir", fallback=None)
+
+    OUTPUT_DIR = cfg.get("Watchdog", "output_dir", fallback=None)
 
     # デフォルト値を設定
     SERVER_HOST = cfg.get("Server", "host", fallback="0.0.0.0")
@@ -313,8 +314,8 @@ def create_sticky(source_key):
         flash("ファイルが選択されていません。", "error")
         return redirect(url_for("view_note", key=source_key))
 
-    if not WATCH_DIR or not os.path.exists(WATCH_DIR):
-        flash("監視フォルダ(Watchdog)が見つかりません。", "error")
+    if not OUTPUT_DIR or not os.path.exists(OUTPUT_DIR):
+        flash("正規化済みファイルの出力先(Watchdog)が見つかりません。", "error")
         return redirect(url_for("view_note", key=source_key))
 
     index_key = request.form.get("index_key", "")
@@ -440,7 +441,7 @@ body {{
             )
 
             # 6. 正規化済みファイルフォルダ(Watchdog)へ移動
-            shutil.move(str(final_temp_pdf), str(Path(WATCH_DIR) / f"{base_name}.pdf"))
+            shutil.move(str(final_temp_pdf), str(Path(OUTPUT_DIR) / f"{base_name}.pdf"))
             flash(
                 f"付箋ノートを作成し、Inboxに送信しました。 ({base_name}.pdf)",
                 "success",
@@ -510,9 +511,9 @@ def upload():
             flash("ファイルが選択されていません。", "error")
             return redirect(request.url)
 
-        if not WATCH_DIR or not os.path.exists(WATCH_DIR):
+        if not OUTPUT_DIR or not os.path.exists(OUTPUT_DIR):
             flash(
-                f"監視フォルダ(Watchdog)が見つかりません設定を確認してください。\nPath: {WATCH_DIR}",
+                f"正規化済みファイルの出力先(Watchdog)が見つかりません設定を確認してください。\nPath: {OUTPUT_DIR}",
                 "error",
             )
             return redirect(request.url)
@@ -622,7 +623,7 @@ def upload():
                     )
 
                     # --- 5. Inbox (Watchdogディレクトリ) へ移動 ---
-                    target_path = Path(WATCH_DIR) / f"{base_name}.pdf"
+                    target_path = Path(OUTPUT_DIR) / f"{base_name}.pdf"
                     shutil.move(str(final_pdf), str(target_path))
 
                     logger.info(f"Uploaded & Normalized: {filename} -> {target_path}")
