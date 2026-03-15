@@ -3,6 +3,12 @@ import os
 import sqlite3
 import logging
 import signal  # 終了シグナル制御用
+import tempfile
+import datetime
+import re
+import shutil
+import json
+import fitz  # PyMuPDF
 from functools import wraps
 from pathlib import Path
 from flask import (
@@ -21,8 +27,14 @@ from flask import (
 # 親ディレクトリ(Synapsenルート)をパスに追加して Nexus のモジュールを読み込めるようにする
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent
+
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
+
+# Normalisierer のモジュールを読み込めるようにする
+normalisierer_dir = root_dir / "Synapsen_Normalisierer"
+if str(normalisierer_dir) not in sys.path:
+    sys.path.append(str(normalisierer_dir))
 
 # Nexusの既存ロジックをインポート
 from Synapsen_Nexus.utils import (  # noqa: E402
@@ -33,6 +45,20 @@ from Synapsen_Nexus.utils import (  # noqa: E402
     get_all_tags_with_count,
 )
 from Synapsen_Nexus.search_parser import parse_query_to_sql  # noqa: E402
+
+# pdf_utils のインポート
+try:
+    from pdf_utils import (  # type: ignore
+        convert_document_to_pdf,
+        convert_image_to_pdf,
+        high_fidelity_flatten,
+        normalize_pdf_to_papersize,
+        add_metadata_to_clip,
+        embed_processing_flag,
+        hex_to_rgb_tuple,
+    )
+except ImportError as e:
+    print(f"Warning: pdf_utils import failed: {e}")
 
 
 def setup_console_logging():
@@ -105,7 +131,7 @@ try:
         # スクリプト実行の場合（config.ini は .py の1つ上のフォルダ）
         config_path = base_path.parent / "config.ini"
 
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser(interpolation=None)  # 環境変数の利用を可能にする
     cfg.read(config_path, encoding="utf-8")
     WATCH_DIR = cfg.get("Watchdog", "watch_dir", fallback=None)
 
@@ -114,6 +140,26 @@ try:
     SERVER_PORT = cfg.getint("Server", "port", fallback=5000)  # getintで整数として取得
     USERNAME = cfg.get("Server", "username", fallback="admin")
     PASSWORD = cfg.get("Server", "password", fallback="password")
+
+    # フォントとIndex Keyの取得
+    font_path_from_config = cfg.get("Paths", "font_path", fallback="")
+    FONT_PATH = os.path.expandvars(font_path_from_config)
+    options_str = cfg.get("CommonplaceKeys", "options", fallback="")
+    INDEX_KEYS = [k.strip() for k in options_str.split(",") if k.strip()]
+
+    KEY_COLORS = {}
+    if cfg.has_section("KeyColors"):
+        for k, v in cfg.items("KeyColors"):
+            KEY_COLORS[k] = v
+
+    STICKY_COLORS = [
+        ("イエロー", "#f8e58c"),
+        ("ブルー", "#bbc8e6"),
+        ("レッド", "#eebbcb"),
+        ("グリーン", "#c1d8ac"),
+        ("ホワイト", "#fbfaf5"),
+        ("グレー", "#adadad"),
+    ]
 
 except Exception as e:
     logger.error(f"設定の読み込みに失敗しました: {e}")
@@ -254,6 +300,159 @@ def index():
     )
 
 
+@app.route("/create_sticky/<source_key>", methods=["POST"])
+@requires_auth
+def create_sticky(source_key):
+    """付箋ノート(MDファイル)のアップロードとPDF生成"""
+    if "file" not in request.files:
+        flash("ファイルが選択されていません。", "error")
+        return redirect(url_for("view_note", key=source_key))
+
+    file = request.files["file"]
+    if file.filename == "":
+        flash("ファイルが選択されていません。", "error")
+        return redirect(url_for("view_note", key=source_key))
+
+    if not WATCH_DIR or not os.path.exists(WATCH_DIR):
+        flash("監視フォルダ(Watchdog)が見つかりません。", "error")
+        return redirect(url_for("view_note", key=source_key))
+
+    index_key = request.form.get("index_key", "")
+    bg_color = request.form.get("bg_color", "#FFFFA5")
+
+    title = Path(file.filename).stem
+    try:
+        content = file.read().decode("utf-8")
+    except UnicodeDecodeError:
+        flash("ファイルの読み込みに失敗しました。UTF-8で保存されていますか？", "error")
+        return redirect(url_for("view_note", key=source_key))
+
+    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "Sticky")
+    base_name = f"{now_str}_{safe_title}"
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            md_path = temp_dir_path / f"{base_name}.md"
+
+            # CSSの注入: 全てを1つのf-stringブロックにまとめることで、エスケープミスを防ぎます。
+            # htmlとbodyの両方にマージン・パディング0を適用し、背景の隙間をなくします。
+            style_tag = f"""
+<style>
+html {{
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: {bg_color};
+}}
+body {{
+    background-color: {bg_color} !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    min-height: 100vh;
+}}
+.content-wrapper {{
+    padding: 20px;
+}}
+</style>
+"""
+            # マークダウンの構成
+            md_text = (
+                f"{style_tag}\n\n"
+                "<div class='content-wrapper'>\n\n"
+                f"# {title}\n\n# [内容]\n{content}\n\n"
+                "</div>"
+            )
+
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(md_text)
+
+            temp_pdf = temp_dir_path / f"temp_{base_name}.pdf"
+            temp_flat = temp_dir_path / f"flat_{base_name}.pdf"
+
+            actual_font_path = (
+                os.path.expandvars(FONT_PATH)
+                if FONT_PATH
+                else r"C:\Windows\Fonts\msgothic.ttc"
+            )
+
+            # 1. Playwright + Pandoc でPDF化
+            convert_document_to_pdf(
+                md_path,
+                temp_pdf,
+                paper_size_str="A4",
+                pdf_margins={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+            )
+
+            # 2. フラット化
+            high_fidelity_flatten(
+                str(temp_pdf), str(temp_flat), str(actual_font_path), flatten_ink=False
+            )
+
+            final_temp_pdf = temp_dir_path / f"{base_name}.pdf"
+
+            # 3. サイズ正規化
+            normalize_pdf_to_papersize(
+                str(temp_flat), str(final_temp_pdf), 595.276, 841.89, target_format="A4"
+            )
+
+            # 4. 付箋メタデータの書き込み
+            try:
+                doc = fitz.open(final_temp_pdf)
+                meta = doc.metadata
+                current_keywords = meta.get("keywords", "")
+                new_keywords = (
+                    f"{current_keywords}; Synapsen:Sticky"
+                    if current_keywords
+                    else "Synapsen:Sticky"
+                )
+                meta["keywords"] = new_keywords
+                doc.set_metadata(meta)
+                doc.saveIncr()
+                doc.close()
+            except Exception as e:
+                logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
+
+            embed_processing_flag(str(final_temp_pdf))
+
+            # 5. QRコード埋め込み（引用Keyとして元のノートを設定）
+            hex_c = KEY_COLORS.get(index_key.lower(), "#000000")
+            text_color_rgb = (
+                hex_to_rgb_tuple(hex_c) if hex_to_rgb_tuple(hex_c) else (0, 0, 0)
+            )
+
+            add_metadata_to_clip(
+                pdf_path_str=str(final_temp_pdf),
+                font_path=str(actual_font_path),
+                paper_width=595.276,
+                paper_height=841.89,
+                key_rect_tuple=(0, 13, 391, 73),
+                index_key_to_embed=index_key,
+                text_color=text_color_rgb,
+                comment_to_embed=f"Sticky Note: {title}",
+                base_name=base_name,
+                cited_keys_list=[source_key],  # 元ノートを引用リンクとして設定
+                refs_qr_size_pt=75,
+                extra_keywords=["Synapsen:Sticky"],
+            )
+
+            # 6. 正規化済みファイルフォルダ(Watchdog)へ移動
+            shutil.move(str(final_temp_pdf), str(Path(WATCH_DIR) / f"{base_name}.pdf"))
+            flash(
+                f"付箋ノートを作成し、Inboxに送信しました。 ({base_name}.pdf)",
+                "success",
+            )
+
+    except Exception as e:
+        logger.error(f"Sticky creation error: {e}")
+        flash(f"付箋作成エラー: {e}", "error")
+
+    return redirect(url_for("view_note", key=source_key))
+
+
 @app.route("/random")
 @requires_auth
 def random_note():
@@ -318,33 +517,126 @@ def upload():
             )
             return redirect(request.url)
 
+        # フォームからメタデータを取得
+        index_key = request.form.get("index_key", "")
+        comment = request.form.get("comment", "")
+
         success_count = 0
         error_count = 0
 
-        try:
-            for file in files:
-                if file and allowed_file(file.filename):
-                    # ファイル名保護 (日本語対応簡易版)
-                    filename = os.path.basename(file.filename)
-                    save_path = Path(WATCH_DIR) / filename
+        actual_font_path = (
+            os.path.expandvars(FONT_PATH)
+            if FONT_PATH
+            else r"C:\Windows\Fonts\msgothic.ttc"
+        )
 
-                    file.save(str(save_path))
-                    logger.info(f"Uploaded: {filename} -> {WATCH_DIR}")
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+
+                for file in files:
+                    if not (file and allowed_file(file.filename)):
+                        error_count += 1
+                        logger.warning(f"Skipped invalid file: {file.filename}")
+                        continue
+
+                    # ファイル名からタイトルと拡張子を取得
+                    filename = os.path.basename(file.filename)
+                    safe_stem = Path(filename).stem
+                    ext = Path(filename).suffix.lower()
+
+                    # Synapsenのファイル命名規則に従いタイムスタンプを付与
+                    now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    base_name = f"{now_str}_{safe_stem}"
+
+                    # オリジナルファイルを一時保存
+                    raw_path = temp_dir_path / filename
+                    file.save(str(raw_path))
+
+                    temp_pdf = temp_dir_path / f"temp_{base_name}.pdf"
+                    temp_flat = temp_dir_path / f"flat_{base_name}.pdf"
+                    final_pdf = temp_dir_path / f"{base_name}.pdf"
+
+                    # --- 1. フォーマットごとのPDF変換 ---
+                    if ext == ".pdf":
+                        shutil.copy2(str(raw_path), str(temp_pdf))
+                    elif ext in [".png", ".jpg", ".jpeg"]:
+                        convert_image_to_pdf(raw_path, temp_pdf)
+                    elif ext in [".md", ".txt"]:
+                        convert_document_to_pdf(
+                            raw_path,
+                            temp_pdf,
+                            paper_size_str="A4",
+                            pdf_margins={
+                                "top": "0",
+                                "bottom": "0",
+                                "left": "0",
+                                "right": "0",
+                            },
+                        )
+                    else:
+                        error_count += 1
+                        continue
+
+                    # --- 2. フラット化 (注釈の焼き込み) ---
+                    high_fidelity_flatten(
+                        str(temp_pdf),
+                        str(temp_flat),
+                        str(actual_font_path),
+                        flatten_ink=False,
+                    )
+
+                    # --- 3. サイズ正規化 (余白の調整) ---
+                    normalize_pdf_to_papersize(
+                        str(temp_flat),
+                        str(final_pdf),
+                        595.276,
+                        841.89,
+                        target_format="A4",
+                    )
+
+                    # 二重正規化を防ぐフラグ
+                    embed_processing_flag(str(final_pdf))
+
+                    # --- 4. メタデータとQRコードの埋め込み ---
+                    hex_c = KEY_COLORS.get(index_key.lower(), "#000000")
+                    text_color_rgb = (
+                        hex_to_rgb_tuple(hex_c)
+                        if hex_to_rgb_tuple(hex_c)
+                        else (0, 0, 0)
+                    )
+
+                    add_metadata_to_clip(
+                        pdf_path_str=str(final_pdf),
+                        font_path=str(actual_font_path),
+                        paper_width=595.276,
+                        paper_height=841.89,
+                        key_rect_tuple=(0, 13, 391, 73),
+                        index_key_to_embed=index_key,
+                        text_color=text_color_rgb,
+                        comment_to_embed=comment,
+                        base_name=base_name,
+                        cited_keys_list=None,
+                        refs_qr_size_pt=75,
+                        extra_keywords=None,
+                    )
+
+                    # --- 5. Inbox (Watchdogディレクトリ) へ移動 ---
+                    target_path = Path(WATCH_DIR) / f"{base_name}.pdf"
+                    shutil.move(str(final_pdf), str(target_path))
+
+                    logger.info(f"Uploaded & Normalized: {filename} -> {target_path}")
                     success_count += 1
-                else:
-                    # 許可されていない拡張子など
-                    error_count += 1
-                    logger.warning(f"Skipped invalid file: {file.filename}")
 
             # 結果メッセージの作成
             if success_count > 0:
-                msg = f"{success_count} 個のファイルをInboxに送信しました。"
+                msg = f"{success_count} 個のファイルを正規化して送信しました。"
                 if error_count > 0:
                     msg += f" (失敗/除外: {error_count} 個)"
                 flash(msg, "success")
                 return redirect(url_for("index"))
             else:
-                flash("アップロード可能なファイルがありませんでした。", "error")
+                flash("処理可能なファイルがありませんでした。", "error")
                 return redirect(request.url)
 
         except Exception as e:
@@ -352,7 +644,8 @@ def upload():
             flash(f"エラーが発生しました: {e}", "error")
             return redirect(request.url)
 
-    return render_template("upload.html")
+    # GET リクエスト時は INDEX_KEYS をテンプレートに渡す
+    return render_template("upload.html", index_keys=INDEX_KEYS)
 
 
 @app.route("/view/<key>")
@@ -367,7 +660,10 @@ def view_note(key):
 
     if not notes:
         return "Note not found", 404
-    return render_template("view.html", note=notes[0])
+
+    return render_template(
+        "view.html", note=notes[0], index_keys=INDEX_KEYS, sticky_colors=STICKY_COLORS
+    )
 
 
 @app.route("/pdf/<key>")

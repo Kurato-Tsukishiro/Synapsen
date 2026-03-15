@@ -42,4 +42,39 @@
     <p style="color: gray;">PDFファイルが見つかりません</p>
     {% endif %}
 </div>
+
+<div class="card">
+    <h4 style="margin-top: 0; color: #333;">✍️ このノートへの付箋を作成</h4>
+    <p style="color: #666; font-size: 0.85rem;">
+        テキストファイル(.md, .txt)を選択してください。<br>このノートへのリンク(引用)が自動設定された状態でInboxへ送信されます。
+    </p>
+    <form action="{{ url_for('create_sticky', source_key=note.key) }}" method="post" enctype="multipart/form-data">
+        <div style="margin-bottom: 10px;">
+            <input type="file" name="file" accept=".md,.txt" required style="padding: 10px; background: #f9f9f9; width: 100%; box-sizing: border-box;">
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <div style="flex: 1;">
+                <label style="display: block; font-size: 0.9rem; margin-bottom: 5px;">Index Key</label>
+                <select name="index_key" style="padding: 8px; width: 100%; box-sizing: border-box;">
+                    {% for key in index_keys %}
+                    <option value="{{ key }}">{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex: 1;">
+                <label style="display: block; font-size: 0.9rem; margin-bottom: 5px;">背景色</label>
+                <select name="bg_color" style="padding: 8px; width: 100%; box-sizing: border-box;">
+                    {% for name, hex in sticky_colors %}
+                    <option value="{{ hex }}">{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn" style="background-color: #FCC800; color: black; width: 100%;">
+            付箋を作成 (Inboxへ送信)
+        </button>
+    </form>
+</div>
 {% endblock %}
