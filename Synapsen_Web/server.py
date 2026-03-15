@@ -120,6 +120,21 @@ except Exception as e:
     sys.exit(1)
 
 
+# --- 保存済み検索の取得ヘルパー ---
+def get_saved_searches():
+    # exe環境とスクリプト環境の差異を考慮
+    saved_searches_path = (
+        base_path if getattr(sys, "frozen", False) else base_path.parent
+    ) / "saved_searches.json"
+    if saved_searches_path.exists():
+        try:
+            with open(saved_searches_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"保存済み検索の読み込みエラー: {e}")
+    return {}
+
+
 def check_auth(username, password):
     """パスワード確認"""
     return username == USERNAME and password == PASSWORD
@@ -226,6 +241,7 @@ def index():
         conn.close()
 
     max_page = max(0, (total_count - 1) // limit)
+    saved_searches = get_saved_searches()  # 保存済み検索を取得
 
     return render_template(
         "index.html",
@@ -234,6 +250,7 @@ def index():
         page=page,
         max_page=max_page,
         total_count=total_count,
+        saved_searches=saved_searches,
     )
 
 

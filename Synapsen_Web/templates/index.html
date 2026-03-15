@@ -6,6 +6,16 @@
         <input type="text" name="q" value="{{ query }}" placeholder="検索 (例: tag:Idea Python)">
         <button type="submit" class="btn" style="width:100%">検索</button>
     </form>
+    {% if saved_searches %}
+    <div style="margin-top: 10px;">
+        <select onchange="if (this.value) window.location.href='/?q=' + encodeURIComponent(this.value);" style="padding: 10px; width: 100%; background: #f9f9f9; border: 1px solid #ccc;">
+            <option value="">📂 保存済み検索を呼び出す...</option>
+            {% for name, q in saved_searches.items() %}
+            <option value="{{ q }}" {% if q == query %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
 </div>
 <div style="text-align: center; margin-top: 10px; display: flex; justify-content: center; gap: 10px;">
     <a href="{{ url_for('random_note') }}" class="btn" style="background-color: #5654A2;">🎲 Random</a>
