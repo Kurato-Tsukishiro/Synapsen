@@ -6,6 +6,16 @@
         <input type="text" name="q" value="{{ query }}" placeholder="検索 (例: tag:Idea Python)">
         <button type="submit" class="btn" style="width:100%">検索</button>
     </form>
+    {% if saved_searches %}
+    <div style="margin-top: 10px;">
+        <select onchange="if (this.value) window.location.href='/?q=' + encodeURIComponent(this.value);" style="padding: 10px; width: 100%; background: #f9f9f9; border: 1px solid #ccc;">
+            <option value="">📂 保存済み検索を呼び出す...</option>
+            {% for name, q in saved_searches.items() %}
+            <option value="{{ q }}" {% if q == query %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
 </div>
 <div style="text-align: center; margin-top: 10px; display: flex; justify-content: center; gap: 10px;">
     <a href="{{ url_for('random_note') }}" class="btn" style="background-color: #5654A2;">🎲 Random</a>
@@ -16,7 +26,7 @@
 {% for note in notes %}
 <div class="card">
     <div class="meta">
-        {{ note.date }} {{ note.time }} | 
+        {{ note.date }} {{ note.time }} |
         <span style="font-weight:bold;">{{ note.commonplace_key }}</span>
     </div>
     <h3 style="margin: 0 0 0.5rem 0;">
@@ -26,7 +36,7 @@
     </h3>
     <div>
         {% for t in note.tags.split(';') if t %}
-            <span class="tag">{{ t }}</span>
+        <span class="tag">{{ t }}</span>
         {% endfor %}
     </div>
 </div>
@@ -34,17 +44,16 @@
 
 <div class="pagination">
     {% if page > 0 %}
-        <a href="{{ url_for('index', q=query, page=page-1) }}" class="btn btn-secondary">前へ</a>
+    <a href="{{ url_for('index', q=query, page=page-1) }}" class="btn btn-secondary">前へ</a>
     {% else %}
-        <span></span>
+    <span></span>
     {% endif %}
-    
+
     <span style="align-self: center;">Page {{ page + 1 }} / {{ max_page + 1 }}</span>
 
-    {% if page < max_page %}
-        <a href="{{ url_for('index', q=query, page=page+1) }}" class="btn btn-secondary">次へ</a>
-    {% else %}
+    {% if page < max_page %} <a href="{{ url_for('index', q=query, page=page+1) }}" class="btn btn-secondary">次へ</a>
+        {% else %}
         <span></span>
-    {% endif %}
+        {% endif %}
 </div>
 {% endblock %}

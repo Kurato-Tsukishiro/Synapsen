@@ -1,0 +1,87 @@
+{% extends "layout.html" %}
+
+{% block title %}Upload - Synapsen{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h3 style="margin-top: 0;">Inboxへアップロード</h3>
+    <p style="color: #666; font-size: 0.9rem;">
+        ファイルを選択するとリストが表示されます。個別に Index Key やコメントを設定できます。
+    </p>
+
+    <form method="post" enctype="multipart/form-data" style="margin-top: 1rem;">
+        <div style="margin-bottom: 1.5rem;">
+            <input type="file" id="file-input" name="file" multiple required
+                style="padding: 10px; background: #f9f9f9; width: 100%; box-sizing: border-box; border: 2px dashed #ccc;">
+        </div>
+
+        <div id="file-list-container" style="margin-bottom: 1.5rem; display: none;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #ddd; text-align: left;">
+                        <th style="padding: 8px;">ファイル名</th>
+                        <th style="padding: 8px; width: 30%;">Index Key</th>
+                        <th style="padding: 8px; width: 35%;">コメント</th>
+                    </tr>
+                </thead>
+                <tbody id="file-list-body">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="btn" style="flex: 1;">正規化して送信</button>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary" style="flex: 1; text-align: center;">キャンセル</a>
+        </div>
+    </form>
+</div>
+<script>
+    document.getElementById('file-input').addEventListener('change', function (e) {
+        const container = document.getElementById('file-list-container');
+        const tbody = document.getElementById('file-list-body');
+        const files = e.target.files;
+
+        tbody.innerHTML = ''; // リストをリセット
+
+        if (files.length > 0) {
+            container.style.display = 'block';
+
+            // インデックスキーの選択肢をJS配列として取得
+            const indexOptions = [{% for key in index_keys %} "{{ key }}", {% endfor %}];
+
+    Array.from(files).forEach((file, index) => {
+        const row = document.createElement('tr');
+        row.style.borderBottom = "1px solid #eee";
+
+        // ファイル名
+        const nameTd = document.createElement('td');
+        nameTd.style.padding = "8px";
+        nameTd.textContent = file.name;
+
+        // Index Key セレクトボックス
+        const keyTd = document.createElement('td');
+        keyTd.style.padding = "8px";
+        let selectHtml = `<select name="index_keys[]" style="width: 100%; padding: 5px;">`;
+        selectHtml += `<option value="">-- 指定なし --</option>`;
+        indexOptions.forEach(opt => {
+            selectHtml += `<option value="${opt}">${opt}</option>`;
+        });
+        selectHtml += `</select>`;
+        keyTd.innerHTML = selectHtml;
+
+        // コメント入力欄
+        const commentTd = document.createElement('td');
+        commentTd.style.padding = "8px";
+        commentTd.innerHTML = `<input type="text" name="comments[]" placeholder="コメント..." style="width: 100%; padding: 5px; box-sizing: border-box;">`;
+
+        row.appendChild(nameTd);
+        row.appendChild(keyTd);
+        row.appendChild(commentTd);
+        tbody.appendChild(row);
+    });
+    } else {
+        container.style.display = 'none';
+    }
+});
+</script>
+{% endblock %}

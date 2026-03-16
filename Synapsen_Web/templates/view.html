@@ -8,7 +8,7 @@
 <div class="card">
     <div class="meta">Key: {{ note.key }}</div>
     <h1 style="font-size: 1.5rem; margin-top: 0;">{{ note.title }}</h1>
-    
+
     <div style="margin-bottom: 1rem;">
         <strong>Date:</strong> {{ note.date }} {{ note.time }}<br>
         <strong>Index:</strong> {{ note.commonplace_key }}
@@ -17,7 +17,7 @@
     {% if note.tags %}
     <div style="margin-bottom: 1rem;">
         {% for t in note.tags.split(';') if t %}
-            <span class="tag">{{ t }}</span>
+        <span class="tag">{{ t }}</span>
         {% endfor %}
     </div>
     {% endif %}
@@ -32,13 +32,49 @@
 <div class="card">
     <h3>Attached PDF</h3>
     {% if note.merged_pdf_filename or note.filepath %}
-        <p>
-            ファイル: {{ note.merged_pdf_filename if note.merged_pdf_filename else note.filepath }}<br>
-            ページ: {{ note.merged_start_page if note.merged_start_page else 1 }}
-        </p>
-        <a href="{{ url_for('view_pdf', key=note.key) }}#page={{ note.merged_start_page if note.merged_start_page else 1 }}" class="btn" target="_blank">PDFを開く</a>
+    <p>
+        ファイル: {{ note.merged_pdf_filename if note.merged_pdf_filename else note.filepath }}<br>
+        ページ: {{ note.merged_start_page if note.merged_start_page else 1 }}
+    </p>
+    <a href="{{ url_for('view_pdf', key=note.key) }}#page={{ note.merged_start_page if note.merged_start_page else 1 }}"
+        class="btn" target="_blank">PDFを開く</a>
     {% else %}
-        <p style="color: gray;">PDFファイルが見つかりません</p>
+    <p style="color: gray;">PDFファイルが見つかりません</p>
     {% endif %}
+</div>
+
+<div class="card">
+    <h4 style="margin-top: 0; color: #333;">✍️ このノートへの付箋を作成</h4>
+    <p style="color: #666; font-size: 0.85rem;">
+        テキストファイル(.md, .txt)を選択してください。<br>このノートへのリンク(引用)が自動設定された状態でInboxへ送信されます。
+    </p>
+    <form action="{{ url_for('create_sticky', source_key=note.key) }}" method="post" enctype="multipart/form-data">
+        <div style="margin-bottom: 10px;">
+            <input type="file" name="file" accept=".md,.txt" required style="padding: 10px; background: #f9f9f9; width: 100%; box-sizing: border-box;">
+        </div>
+        
+        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+            <div style="flex: 1;">
+                <label style="display: block; font-size: 0.9rem; margin-bottom: 5px;">Index Key</label>
+                <select name="index_key" style="padding: 8px; width: 100%; box-sizing: border-box;">
+                    {% for key in index_keys %}
+                    <option value="{{ key }}">{{ key }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="flex: 1;">
+                <label style="display: block; font-size: 0.9rem; margin-bottom: 5px;">背景色</label>
+                <select name="bg_color" style="padding: 8px; width: 100%; box-sizing: border-box;">
+                    {% for name, hex in sticky_colors %}
+                    <option value="{{ hex }}">{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn" style="background-color: #FCC800; color: black; width: 100%;">
+            付箋を作成 (Inboxへ送信)
+        </button>
+    </form>
 </div>
 {% endblock %}
