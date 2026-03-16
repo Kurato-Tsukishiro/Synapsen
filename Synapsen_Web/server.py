@@ -506,7 +506,10 @@ def upload():
         # getlist で複数のファイルを取得
         files = request.files.getlist("file")
 
-        # 空送信チェック (ファイル未選択の場合、空のファイルオブジェクトが1つ入ることがある)
+        # 配列形式でメタデータを取得
+        form_index_keys = request.form.getlist("index_keys[]")
+        form_comments = request.form.getlist("comments[]")
+
         if not files or (len(files) == 1 and files[0].filename == ""):
             flash("ファイルが選択されていません。", "error")
             return redirect(request.url)
@@ -517,10 +520,6 @@ def upload():
                 "error",
             )
             return redirect(request.url)
-
-        # フォームからメタデータを取得
-        index_key = request.form.get("index_key", "")
-        comment = request.form.get("comment", "")
 
         success_count = 0
         error_count = 0
@@ -535,13 +534,18 @@ def upload():
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_dir_path = Path(temp_dir)
 
-                for file in files:
+                # enumerate を使用して、ファイルと対応するメタデータを紐付け
+                for i, file in enumerate(files):
                     if not (file and allowed_file(file.filename)):
                         error_count += 1
-                        logger.warning(f"Skipped invalid file: {file.filename}")
                         continue
 
-                    # ファイル名からタイトルと拡張子を取得
+                    # 対応するメタデータを取得（安全のため境界チェック）
+                    current_index_key = (
+                        form_index_keys[i] if i < len(form_index_keys) else ""
+                    )
+                    current_comment = form_comments[i] if i < len(form_comments) else ""
+
                     filename = os.path.basename(file.filename)
                     safe_stem = Path(filename).stem
                     ext = Path(filename).suffix.lower()
@@ -558,7 +562,7 @@ def upload():
                     temp_flat = temp_dir_path / f"flat_{base_name}.pdf"
                     final_pdf = temp_dir_path / f"{base_name}.pdf"
 
-                    # --- 1. フォーマットごとのPDF変換 ---
+                    # 1. 変換
                     if ext == ".pdf":
                         shutil.copy2(str(raw_path), str(temp_pdf))
                     elif ext in [".png", ".jpg", ".jpeg"]:
@@ -579,7 +583,7 @@ def upload():
                         error_count += 1
                         continue
 
-                    # --- 2. フラット化 (注釈の焼き込み) ---
+                    # 2. 正規化処理 (フラット化・サイズ調整)
                     high_fidelity_flatten(
                         str(temp_pdf),
                         str(temp_flat),
@@ -587,7 +591,7 @@ def upload():
                         flatten_ink=False,
                     )
 
-                    # --- 3. サイズ正規化 (余白の調整) ---
+                    # 3. サイズ正規化 (余白の調整)
                     normalize_pdf_to_papersize(
                         str(temp_flat),
                         str(final_pdf),
@@ -599,8 +603,8 @@ def upload():
                     # 二重正規化を防ぐフラグ
                     embed_processing_flag(str(final_pdf))
 
-                    # --- 4. メタデータとQRコードの埋め込み ---
-                    hex_c = KEY_COLORS.get(index_key.lower(), "#000000")
+                    # 4. 個別メタデータの埋め込み
+                    hex_c = KEY_COLORS.get(current_index_key.lower(), "#000000")
                     text_color_rgb = (
                         hex_to_rgb_tuple(hex_c)
                         if hex_to_rgb_tuple(hex_c)
@@ -613,16 +617,15 @@ def upload():
                         paper_width=595.276,
                         paper_height=841.89,
                         key_rect_tuple=(0, 13, 391, 73),
-                        index_key_to_embed=index_key,
+                        index_key_to_embed=current_index_key,
                         text_color=text_color_rgb,
-                        comment_to_embed=comment,
+                        comment_to_embed=current_comment,
                         base_name=base_name,
                         cited_keys_list=None,
                         refs_qr_size_pt=75,
-                        extra_keywords=None,
                     )
 
-                    # --- 5. Inbox (Watchdogディレクトリ) へ移動 ---
+                    # 4. 出力フォルダへ移動
                     target_path = Path(OUTPUT_DIR) / f"{base_name}.pdf"
                     shutil.move(str(final_pdf), str(target_path))
 
@@ -631,7 +634,7 @@ def upload():
 
             # 結果メッセージの作成
             if success_count > 0:
-                msg = f"{success_count} 個のファイルを正規化して送信しました。"
+                msg = f"{success_count} 個のファイルを個別に正規化して保存しました。",
                 if error_count > 0:
                     msg += f" (失敗/除外: {error_count} 個)"
                 flash(msg, "success")

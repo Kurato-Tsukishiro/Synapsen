@@ -562,6 +562,7 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     * [**playwright**](https://github.com/microsoft/playwright-python) (Apache-2.0 License) - `Normalisierer` でWebクリップとMarkdown変換を実現するため
     * [**qrcode**](https://github.com/lincolnloop/python-qrcode) (BSD-3-Clause License) - `Normalisierer` でメタデータQRコードを生成するため
     * [**pyzbar**](https://github.com/NaturalHistoryMuseum/pyzbar) (MIT License) - `Ersteller` でメタデータQRコードを読み取るため
+    * [**Flask**](https://flask.palletsprojects.com/) (BSD-3-Clause License) - Webサーバー機能を実現するマイクロフレームワーク
     * [**watchdog**](https://github.com/gorakhargosh/watchdog) (Apache-2.0 License) - フォルダ監視による自動正規化機能を実現するため
 
 ## セットアップ
@@ -1213,6 +1214,7 @@ OCR機能を実現する **Pillow** と **pytesseract**、<br>
 D&D機能を実現する **tkinterdnd2**、<br>
 メタデータQRコードの生成と読み取りを実現する **qrcode** と **pyzbar**、<br>
 Webクリップ機能とMarkdown変換を実現する **Playwright** および **Pandoc**、<br>
+Webサーバー機能を提供する **Flask**、<br>
 フォルダ監視による自動化を実現する **watchdog**、<br>
 依存関係管理を支える **Poetry**、<br>
 そして、堅牢なテスト環境を提供する **pytest** の開発者コミュニティに心から感謝申し上げます。<br><br>

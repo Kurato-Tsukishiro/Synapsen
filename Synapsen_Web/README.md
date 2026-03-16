@@ -172,5 +172,9 @@ Windowsのファイアウォール設定が原因である可能性が高いで�
     * Copyright 2010 Pallets
 * **[Werkzeug](https://werkzeug.palletsprojects.com/)**
     * License: [BSD-3-Clause License](https://github.com/pallets/werkzeug/blob/main/LICENSE.txt)
+    * Copyright 2007 Pallets
+* **[Jinja2](https://palletsprojects.com/p/jinja/)**
+    * License: [BSD-3-Clause License](https://github.com/pallets/jinja/blob/main/LICENSE.txt)
+    * Copyright 2007 Pallets
 
 Flask およびその依存ライブラリの開発者コミュニティに深く感謝いたします。
