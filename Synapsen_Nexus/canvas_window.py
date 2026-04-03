@@ -2719,32 +2719,17 @@ class CanvasWindow(BaseSubWindow):
 
         try:
             md_path = temp_dir / f"{base_name}.md"
-            style_tag = f"""
-<style>
-@page {{
-    background-color: {bg_color} !important;
-}}
-html, body {{
-    width: 100% !important;
-    height: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background-color: {bg_color} !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}}
-.content-wrapper {{
-    padding: 20px;
-    background-color: {bg_color} !important;
-}}
-</style>
-"""
+            from pdf_utils import get_sticky_note_css  # type: ignore
+
+            # 共通関数を呼び出してCSSを取得
+            style_tag = get_sticky_note_css(bg_color)
+
             md_text = (
                 f"{style_tag}\n\n"
                 "<div class='content-wrapper'>\n\n"
-                f"# {title}\n\n# [内容]\n{content}\n\n"
-                "</div>"
+                f"# {title}\n\n# [内容]\n{content}\n\n</div>"
             )
+
             with open(md_path, "w", encoding="utf-8") as f:
                 f.write(md_text)
 

@@ -1685,12 +1685,13 @@ class Synapsen_Nexus(
                 messagebox.showerror(
                     "エラー",
                     "正規化済みファイルの出力先(Watchdogのoutput_dir、およびnexus_output_folder)が見つかりません。"
-                    "\n設定を確認してください。"
+                    "\n設定を確認してください。",
                 )
                 return
 
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         import re
+
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "Sticky")
         base_name = f"{now_str}_{safe_title}"
 
@@ -1715,26 +1716,11 @@ class Synapsen_Nexus(
                 md_path = temp_dir_path / f"{base_name}.md"
 
                 # 背景色とマージンを調整するCSS注入
-                style_tag = f"""
-<style>
-@page {{
-    background-color: {bg_color} !important;
-}}
-html, body {{
-    width: 100% !important;
-    height: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background-color: {bg_color} !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-}}
-.content-wrapper {{
-    padding: 20px;
-    background-color: {bg_color} !important;
-}}
-</style>
-"""
+                from pdf_utils import get_sticky_note_css  # type: ignore
+
+                # 共通関数を呼び出してCSSを取得
+                style_tag = get_sticky_note_css(bg_color)
+
                 md_text = (
                     f"{style_tag}\n\n"
                     "<div class='content-wrapper'>\n\n"
@@ -1843,7 +1829,7 @@ html, body {{
                 folder_name = "Inbox" if sticky_output == output_dir else "Nexus_Output"
                 messagebox.showinfo(
                     "成功",
-                    f"付箋ノートを作成し、{folder_name} に保存しました。\nファイル名: {target_path.name}"
+                    f"付箋ノートを作成し、{folder_name} に保存しました。\nファイル名: {target_path.name}",
                 )
 
         except Exception as e:
