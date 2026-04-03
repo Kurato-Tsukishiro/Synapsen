@@ -465,6 +465,18 @@ class NexusUiMixin:
             hover_color=Colors.adjust_brightness(Colors.UI_PREVIEW),
         )
         self.open_preview_button.pack(side="left", padx=5)
+
+        self.create_sticky_button = ctk.CTkButton(
+            self.edit_button_frame,
+            text="付箋ノート作成",
+            command=self.open_create_sticky_dialog,
+            state="disabled",
+            fg_color=Colors.CANVAS,
+            hover_color=Colors.adjust_brightness(Colors.CANVAS, 0.8),
+            text_color="black"
+        )
+        self.create_sticky_button.pack(side="left", padx=5)
+
         self.edit_button = ctk.CTkButton(
             self.edit_button_frame,
             text="編集",

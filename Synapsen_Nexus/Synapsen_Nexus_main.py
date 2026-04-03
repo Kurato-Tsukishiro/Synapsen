@@ -1,3 +1,4 @@
+import os
 import shutil
 import customtkinter as ctk
 import threading
@@ -60,6 +61,7 @@ try:
         from Synapsen_Nexus.export_manager import ExportManager
         from Synapsen_Nexus.canvas_window import CanvasWindow
         from Synapsen_Nexus.preview_window import NotePreviewWindow
+        from Synapsen_Nexus.createsticky_window import CreateStickyDialog
         from Synapsen_Nexus.editor_window import NoteEditorWindow
         from Synapsen_Nexus.tag_window import TagWindow
         from theme import SemanticColors as Colors
@@ -84,6 +86,7 @@ try:
         from export_manager import ExportManager
         from canvas_window import CanvasWindow
         from preview_window import NotePreviewWindow
+        from createsticky_window import CreateStickyDialog
         from editor_window import NoteEditorWindow
         from tag_window import TagWindow
         from theme import SemanticColors as Colors
@@ -1323,6 +1326,8 @@ class Synapsen_Nexus(
             self.edit_button.configure(state="normal")
             self.delete_button.configure(state="normal")
             self.open_preview_button.configure(state="normal")
+            if hasattr(self, "create_sticky_button"):
+                self.create_sticky_button.configure(state="normal")
 
         else:
             # クリア時は選択状態もクリア
@@ -1330,6 +1335,8 @@ class Synapsen_Nexus(
             self.edit_button.configure(state="disabled")
             self.delete_button.configure(state="disabled")
             self.open_preview_button.configure(state="disabled")
+            if hasattr(self, "create_sticky_button"):
+                self.create_sticky_button.configure(state="disabled")
 
         # --- 2. UI構築 ---
         # テキスト情報の再構築
@@ -1607,6 +1614,230 @@ class Synapsen_Nexus(
             self.key_icons,
             self.key_colors,
         )
+
+    def open_create_sticky_dialog(self):
+        """詳細パネルから呼び出され、付箋作成ダイアログを開く"""
+        if self.current_selected_row is None:
+            messagebox.showwarning(
+                "ノート未選択", "付箋を関連付けるノートが選択されていません。"
+            )
+            return
+
+        source_key = self.current_selected_row.get("key")
+        if not source_key:
+            return
+
+        # 付箋カラーの定義 (Web版と同様)
+        sticky_colors = [
+            ("イエロー", "#f8e58c"),
+            ("ブルー", "#bbc8e6"),
+            ("レッド", "#eebbcb"),
+            ("グリーン", "#c1d8ac"),
+            ("ホワイト", "#fbfaf5"),
+            ("グレー", "#adadad"),
+        ]
+
+        dialog = CreateStickyDialog(self, self.commonplace_keys_options, sticky_colors)
+        self.wait_window(dialog)
+
+        if dialog.result:
+            self.process_create_sticky(source_key, dialog.result)
+
+    def process_create_sticky(self, source_key, data):
+        """Web版と同様のPDF正規化フローを実行し、標準でWatchdogのInboxへ保存する"""
+        file_path = Path(data["file_path"])
+        index_key = data["index_key"]
+        bg_color = data["bg_color"]
+
+        title = file_path.stem
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            messagebox.showerror(
+                "エラー",
+                "ファイルの読み込みに失敗しました。UTF-8で保存されていますか？",
+            )
+            return
+
+        # Watchdogの出力先を取得
+        import configparser
+
+        cfg = configparser.ConfigParser(interpolation=None)
+        config_path = self.base_path / "config.ini"
+        if not config_path.is_file():
+            config_path = self.base_path.parent / "config.ini"
+
+        cfg.read(config_path, encoding="utf-8")
+        output_dir = cfg.get("Watchdog", "output_dir", fallback=None)
+
+        has_output_dir = output_dir and os.path.exists(output_dir)
+
+        if has_output_dir:  # watchdogのoutput_dirが設定されていればそちらに保存する。
+            sticky_output = output_dir
+        else:  # 設定されていない場合は、Pathsのnexus_output_folderを使用する。
+            nexus_output_folder = cfg.get("Paths", "nexus_output_folder", fallback=None)
+            has_output_dir = nexus_output_folder and os.path.exists(nexus_output_folder)
+
+            if has_output_dir:
+                sticky_output = nexus_output_folder
+            else:
+                messagebox.showerror(
+                    "エラー",
+                    "正規化済みファイルの出力先(Watchdogのoutput_dir、およびnexus_output_folder)が見つかりません。"
+                    "\n設定を確認してください。"
+                )
+                return
+
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        import re
+        safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "Sticky")
+        base_name = f"{now_str}_{safe_title}"
+
+        # Normalisiererのモジュールをパスに追加
+        normalisierer_dir = self.base_path.parent / "Synapsen_Normalisierer"
+        if str(normalisierer_dir) not in sys.path:
+            sys.path.append(str(normalisierer_dir))
+
+        try:
+            import tempfile
+            import fitz
+            from pdf_utils import (  # type: ignore
+                convert_document_to_pdf,
+                high_fidelity_flatten,
+                normalize_pdf_to_papersize,
+                add_metadata_to_clip,
+                embed_processing_flag,
+            )
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+                md_path = temp_dir_path / f"{base_name}.md"
+
+                # 背景色とマージンを調整するCSS注入
+                style_tag = f"""
+<style>
+html {{ width: 100%; margin: 0; padding: 0; background-color: {bg_color}; }}
+body {{ background-color: {bg_color} !important; width: 100% !important;
+margin: 0 !important; padding: 0 !important;
+max-width: none !important; min-height: 100vh; }}
+.content-wrapper {{ padding: 20px; }}
+</style>
+"""
+                md_text = (
+                    f"{style_tag}\n\n"
+                    "<div class='content-wrapper'>\n\n"
+                    f"# {title}\n\n# [内容]\n{content}\n\n</div>"
+                )
+
+                with open(md_path, "w", encoding="utf-8") as f:
+                    f.write(md_text)
+
+                temp_pdf = temp_dir_path / f"temp_{base_name}.pdf"
+                temp_flat = temp_dir_path / f"flat_{base_name}.pdf"
+
+                font_path_from_config = cfg.get("Paths", "font_path", fallback="")
+                actual_font_path = (
+                    os.path.expandvars(font_path_from_config)
+                    if font_path_from_config
+                    else r"C:\Windows\Fonts\msgothic.ttc"
+                )
+
+                # 1. PDF変換
+                convert_document_to_pdf(
+                    md_path,
+                    temp_pdf,
+                    paper_size_str="A4",
+                    pdf_margins={"top": "0", "bottom": "0", "left": "0", "right": "0"},
+                )
+
+                # 2. フラット化
+                high_fidelity_flatten(
+                    str(temp_pdf),
+                    str(temp_flat),
+                    str(actual_font_path),
+                    flatten_ink=False,
+                )
+
+                final_temp_pdf = temp_dir_path / f"{base_name}.pdf"
+
+                # 3. サイズ正規化
+                normalize_pdf_to_papersize(
+                    str(temp_flat),
+                    str(final_temp_pdf),
+                    595.276,
+                    841.89,
+                    target_format="A4",
+                )
+
+                # 4. 付箋メタデータ書き込み
+                try:
+                    doc = fitz.open(final_temp_pdf)
+                    meta = doc.metadata
+                    current_keywords = meta.get("keywords", "")
+                    new_keywords = (
+                        f"{current_keywords}; Synapsen:Sticky"
+                        if current_keywords
+                        else "Synapsen:Sticky"
+                    )
+                    meta["keywords"] = new_keywords
+                    doc.set_metadata(meta)
+                    doc.saveIncr()
+                    doc.close()
+                except Exception as e:
+                    logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
+
+                embed_processing_flag(str(final_temp_pdf))
+
+                # Index Key カラーの取得
+                hex_c = self.key_colors.get(index_key.lower(), "#000000")
+
+                def hex_to_rgb_tuple(hc):
+                    hc = hc.lstrip("#")
+                    # 255で割って 0.0〜1.0 の範囲に変換します
+                    return tuple(int(hc[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+                try:
+                    text_color_rgb = hex_to_rgb_tuple(hex_c)
+                except Exception:
+                    text_color_rgb = (0.0, 0.0, 0.0)
+
+                refs_qr_size_str = cfg.get("Extraction", "refs_qr_size", fallback="75")
+                try:
+                    refs_qr_size_pt = int(refs_qr_size_str)
+                except ValueError:
+                    refs_qr_size_pt = 75
+
+                # 5. QRメタデータ埋め込み (ここで元ノートを引用先として設定)
+                add_metadata_to_clip(
+                    pdf_path_str=str(final_temp_pdf),
+                    font_path=str(actual_font_path),
+                    paper_width=595.276,
+                    paper_height=841.89,
+                    key_rect_tuple=(0, 13, 391, 73),
+                    index_key_to_embed=index_key,
+                    text_color=text_color_rgb,
+                    comment_to_embed=f"Sticky Note: {title}",
+                    base_name=base_name,
+                    cited_keys_list=[source_key],
+                    refs_qr_size_pt=refs_qr_size_pt,
+                    extra_keywords=["Synapsen:Sticky"],
+                )
+
+                # 6. Inboxへ移動
+                target_path = Path(sticky_output) / f"{base_name}.pdf"
+                shutil.move(str(final_temp_pdf), str(target_path))
+
+                # 保存先フォルダ名を表示する
+                folder_name = "Inbox" if sticky_output == output_dir else "Nexus_Output"
+                messagebox.showinfo(
+                    "成功",
+                    f"付箋ノートを作成し、{folder_name} に保存しました。\nファイル名: {target_path.name}"
+                )
+
+        except Exception as e:
+            logger.error(f"Sticky creation error: {e}", exc_info=True)
+            messagebox.showerror("エラー", f"付箋の作成に失敗しました:\n{e}")
 
     # --- PDF関連メソッド ---
     def jump_to_key(self, key):
