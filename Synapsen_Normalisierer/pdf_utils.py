@@ -1469,3 +1469,38 @@ def convert_document_to_pdf(
                     f"{e_del}",
                     extra={"sensitive": True},
                 )
+
+
+# ==============================================================================
+# 付箋ノート出力 補助
+# ==============================================================================
+
+def get_sticky_note_css(bg_color: str) -> str:
+    """
+    付箋ノート用の共通CSSを生成して返す。
+    Nexus、Web、Canvasなどの各コンポーネントから共通で呼び出される。
+    """
+    # 全てを1つのf-stringブロックにまとめることで、エスケープミスを防ぎます。
+    # htmlとbodyの両方にマージン・パディング0を適用し、背景の隙間をなくします。
+    # @page ディレクティブにより、PDFの「ページそのもの」の背景色を直接指定します。
+
+    return f"""
+<style>
+@page {{
+    background-color: {bg_color} !important;
+}}
+html, body {{
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: {bg_color} !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}}
+.content-wrapper {{
+    padding: 20px;
+    background-color: {bg_color} !important;
+}}
+</style>
+"""
