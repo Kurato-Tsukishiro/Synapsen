@@ -2683,15 +2683,35 @@ class CanvasWindow(BaseSubWindow):
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
         base_name = f"{now_str}_{safe_title}"
 
-        save_dir = getattr(self.parent_app, "nexus_output_folder", Path("Nexus_Output"))
-        if not save_dir.exists():
-            try:
-                save_dir.mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                messagebox.showerror(
-                    "エラー", f"保存先を作成できません: {e}", parent=self
-                )
-                return
+        import configparser
+
+        cfg = configparser.ConfigParser(interpolation=None)
+        config_path = self.parent_app.base_path / "config.ini"
+        if not config_path.is_file():
+            config_path = self.parent_app.base_path.parent / "config.ini"
+
+        cfg.read(config_path, encoding="utf-8")
+        output_dir = cfg.get("Watchdog", "output_dir", fallback=None)
+
+        has_output_dir = output_dir and os.path.exists(output_dir)
+
+        # 付箋は基本的に Watchdogのoutput_dir に保存するが、未設定時は nexus_output_folder を使用する
+        if has_output_dir:
+            save_dir = Path(output_dir)
+        else:
+            nexus_output_folder = cfg.get(
+                "Paths", "nexus_output_folder", fallback="Nexus_Output"
+            )
+            save_dir = Path(nexus_output_folder)
+
+            if not save_dir.exists():
+                try:
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    messagebox.showerror(
+                        "エラー", f"保存先を作成できません: {e}", parent=self
+                    )
+                    return
 
         pdf_path = save_dir / f"{base_name}.pdf"
         temp_dir = save_dir / "temp_canvas_process"
@@ -2784,8 +2804,11 @@ class CanvasWindow(BaseSubWindow):
                 refs_qr_size_pt=refs_qr_size_pt,
                 extra_keywords=["Synapsen:Sticky"],
             )
+            folder_name = "Inbox" if has_output_dir else "Nexus_Output"
             messagebox.showinfo(
-                "完了", f"ファイルを生成しました:\n{pdf_path.name}", parent=self
+                "完了",
+                f"付箋からPDFを生成し、{folder_name} に保存しました:\n{pdf_path.name}",
+                parent=self,
             )
         except Exception as e:
             messagebox.showerror("エラー", f"処理に失敗しました:\n{e}", parent=self)
@@ -3174,8 +3197,25 @@ class CanvasWindow(BaseSubWindow):
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title_input)
         initial_file = f"{now_str}_{safe_title}.pdf"
 
-        out_dir = getattr(self.parent_app, "nexus_output_folder", None)
-        initial_dir = str(out_dir) if out_dir and out_dir.exists() else None
+        import configparser
+
+        cfg = configparser.ConfigParser(interpolation=None)
+        config_path = self.parent_app.base_path / "config.ini"
+        if not config_path.is_file():
+            config_path = self.parent_app.base_path.parent / "config.ini"
+        cfg.read(config_path, encoding="utf-8")
+
+        # キャンバスの全体出力はErstellerにそのまま取り込む物の為、初期フォルダを Watchdogのoutput_dirにする。
+        output_dir = cfg.get("Watchdog", "output_dir", fallback=None)
+        if output_dir and os.path.exists(output_dir):
+            initial_dir = output_dir
+        else:
+            nexus_output_folder = cfg.get("Paths", "nexus_output_folder", fallback=None)
+            initial_dir = (
+                nexus_output_folder
+                if (nexus_output_folder and os.path.exists(nexus_output_folder))
+                else None
+            )
 
         file_path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
