@@ -364,6 +364,16 @@ class Synapsen_Nexus(
         self.bind("<Control-e>", lambda e: self._handle_shortcut(self.open_edit_dialog))
         self.bind("<Control-E>", lambda e: self._handle_shortcut(self.open_edit_dialog))
 
+        # Ctrl+G: 付箋ノートの作成 (Generate Sticky)
+        self.bind(
+            "<Control-g>",
+            lambda e: self._handle_shortcut(self.open_create_sticky_dialog),
+        )
+        self.bind(
+            "<Control-G>",
+            lambda e: self._handle_shortcut(self.open_create_sticky_dialog),
+        )
+
         # Ctrl+Shift+E: 一括編集 (Edit)
         self.bind(
             "<Control-Shift-e>",
