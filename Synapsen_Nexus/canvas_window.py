@@ -2719,17 +2719,26 @@ class CanvasWindow(BaseSubWindow):
 
         try:
             md_path = temp_dir / f"{base_name}.md"
-            style_tag = (
-                "<style>"
-                "html {{ width: 100%; margin: 0; padding: 0; "
-                f"background-color: {bg_color}; }}"
-                f"body {{ background-color: {bg_color} !important; "
-                "width: 100% !important; margin: 0 !important; "
-                "padding: 0 !important; max-width: none !important; "
-                "min-height: 100vh; }}"
-                ".content-wrapper { padding: 20px; }"
-                "</style>"
-            )
+            style_tag = f"""
+<style>
+@page {{
+    background-color: {bg_color} !important;
+}}
+html, body {{
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: {bg_color} !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}}
+.content-wrapper {{
+    padding: 20px;
+    background-color: {bg_color} !important;
+}}
+</style>
+"""
             md_text = (
                 f"{style_tag}\n\n"
                 "<div class='content-wrapper'>\n\n"

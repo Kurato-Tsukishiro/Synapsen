@@ -1717,11 +1717,22 @@ class Synapsen_Nexus(
                 # 背景色とマージンを調整するCSS注入
                 style_tag = f"""
 <style>
-html {{ width: 100%; margin: 0; padding: 0; background-color: {bg_color}; }}
-body {{ background-color: {bg_color} !important; width: 100% !important;
-margin: 0 !important; padding: 0 !important;
-max-width: none !important; min-height: 100vh; }}
-.content-wrapper {{ padding: 20px; }}
+@page {{
+    background-color: {bg_color} !important;
+}}
+html, body {{
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: {bg_color} !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}}
+.content-wrapper {{
+    padding: 20px;
+    background-color: {bg_color} !important;
+}}
 </style>
 """
                 md_text = (
