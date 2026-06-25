@@ -748,6 +748,86 @@ def normalize_pdf_to_papersize(
 
 
 # ==============================================================================
+# PDFのページ指定による部分抽出処理
+# ==============================================================================
+
+
+def parse_page_ranges(pages_str: str, total_pages: int) -> list[int]:
+    """
+    ページ指定文字列 (例: "1, 3-5") を解析し、
+    0オリジンのページ番号のリストを重複なし・昇順で返します。
+
+    Args:
+        pages_str: ページ指定文字列
+        total_pages: 最大ページ数
+
+    Returns:
+        list[int]: 抜き出し対象のページ番号のリスト (範囲指定は展開済み)
+    """
+    pages = set()
+    parts = [p.strip() for p in pages_str.split(",")]  # ページ指定ワードの分割
+    for part in parts:
+        if not part:
+            continue
+        if "-" in part:  # 範囲指定の展開
+            subparts = part.split("-")
+            if len(subparts) == 2:
+                try:
+                    start = int(subparts[0].strip())
+                    end = int(subparts[1].strip())
+                    for i in range(start, end + 1):
+                        if 1 <= i <= total_pages:
+                            pages.add(i - 1)
+                except ValueError:
+                    pass
+        else:  # 個別指定の処理
+            try:
+                page_num = int(part)
+                if 1 <= page_num <= total_pages:
+                    pages.add(page_num - 1)
+            except ValueError:
+                pass
+    return sorted(list(pages))
+
+
+def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool:
+    """
+    PDFから指定されたページを抽出し、新しいPDFとして保存します。
+    (PyMuPDF の機能を使用するため、正規化済みフラグなどのメタデータも維持されます)
+
+    Args:
+        input_path: 抽出対象のPDFのパス
+        output_path: 保存先のパス
+        pages_str: ページ指定文字列
+
+    Returns:
+        bool: 抽出が行われた場合は True、指定が空などで抽出不要な場合は False を返します。
+    """
+    if not pages_str.strip():
+        return False
+
+    doc = None
+    try:
+        doc = fitz.open(input_path)
+        total_pages = len(doc)
+        pages_to_keep = parse_page_ranges(pages_str, total_pages)
+
+        if not pages_to_keep:
+            return False  # 有効な指定がない場合
+
+        # 抽出: 保持するページを指定してドキュメントを絞り込み
+        doc.select(pages_to_keep)
+        doc.save(output_path, garbage=4, deflate=True)
+        return True
+    except Exception as e:
+        logger.error(f"ページ抽出中にエラー ({input_path}): {e}")
+        raise
+    finally:
+        if doc:
+            doc.close()
+
+
+# ==============================================================================
 # OCR処理 (Tesseract / Ollama)
 # ==============================================================================
 
@@ -1474,6 +1554,7 @@ def convert_document_to_pdf(
 # ==============================================================================
 # 付箋ノート出力 補助
 # ==============================================================================
+
 
 def get_sticky_note_css(bg_color: str) -> str:
     """

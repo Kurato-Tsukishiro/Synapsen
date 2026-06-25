@@ -26,6 +26,7 @@ from pdf_utils import (
     high_fidelity_flatten,
     normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
+    extract_pdf_pages,
 )
 
 import logging
@@ -452,6 +453,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         item = {
             "data": item_data,
             "base_name_var": ctk.StringVar(value=base_name),
+            "page_range_var": ctk.StringVar(value=""),
             "original_name": original_name,
             "id": str(len(self.staged_items)),
         }
@@ -527,6 +529,21 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             cursor="fleur",
         )
         preview_label.pack(side="left", padx=(0, 5))
+
+        # 取り込みページ指定用の入力ボックス
+        page_entry = ctk.CTkEntry(
+            bottom_sub_frame,
+            textvariable=item["page_range_var"],
+            width=80,
+            placeholder_text="1, 3-5",
+            font=("", 11),
+            fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+        )
+        # PDF以外なら無効化する
+        if not (isinstance(item_data, Path) and item_data.suffix.lower() == ".pdf"):
+            page_entry.configure(state="disabled")
+
+        page_entry.pack(side="left", padx=(0, 5))
 
         # イベントバインド
         preview_label.bind("<Enter>", lambda e, i=item: self._on_hover_enter(e, i))
@@ -1032,7 +1049,14 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             if base_name != base_name_raw:
                 item["base_name_var"].set(base_name)
 
-            items_to_process.append((item["data"], base_name, type(item["data"])))
+            items_to_process.append(
+                (
+                    item["data"],
+                    base_name,
+                    type(item["data"]),
+                    item["page_range_var"].get().strip(),
+                )
+            )
 
         # 6. 「統合」チェックボックスの状態で処理を分岐
         is_merge_mode = self.merge_files_checkbox.get()
@@ -1128,7 +1152,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
     ):
         total_files = len(items_to_process)
         for i, item_tuple in enumerate(items_to_process):
-            item_data, base_name, original_type = item_tuple
+            item_data, base_name, original_type, pages_str = item_tuple
             status_prefix = f"処理中 ({i+1}/{total_files}):"
             self.parent_app.status_label.configure(text=f"{status_prefix} {base_name}")
             self.parent_app.update_idletasks()
@@ -1144,13 +1168,31 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             output_base_name = re.sub(
                 r"(_hand|_llm)$", "", base_name, flags=re.IGNORECASE
             )
-            final_output_pdf = (
-                dest_path / f"{output_base_name}.pdf"
-            )
+            final_output_pdf = dest_path / f"{output_base_name}.pdf"
 
             temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
             temp_flattened_pdf = temp_dir / f"flat_{base_name}.pdf"
+            temp_extracted_pdf = temp_dir / f"ext_{base_name}.pdf"
             path_to_flatten: Path
+
+            # ページ抽出
+            if (
+                isinstance(item_data, Path)
+                and item_data.suffix.lower() == ".pdf"
+                and pages_str
+            ):
+                self.parent_app.status_label.configure(
+                    text=f"{status_prefix} ページ抽出: {base_name}"
+                )
+                self.parent_app.update_idletasks()
+                try:
+                    if extract_pdf_pages(
+                        str(item_data), str(temp_extracted_pdf), pages_str
+                    ):
+                        item_data = temp_extracted_pdf  # 抽出成功時はパスを差し替え
+                except Exception as e:
+                    logger.warning(f"警告: {base_name} のページ抽出に失敗: {e}")
+                    # 失敗した場合は元のファイルをそのまま使用
 
             if isinstance(item_data, Path) and item_data.suffix.lower() == ".md":
                 try:
@@ -1298,9 +1340,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         output_merged_name = re.sub(
             r"(_hand|_llm)$", "", merged_base_name, flags=re.IGNORECASE
         )
-        final_output_pdf = (
-            dest_path / f"{output_merged_name}.pdf"
-        )
+        final_output_pdf = dest_path / f"{output_merged_name}.pdf"
 
         # 正規化済みPDFを格納する一時サブフォルダ
         normalized_parts_dir = temp_dir / "normalized_parts"
@@ -1310,7 +1350,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         normalized_pdf_paths = []  # 連結するPDFのパスリスト
 
         for i, item_tuple in enumerate(items_to_process):
-            item_data, base_name, original_type = item_tuple
+            item_data, base_name, original_type, pages_str = item_tuple
 
             status_prefix = f"統合準備中 ({i+1}/{total_files}):"
 
@@ -1327,10 +1367,31 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             # 各ステップの一時ファイル
             temp_converted_pdf = temp_dir / f"conv_{i}_{base_name}.pdf"
             temp_flattened_pdf = temp_dir / f"flat_{i}_{base_name}.pdf"
+            temp_extracted_pdf = temp_dir / f"ext_{i}_{base_name}.pdf"
             file_name = f"part_{i:03d}_{base_name}.pdf"
             normalized_part_pdf = normalized_parts_dir / file_name
 
             path_to_flatten: Path
+
+            # 指定ページの取得
+            if (
+                isinstance(item_data, Path)
+                and item_data.suffix.lower() == ".pdf"
+                and pages_str
+            ):
+                self.parent_app.status_label.configure(
+                    text=f"{status_prefix} ページ抽出: {item_original_name}"
+                )
+                self.parent_app.update_idletasks()
+                try:
+                    if extract_pdf_pages(
+                        str(item_data), str(temp_extracted_pdf), pages_str
+                    ):
+                        item_data = temp_extracted_pdf  # 抽出成功時はパスを差し替え
+                except Exception as e:
+                    logger.warning(
+                        f"警告: {item_original_name} のページ抽出に失敗: {e}"
+                    )
 
             # --- 1-A: MD -> PDF ---
             if isinstance(item_data, Path) and item_data.suffix.lower() == ".md":
