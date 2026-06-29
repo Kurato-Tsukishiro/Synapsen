@@ -23,7 +23,7 @@ from pdf_utils import (
     convert_image_to_pdf,
     convert_pil_image_to_pdf,
     convert_document_to_pdf,
-    embed_processing_flag,
+    embed_normalization_metadata,
 )
 
 current_dir = Path(__file__).parent
@@ -175,6 +175,9 @@ class Synapsen_Normalisierer(ctk.CTk):
         # 4. 共通ステータス表示ラベル
         self.status_label = ctk.CTkLabel(self, text="")
         self.status_label.pack(pady=(5, 10), padx=10)
+
+        # --- PDFTagsの読み込み ---
+        self.tags_map = self._load_pdf_tags()
 
         # --- 設定の検証とUIの初期化 ---
         self._validate_config_and_update_ui()
@@ -626,13 +629,25 @@ class Synapsen_Normalisierer(ctk.CTk):
                     },
                 )
 
-                # --- [ステップ5: 処理済みフラグ (メタデータ) 埋め込み] ---
+                # --- [ステップ5: 正規化メタデータ (フラグ・タグ) 埋め込み] ---
+                # ファイル名からタグを抽出
+                extracted_tags = []
+                for match in re.finditer(r"\[(.*?)\]", base_name):
+                    raw_tags = [t.strip() for t in match.group(1).split(",")]
+                    for t in raw_tags:
+                        t_lower = t.lower()
+                        if t_lower in self.tags_map:
+                            extracted_tags.append(self.tags_map[t_lower])
+
                 self.status_label.configure(
-                    text=f"{status_prefix} 処理済フラグ埋込: {output_base_name}"
+                    text=f"{status_prefix} メタデータ埋込: {output_base_name}"
                 )
                 self.update_idletasks()
 
-                embed_processing_flag(str(final_output_pdf))
+                # 包括的なメタデータ埋め込み関数を呼び出し
+                embed_normalization_metadata(
+                    str(final_output_pdf), extra_tags=extracted_tags
+                )
 
             messagebox.showinfo(
                 "完了", f"{total_files}個のPDF/画像/MDファイルの処理が完了しました。"
@@ -651,6 +666,52 @@ class Synapsen_Normalisierer(ctk.CTk):
                     shutil.rmtree(temp_dir)
                 except Exception as e:
                     logger.warning(f"一時フォルダの削除に失敗しました: {e}")
+
+    def _load_pdf_tags(self) -> dict[str, str]:
+        """
+        PDFTags.txt を読み込み、エイリアスを含むタグマッピング辞書を作成します。
+        キーは小文字化されたタグ名・エイリアス、値は正式なタグ名です。
+        """
+        tags_map = {}
+        try:
+            if getattr(sys, "frozen", False):
+                base_path = Path(sys.executable).parent
+            else:
+                base_path = Path(__file__).parent.parent
+
+            tags_file_path = base_path / "PDFTags.txt"
+
+            if not tags_file_path.exists():
+                logger.warning(f"PDFTags.txt が見つかりません: {tags_file_path}")
+                return tags_map
+
+            with open(tags_file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+
+                    # 正式タグ名 [エイリアス1, エイリアス2...] の形式をパース
+                    match = re.match(r"^([^\[\s]+)(?:\s*\[(.*?)\])?\s*$", line)
+                    if match:
+                        main_tag = match.group(1).strip()
+                        # 正式タグ名自身もマップに登録
+                        tags_map[main_tag.lower()] = main_tag
+
+                        aliases_str = match.group(2)
+                        if aliases_str:
+                            for alias in aliases_str.split(","):
+                                alias = alias.strip()
+                                if alias:
+                                    tags_map[alias.lower()] = main_tag
+                    else:
+                        main_tag = line.split()[0].strip()
+                        tags_map[main_tag.lower()] = main_tag
+
+        except Exception as e:
+            logger.error(f"PDFTags.txt の読み込み中にエラーが発生しました: {e}")
+
+        return tags_map
 
 
 if __name__ == "__main__":

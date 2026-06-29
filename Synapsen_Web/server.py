@@ -54,7 +54,7 @@ try:
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
         add_metadata_to_clip,
-        embed_processing_flag,
+        embed_normalization_metadata,
         hex_to_rgb_tuple,
     )
 except ImportError as e:
@@ -398,7 +398,7 @@ def create_sticky(source_key):
             except Exception as e:
                 logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
 
-            embed_processing_flag(str(final_temp_pdf))
+            embed_normalization_metadata(str(final_temp_pdf))
 
             # 5. QRコード埋め込み（引用Keyとして元のノートを設定）
             hex_c = KEY_COLORS.get(index_key.lower(), "#000000")
@@ -582,7 +582,7 @@ def upload():
                     )
 
                     # 二重正規化を防ぐフラグ
-                    embed_processing_flag(str(final_pdf))
+                    embed_normalization_metadata(str(final_pdf))
 
                     # 4. 個別メタデータの埋め込み
                     hex_c = KEY_COLORS.get(current_index_key.lower(), "#000000")
@@ -615,7 +615,7 @@ def upload():
 
             # 結果メッセージの作成
             if success_count > 0:
-                msg = f"{success_count} 個のファイルを個別に正規化して保存しました。",
+                msg = (f"{success_count} 個のファイルを個別に正規化して保存しました。",)
                 if error_count > 0:
                     msg += f" (失敗/除外: {error_count} 個)"
                 flash(msg, "success")

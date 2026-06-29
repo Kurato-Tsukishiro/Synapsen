@@ -1718,7 +1718,7 @@ class Synapsen_Nexus(
                 high_fidelity_flatten,
                 normalize_pdf_to_papersize,
                 add_metadata_to_clip,
-                embed_processing_flag,
+                embed_normalization_metadata,
             )
 
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -1794,7 +1794,7 @@ class Synapsen_Nexus(
                 except Exception as e:
                     logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
 
-                embed_processing_flag(str(final_temp_pdf))
+                embed_normalization_metadata(str(final_temp_pdf))
 
                 # Index Key カラーの取得
                 hex_c = self.key_colors.get(index_key.lower(), "#000000")

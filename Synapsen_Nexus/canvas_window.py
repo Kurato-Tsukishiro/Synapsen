@@ -40,7 +40,7 @@ try:
     from pdf_utils import (  # type: ignore
         add_metadata_to_clip,
         convert_document_to_pdf,
-        embed_processing_flag,
+        embed_normalization_metadata,
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
     )
@@ -2765,7 +2765,7 @@ class CanvasWindow(BaseSubWindow):
                 doc.close()
             except Exception as e:
                 logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
-            embed_processing_flag(str(pdf_path))
+            embed_normalization_metadata(str(pdf_path))
 
             # メタデータ埋め込み
             key_rect_tuple = (0, 13, 391, 73)  # Default
@@ -3465,7 +3465,7 @@ class CanvasWindow(BaseSubWindow):
                     841.89,
                     target_format="A4",
                 )
-                embed_processing_flag(str(output_path))
+                embed_normalization_metadata(str(output_path))
 
                 # 以下、メタデータ埋め込み処理
                 key_rect_tuple = (0, 13, 391, 73)

@@ -102,6 +102,24 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                 # --- Keywords からの自動タグ付けロジック ---
                 keywords = metadata.get("keywords", "") or ""
 
+                # 1. Normalisierer 等で付与されたカスタムタグの抽出
+                if keywords:
+                    # コンマ(,)区切りで保存されているケースも考慮してセミコロンに統一
+                    normalized_keywords = keywords.replace(",", ";")
+                    for kw in normalized_keywords.split(";"):
+                        kw_cleaned = kw.strip()
+                        if not kw_cleaned:
+                            continue
+
+                        # "Synapsen:" および "DPDocType:" で始まる内部/外部システムフラグは除外する
+                        if not (
+                            kw_cleaned.startswith("Synapsen:")
+                            or kw_cleaned.startswith("DPDocType:")
+                        ):
+                            if kw_cleaned not in auto_detected_tags:
+                                auto_detected_tags.append(kw_cleaned)
+
+                # 2. Synapsen システムフラグに基づくタグ付け
                 # Canvas (全体) -> STypes_Canvas
                 if "Synapsen:Whiteboard" in keywords:
                     if "STypes_Canvas" not in auto_detected_tags:
