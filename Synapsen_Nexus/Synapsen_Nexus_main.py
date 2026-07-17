@@ -1647,7 +1647,12 @@ class Synapsen_Nexus(
             ("グレー", "#adadad"),
         ]
 
-        dialog = CreateStickyDialog(self, self.commonplace_keys_options, sticky_colors)
+        dialog = CreateStickyDialog(
+            self,
+            self.commonplace_keys_options,
+            sticky_colors,
+            all_tags=self.predefined_tags,
+        )
         self.wait_window(dialog)
 
         if dialog.result:

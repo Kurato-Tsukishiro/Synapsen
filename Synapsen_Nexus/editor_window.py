@@ -17,6 +17,119 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
+# 共通タグ編集ウィジェット
+# ==============================================================================
+class TagEditorFrame(ctk.CTkFrame):
+    def __init__(self, master, all_tags, initial_tags=None, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.all_tags = all_tags if all_tags else []
+        self.temp_tags = list(initial_tags) if initial_tags else []
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        # 1. Tag Input
+        tag_input_frame = ctk.CTkFrame(self, fg_color="transparent")
+        tag_input_frame.grid(row=0, column=0, pady=5, sticky="ew")
+        tag_input_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(tag_input_frame, text="タグ追加:").grid(row=0, column=0, padx=5)
+        self.tag_entry = ctk.CTkEntry(
+            tag_input_frame,
+            placeholder_text="Enterで追加",
+            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        )
+        self.tag_entry.grid(row=0, column=1, padx=5, sticky="ew")
+        self.tag_entry.bind("<Return>", self.add_tag_event)
+
+        # 2. Tag Buttons
+        tag_button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        tag_button_frame.grid(row=1, column=0, pady=5, sticky="e")
+        ctk.CTkButton(
+            tag_button_frame,
+            text="タグを追加",
+            command=self.add_tag_event,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            tag_button_frame,
+            text="既存タグから選択",
+            command=self.open_tag_selector,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+            text_color="black",
+        ).pack(side="left", padx=5)
+
+        # 3. Current Tags Display
+        self.tags_frame = ctk.CTkScrollableFrame(
+            self,
+            label_text="現在のタグ",
+            fg_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.9),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.1),
+            ),
+        )
+        self.tags_frame.grid(row=2, column=0, pady=(5, 10), sticky="nsew")
+
+        self.update_tags_display()
+
+    def update_tags_display(self):
+        for widget in self.tags_frame.winfo_children():
+            widget.destroy()
+
+        fg = Colors.UI_CANCEL
+        hover = Colors.adjust_brightness(Colors.LABEL_DENGER)
+
+        for tag in sorted(self.temp_tags):
+            tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
+            ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
+            ctk.CTkButton(
+                tag_frame,
+                text="×",
+                width=20,
+                command=lambda t=tag: self.remove_tag(t),
+                fg_color=fg,
+                hover_color=hover,
+            ).pack(side="left", padx=5)
+            tag_frame.pack(anchor="w", pady=2, fill="x")
+
+    def add_tag_event(self, event=None):
+        new_tag = self.tag_entry.get().strip()
+        if new_tag:
+            parts = new_tag.split("_")
+            for i in range(len(parts)):
+                hierarchical_tag = "_".join(parts[: i + 1])
+                if hierarchical_tag not in self.temp_tags:
+                    self.temp_tags.append(hierarchical_tag)
+        self.update_tags_display()
+        self.tag_entry.delete(0, "end")
+
+    def remove_tag(self, tag_to_remove):
+        if tag_to_remove in self.temp_tags:
+            self.temp_tags.remove(tag_to_remove)
+        self.update_tags_display()
+
+    def open_tag_selector(self):
+        def on_nexus_tag_selected(selected_tag):
+            if selected_tag:
+                parts = selected_tag.split("_")
+                for i in range(len(parts)):
+                    hierarchical_tag = "_".join(parts[: i + 1])
+                    if hierarchical_tag not in self.temp_tags:
+                        self.temp_tags.append(hierarchical_tag)
+                self.update_tags_display()
+
+        TagSelectorWindow(
+            self.winfo_toplevel(), self.all_tags, self.temp_tags, on_nexus_tag_selected
+        )
+
+    def get_tags(self):
+        return self.temp_tags
+
+
+# ==============================================================================
 # データ編集ウィンドウ (書き込み可能)
 # ==============================================================================
 class NoteEditorWindow(ctk.CTkToplevel):
@@ -30,8 +143,8 @@ class NoteEditorWindow(ctk.CTkToplevel):
         self.all_tags = all_tags  # Nexusのpredefined_tags
         self.save_callback = save_callback  # 保存時に呼ぶ親の関数
 
-        self.temp_tags = str(self.note_data.get("tags", "")).split(";")
-        self.temp_tags = [tag for tag in self.temp_tags if tag]  # 空文字を除去
+        initial_tags = str(self.note_data.get("tags", "")).split(";")
+        initial_tags = [tag for tag in initial_tags if tag]  # 空文字を除去
 
         # --- アイコン設定 ---
         self._custom_icon_path = None
@@ -130,8 +243,7 @@ class NoteEditorWindow(ctk.CTkToplevel):
         )
         self.summary_count_label.pack(side="top", fill="x")
 
-        summary_text = self.note_data.get("summary", "")
-        self.summary_entry.insert("1.0", summary_text)
+        self.summary_entry.insert("1.0", self.note_data.get("summary", ""))
 
         self.summary_entry.bind("<KeyRelease>", self.update_summary_count)
         self.summary_entry.bind("<KeyPress>", self.forbid_newline_input)
@@ -155,7 +267,6 @@ class NoteEditorWindow(ctk.CTkToplevel):
         self.memo_textbox.insert("1.0", self.note_data.get("memo", ""))
         # 行の重み設定を適用するためにダミー行を挿入
         left_frame.grid_rowconfigure(current_row, weight=1)
-        current_row += 1
 
         # --- 右カラム (Col 1) : タグ関連 ---
 
@@ -163,57 +274,13 @@ class NoteEditorWindow(ctk.CTkToplevel):
         right_frame = ctk.CTkFrame(main_grid_frame, fg_color="transparent")
         right_frame.grid(row=0, column=1, padx=(10, 0), pady=0, sticky="nsew")
         right_frame.grid_columnconfigure(0, weight=1)
-        right_frame.grid_rowconfigure(2, weight=1)  # タグリストに重み
+        right_frame.grid_rowconfigure(0, weight=1)
 
-        right_row = 0
-
-        # 4. Tag Input
-        tag_input_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
-        tag_input_frame.grid(row=right_row, column=0, pady=5, sticky="ew")
-        tag_input_frame.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(tag_input_frame, text="新しいタグ:").grid(row=0, column=0, padx=5)
-        self.tag_entry = ctk.CTkEntry(
-            tag_input_frame,
-            placeholder_text="Enterで追加",
-            fg_color=Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 1.2),
+        # 共通ウィジェットの呼び出し
+        self.tag_editor = TagEditorFrame(
+            right_frame, all_tags=self.all_tags, initial_tags=initial_tags
         )
-        self.tag_entry.grid(row=0, column=1, padx=5, sticky="ew")
-        self.tag_entry.bind("<Return>", self.add_tag_event)
-        right_row += 1
-
-        # 5. Tag Buttons
-        tag_button_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
-        tag_button_frame.grid(row=right_row, column=0, pady=5, sticky="e")
-        ctk.CTkButton(
-            tag_button_frame,
-            text="タグを追加",
-            command=self.add_tag_event,
-            fg_color=Colors.UI_BASIC,
-            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
-            text_color="black",
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            tag_button_frame,
-            text="既存タグから選択",
-            command=self.open_tag_selector,
-            fg_color=Colors.UI_BASIC,
-            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
-            text_color="black",
-        ).pack(side="left", padx=5)
-        right_row += 1
-
-        # 6. Current Tags Display
-        self.tags_frame = ctk.CTkScrollableFrame(
-            right_frame,
-            label_text="現在のタグ",
-            fg_color=(
-                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.9),
-                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 1.1),
-            ),
-        )
-        self.tags_frame.grid(row=right_row, column=0, pady=10, sticky="nsew")
-        right_row += 1
+        self.tag_editor.grid(row=0, column=0, sticky="nsew")
 
         # --- 最下段: 保存/キャンセルボタン ---
         bottom_button_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -234,7 +301,6 @@ class NoteEditorWindow(ctk.CTkToplevel):
             hover_color=Colors.adjust_brightness(Colors.UI_CANCEL),
         ).pack(side="left", padx=5)
 
-        self.update_tags_display()
         self.update_summary_count()
 
     def update_summary_count_modified(self, event=None):
@@ -314,7 +380,7 @@ class NoteEditorWindow(ctk.CTkToplevel):
             "key": self.note_data.get("key"),
             "commonplace_key": self.cp_key_combo.get().strip(),
             "memo": self.memo_textbox.get("1.0", "end-1c").strip(),
-            "tags": self.temp_tags,
+            "tags": self.tag_editor.get_tags(),  # 共通ウィジェットから取得
             "summary": new_summary,
         }
 
@@ -325,57 +391,6 @@ class NoteEditorWindow(ctk.CTkToplevel):
             messagebox.showerror(
                 "保存エラー", f"データベースの更新に失敗しました:\n{e}", parent=self
             )
-
-    # --- タグ編集ヘルパー (gui_dialogs.pyから移植) ---
-
-    def update_tags_display(self):
-        for widget in self.tags_frame.winfo_children():
-            widget.destroy()
-
-        # ボタン色
-        fg = Colors.UI_CANCEL
-        # マウスオーバー時の色 ((Erstellerと異なり)確定済みのタグを削除する為 警告色)
-        hover = Colors.adjust_brightness(Colors.LABEL_DENGER)
-
-        for tag in sorted(self.temp_tags):
-            tag_frame = ctk.CTkFrame(self.tags_frame, fg_color="transparent")
-            ctk.CTkLabel(tag_frame, text=tag).pack(side="left", padx=5)
-            ctk.CTkButton(
-                tag_frame,
-                text="×",
-                width=20,
-                command=lambda t=tag: self.remove_tag(t),
-                fg_color=fg,
-                hover_color=hover,
-            ).pack(side="left", padx=5)
-            tag_frame.pack(anchor="w", pady=2, fill="x")
-
-    def add_tag_event(self, event=None):
-        new_tag = self.tag_entry.get().strip()
-        if new_tag:
-            parts = new_tag.split("_")
-            for i in range(len(parts)):
-                hierarchical_tag = "_".join(parts[: i + 1])
-                if hierarchical_tag not in self.temp_tags:
-                    self.temp_tags.append(hierarchical_tag)
-        self.update_tags_display()
-        self.tag_entry.delete(0, "end")
-
-    def remove_tag(self, tag_to_remove):
-        self.temp_tags.remove(tag_to_remove)
-        self.update_tags_display()
-
-    def open_tag_selector(self):
-        def on_nexus_tag_selected(selected_tag):
-            if selected_tag:
-                parts = selected_tag.split("_")
-                for i in range(len(parts)):
-                    hierarchical_tag = "_".join(parts[: i + 1])
-                    if hierarchical_tag not in self.temp_tags:
-                        self.temp_tags.append(hierarchical_tag)
-                self.update_tags_display()
-
-        TagSelectorWindow(self, self.all_tags, self.temp_tags, on_nexus_tag_selected)
 
     def iconbitmap(self, *args, **kwargs):
         if self._custom_icon_path:
@@ -398,17 +413,15 @@ class TagSelectorWindow(ctk.CTkToplevel):
         super().__init__(parent)
 
         self._custom_icon_path = None
-        if (
-            hasattr(parent, "parent_app")
-            and hasattr(parent.parent_app, "icon_path")
-            and parent.parent_app.icon_path
-        ):
-            self._custom_icon_path = str(parent.parent_app.icon_path)
-            if self._custom_icon_path:
-                try:
-                    super().iconbitmap(self._custom_icon_path)
-                except Exception as e:
-                    logger.error(f"Initial icon set error (TagSelector): {e}")
+
+        # --- アイコン設定 (自動探索) ---
+        self._custom_icon_path = self._find_icon_path(parent)
+
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception as e:
+                logger.error(f"Initial icon set error (TagSelector): {e}")
 
         self.callback = callback
         self.title("既存のタグを選択")
@@ -463,3 +476,28 @@ class TagSelectorWindow(ctk.CTkToplevel):
                 super().iconbitmap(*args, **kwargs)
             except Exception:
                 pass
+
+    def _find_icon_path(self, start_widget):
+        """親階層を辿って icon_path を自動探索するヘルパー"""
+        current = start_widget
+        visited = set()
+
+        while current and id(current) not in visited:
+            visited.add(id(current))
+
+            if hasattr(current, "icon_path") and current.icon_path:
+                return str(current.icon_path)
+            if hasattr(current, "_custom_icon_path") and current._custom_icon_path:
+                return str(current._custom_icon_path)
+
+            # 次の親へ遡る
+            if hasattr(current, "parent_app") and current.parent_app:
+                current = current.parent_app
+            elif hasattr(current, "parent") and current.parent:
+                current = current.parent
+            elif hasattr(current, "master") and current.master:
+                current = current.master
+            else:
+                break
+
+        return None
