@@ -3518,6 +3518,18 @@ class CanvasWindow(BaseSubWindow):
                 except ValueError:
                     refs_qr_size_pt = 75
 
+                notes_list_lines = [
+                    f"- [[{key}: {info.get('title', '無題')}]]"
+                    for key, info in self.notes_on_canvas.items()
+                ]
+                notes_list_str = "\n".join(notes_list_lines)
+
+                # 最終ページ（コメント部）に記載するテキストを組み立てます。
+                comment_text = f"Canvas Export: {title}"
+                if notes_list_str:
+                    # ノートが存在する場合は一覧を追記します
+                    comment_text += f"\n\n[使用ノート一覧]\n{notes_list_str}"
+
                 add_metadata_to_clip(
                     pdf_path_str=str(output_path),
                     font_path=str(font_path),
@@ -3526,7 +3538,7 @@ class CanvasWindow(BaseSubWindow):
                     key_rect_tuple=key_rect_tuple,
                     index_key_to_embed=index_key,
                     text_color=text_color,
-                    comment_to_embed=f"Canvas Export: {title}",
+                    comment_to_embed=comment_text,
                     base_name=output_path.stem,
                     cited_keys_list=cited_keys,
                     refs_qr_size_pt=refs_qr_size_pt,
