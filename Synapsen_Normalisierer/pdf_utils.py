@@ -75,10 +75,16 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
         return None
 
 
-def embed_processing_flag(pdf_path_str: str) -> None:
+def embed_normalization_metadata(
+    pdf_path_str: str, extra_tags: list[str] = None
+) -> None:
     """
-    PDFのメタデータ(Keywords)に 'Synapsen:SkipNormalization' を追記します。
-    これにより、次回以降の正規化処理でサイズ変更がスキップされます。
+    PDFのメタデータ(Keywords)に 次回以降の正規化処理でサイズ変更をスキップするフラグ'Synapsen:SkipNormalization' を追記し、
+    同時にファイル名から抽出された追加タグ (extra_tags) も埋め込みます。
+
+    Args:
+        pdf_path_str (str): 対象PDFファイルのパス。
+        extra_tags (list[str], optional): 埋め込む追加タグのリスト。
     """
     doc = None
     try:
@@ -88,23 +94,34 @@ def embed_processing_flag(pdf_path_str: str) -> None:
 
         skip_flag = "Synapsen:SkipNormalization"
 
-        # まだフラグがない場合のみ追記
-        if skip_flag not in keywords:
-            new_keywords = f"{keywords}; {skip_flag}" if keywords else skip_flag
+        # 既存のキーワードをリスト化
+        keywords_list = [k.strip() for k in keywords.split(";") if k.strip()]
 
-            # fitzのset_metadataは辞書全体を渡す必要があるためコピーして更新
-            new_metadata = current_metadata.copy()
-            new_metadata["keywords"] = new_keywords
+        # まだ正規化スキップフラグがない場合のみ追記
+        if skip_flag not in keywords_list:
+            keywords_list.append(skip_flag)
 
-            doc.set_metadata(new_metadata)
+        # 抽出された追加タグを結合
+        if extra_tags:
+            for tag in extra_tags:
+                if tag not in keywords_list:
+                    keywords_list.append(tag)
 
-            # 増分保存 (高速かつ安全)
-            doc.saveIncr()
+        new_keywords = "; ".join(keywords_list)
+
+        # メタデータ辞書を更新して適用
+        new_metadata = current_metadata.copy()
+        new_metadata["keywords"] = new_keywords
+
+        doc.set_metadata(new_metadata)
+
+        # 増分保存 (高速かつ安全)
+        doc.saveIncr()
 
     except Exception as e:
         # メタデータ付与に失敗しても処理自体は止めない（ログのみ）
         logger.warning(
-            f"Warning: Failed to embed processing flag to {pdf_path_str}: {e}",
+            f"Warning: Failed to embed normalization metadata to {pdf_path_str}: {e}",
             extra={"sensitive": True},
         )
     finally:

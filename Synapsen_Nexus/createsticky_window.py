@@ -4,7 +4,6 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-
 # --- プロジェクト内モジュールのパス設定 ---
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
@@ -18,7 +17,7 @@ if str(normalisierer_dir) not in sys.path:
 # --- プロジェクト内モジュールのインポート ---
 from logging_setup import setup_logging  # noqa: E402
 from theme import SemanticColors as Colors  # noqa: E402
-
+from editor_window import TagEditorFrame  # noqa: E402
 
 # --- ロガー設定 ---
 logger = logging.getLogger("Nexus")
@@ -29,22 +28,21 @@ if not logger.handlers:
 class CreateStickyDialog(ctk.CTkToplevel):
     """付箋ノート化するファイルと設定を選択するダイアログ"""
 
-    def __init__(self, parent, key_options, sticky_colors):
+    def __init__(self, parent, key_options, sticky_colors, all_tags=None):
         super().__init__(parent)
         self.parent_app = parent
 
-        # --- アイコン設定 ---
-        self._custom_icon_path = None
-        if hasattr(parent, "icon_path") and parent.icon_path:
-            self._custom_icon_path = str(parent.icon_path)
-            if self._custom_icon_path:
-                try:
-                    super().iconbitmap(self._custom_icon_path)
-                except Exception as e:
-                    logger.error(f"Initial icon set error: {e}")
+        # --- アイコン設定 (自動探索) ---
+        self._custom_icon_path = self._find_icon_path(parent)
+
+        if self._custom_icon_path:
+            try:
+                super().iconbitmap(self._custom_icon_path)
+            except Exception as e:
+                logger.error(f"Initial icon set error: {e}")
 
         self.title("付箋ノート作成")
-        self.geometry("500x360")
+        self.geometry("500x600")
         self.configure(
             fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
         )
@@ -53,8 +51,10 @@ class CreateStickyDialog(ctk.CTkToplevel):
 
         self.result = None
         self.file_path = None
+        self.all_tags = all_tags or []
 
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(7, weight=1)
 
         # ファイル選択 UI
         ctk.CTkLabel(self, text="付箋にするファイル (MD, TXT等):", anchor="w").grid(
@@ -117,9 +117,13 @@ class CreateStickyDialog(ctk.CTkToplevel):
             r, c = divmod(i, 3)
             btn.grid(row=r, column=c, padx=5, pady=5, sticky="w")
 
+        # タグUI
+        self.tag_editor = TagEditorFrame(self, all_tags=self.all_tags)
+        self.tag_editor.grid(row=7, column=0, padx=20, pady=(0, 15), sticky="nsew")
+
         # ボタン
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=7, column=0, padx=20, pady=10, sticky="e")
+        btn_frame.grid(row=8, column=0, padx=20, pady=10, sticky="e")
         ctk.CTkButton(
             btn_frame,
             text="キャンセル",
@@ -151,6 +155,31 @@ class CreateStickyDialog(ctk.CTkToplevel):
             except Exception:
                 pass
 
+    def _find_icon_path(self, start_widget):
+        """親階層を辿って icon_path を自動探索するヘルパー"""
+        current = start_widget
+        visited = set()  # 無限ループ防止用
+
+        while current and id(current) not in visited:
+            visited.add(id(current))
+
+            if hasattr(current, "icon_path") and current.icon_path:
+                return str(current.icon_path)
+            if hasattr(current, "_custom_icon_path") and current._custom_icon_path:
+                return str(current._custom_icon_path)
+
+            # 次の親へ遡る (優先順位: parent_app -> parent -> master)
+            if hasattr(current, "parent_app") and current.parent_app:
+                current = current.parent_app
+            elif hasattr(current, "parent") and current.parent:
+                current = current.parent
+            elif hasattr(current, "master") and current.master:
+                current = current.master
+            else:
+                break
+
+        return None
+
     def select_file(self):
         from tkinter import filedialog
 
@@ -173,5 +202,6 @@ class CreateStickyDialog(ctk.CTkToplevel):
             "file_path": self.file_path,
             "index_key": self.key_combo.get(),
             "bg_color": self.color_var.get(),
+            "tags": self.tag_editor.get_tags(),
         }
         self.destroy()

@@ -35,12 +35,13 @@ from Synapsen_Nexus.utils import (  # noqa: E402
     _extract_links,
     touch_note_timestamp,
 )
+from editor_window import TagEditorFrame  # noqa: E402
 
 try:
     from pdf_utils import (  # type: ignore
         add_metadata_to_clip,
         convert_document_to_pdf,
-        embed_processing_flag,
+        embed_normalization_metadata,
         high_fidelity_flatten,
         normalize_pdf_to_papersize,
     )
@@ -240,10 +241,11 @@ class ConversionDialog(BaseSubWindow):
         parent,
         default_title,
         key_options,
+        all_tags=None,
         initial_color="#FFFFA5",
         show_color_option=True,
     ):
-        geometry = "500x350" if show_color_option else "500x250"
+        geometry = "500x550" if show_color_option else "500x480"
         super().__init__(parent, title="詳細設定", geometry=geometry)
         self.configure(
             fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW)
@@ -251,6 +253,7 @@ class ConversionDialog(BaseSubWindow):
         self.grab_set()
         self.result = None
         self.key_options = key_options
+        self.all_tags = all_tags or []
         self.show_color_option = show_color_option
         self.selected_color = tk.StringVar(value=initial_color)
 
@@ -333,7 +336,15 @@ class ConversionDialog(BaseSubWindow):
                 r, c = divmod(i, 3)
                 btn.grid(row=r, column=c, padx=5, pady=5, sticky="w")
 
-        # 4. ボタン
+        # 4. タグ編集
+        self.tag_editor = TagEditorFrame(self, all_tags=self.all_tags)
+        self.tag_editor.grid(
+            row=current_row, column=0, padx=20, pady=(0, 15), sticky="ew"
+        )
+        self.grid_rowconfigure(current_row, weight=1)
+        current_row += 1
+
+        # 5. ボタン
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=current_row, column=0, padx=20, pady=10, sticky="e")
 
@@ -362,12 +373,13 @@ class ConversionDialog(BaseSubWindow):
         if not title:
             title = "NOTITLE"
         key = self.key_combo.get()
+        tags = self.tag_editor.get_tags()
 
         if self.show_color_option:
             color = self.selected_color.get()
-            self.result = (title, key, color)
+            self.result = (title, key, color, tags)
         else:
-            self.result = (title, key)
+            self.result = (title, key, tags)
         self.destroy()
 
 
@@ -2579,18 +2591,20 @@ class CanvasWindow(BaseSubWindow):
         default_title = sticky_obj.get("title", "NOTITLE")
         current_color = sticky_obj.get("bg_color", "#FFFFA5")
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
+        all_tags = getattr(self.parent_app, "predefined_tags", [])
 
         dialog = ConversionDialog(
             self,
             default_title,
             key_options,
+            all_tags=all_tags,
             initial_color=current_color,
             show_color_option=True,
         )
         self.wait_window(dialog)
 
         if dialog.result:
-            title, key, color = dialog.result
+            title, key, color, tags = dialog.result
             content = sticky_obj.get("content", "")
 
             # --- 引用Keyの自動収集 ---
@@ -2605,8 +2619,9 @@ class CanvasWindow(BaseSubWindow):
             cited_keys = sorted(list(connected_keys | text_links))
             # -----------------------
 
-            # 引数に cited_keys を追加して呼び出し
-            self._process_md_pdf_creation(title, content, key, color, cited_keys)
+            self._process_md_pdf_creation(
+                title, content, key, color, cited_keys, tags=tags
+            )
 
     def _convert_selected_stickies_pipeline(self):
         combined_content = ""
@@ -2621,18 +2636,20 @@ class CanvasWindow(BaseSubWindow):
             return
 
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
+        all_tags = getattr(self.parent_app, "predefined_tags", [])
 
         dialog = ConversionDialog(
             self,
             "付箋の結合",
             key_options,
+            all_tags=all_tags,
             initial_color="#FFFFA5",
             show_color_option=True,
         )
         self.wait_window(dialog)
 
         if dialog.result:
-            title, key, color = dialog.result
+            title, key, color, tags = dialog.result
 
             all_cited_keys = set()  # 全ての付箋から引用Keyを収集するセット
 
@@ -2654,9 +2671,14 @@ class CanvasWindow(BaseSubWindow):
             # 重複を除いてソート・リスト化
             cited_keys = sorted(list(all_cited_keys))
 
-            # PDF生成処理へ渡す (cited_keysを追加)
+            # PDF生成処理へ渡す
             self._process_md_pdf_creation(
-                title, combined_content, key, color, cited_keys
+                title,
+                combined_content,
+                key,
+                color,
+                cited_keys=cited_keys,
+                tags=tags,
             )
 
     def _get_connected_keys_for_item(self, item_type, item_key):
@@ -2677,7 +2699,7 @@ class CanvasWindow(BaseSubWindow):
         return connected_keys
 
     def _process_md_pdf_creation(
-        self, title, content, index_key, bg_color, cited_keys=None
+        self, title, content, index_key, bg_color, cited_keys=None, tags=None
     ):
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
@@ -2752,20 +2774,22 @@ class CanvasWindow(BaseSubWindow):
             try:
                 doc = fitz.open(pdf_path)
                 meta = doc.metadata
+
                 # 既存のキーワードを取得し、識別子を追記
                 current_keywords = meta.get("keywords", "")
-                new_keywords = (
-                    f"{current_keywords}; Synapsen:Sticky"
-                    if current_keywords
-                    else "Synapsen:Sticky"
-                )
-                meta["keywords"] = new_keywords
+                new_keywords_list = [
+                    k.strip() for k in current_keywords.split(";") if k.strip()
+                ]
+                new_keywords_list.append("Synapsen:Sticky")
+                new_keywords_list.extend(tags)
+
+                meta["keywords"] = "; ".join(new_keywords_list)
                 doc.set_metadata(meta)
                 doc.saveIncr()  # 増分保存
                 doc.close()
             except Exception as e:
                 logger.warning(f"付箋識別子の埋め込みに失敗: {e}")
-            embed_processing_flag(str(pdf_path))
+            embed_normalization_metadata(str(pdf_path))
 
             # メタデータ埋め込み
             key_rect_tuple = (0, 13, 391, 73)  # Default
@@ -2796,7 +2820,7 @@ class CanvasWindow(BaseSubWindow):
                 base_name=base_name,
                 cited_keys_list=cited_keys,
                 refs_qr_size_pt=refs_qr_size_pt,
-                extra_keywords=["Synapsen:Sticky"],
+                extra_keywords=["Synapsen:Sticky"] + tags,
             )
             folder_name = "Inbox" if has_output_dir else "Nexus_Output"
             messagebox.showinfo(
@@ -3178,15 +3202,21 @@ class CanvasWindow(BaseSubWindow):
     def export_canvas_dialog(self):
         """PDFとしてエクスポート"""
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
+        all_tags = getattr(self.parent_app, "predefined_tags", [])
+
         dialog = ConversionDialog(
-            self, "Canvas_Export", key_options, show_color_option=False
+            self,
+            "Canvas_Export",
+            key_options,
+            all_tags=all_tags,
+            show_color_option=False,
         )
         self.wait_window(dialog)
 
         if not dialog.result:
             return
 
-        title_input, index_key_input = dialog.result
+        title_input, index_key_input, tags = dialog.result
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title_input)
         initial_file = f"{now_str}_{safe_title}.pdf"
@@ -3221,7 +3251,9 @@ class CanvasWindow(BaseSubWindow):
         )
         if file_path:
             try:
-                self._export_to_file(Path(file_path), title_input, index_key_input)
+                self._export_to_file(
+                    Path(file_path), title_input, index_key_input, tags=tags
+                )
                 messagebox.showinfo(
                     "完了", f"出力が完了しました:\n{Path(file_path).name}", parent=self
                 )
@@ -3273,7 +3305,7 @@ class CanvasWindow(BaseSubWindow):
         hex_color = hex_color.lstrip("#")
         return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
 
-    def _export_to_file(self, output_path, title, index_key):
+    def _export_to_file(self, output_path, title, index_key, tags=None):
         # 1. コンテンツ領域の計算 (既存ロジック)
         min_x, min_y, max_x, max_y = (
             float("inf"),
@@ -3312,9 +3344,11 @@ class CanvasWindow(BaseSubWindow):
         page = doc.new_page(width=content_w, height=content_h)
 
         # メタデータ設定 (PDF用)
+        tags = tags or []
+
         doc.set_metadata(
             {
-                "keywords": "Synapsen:Whiteboard",
+                "keywords": "Synapsen:Whiteboard; " + "; ".join(tags),
                 "creator": "Synapsen Canvas",
                 "title": title,
             }
@@ -3465,7 +3499,7 @@ class CanvasWindow(BaseSubWindow):
                     841.89,
                     target_format="A4",
                 )
-                embed_processing_flag(str(output_path))
+                embed_normalization_metadata(str(output_path))
 
                 # 以下、メタデータ埋め込み処理
                 key_rect_tuple = (0, 13, 391, 73)
@@ -3496,5 +3530,5 @@ class CanvasWindow(BaseSubWindow):
                     base_name=output_path.stem,
                     cited_keys_list=cited_keys,
                     refs_qr_size_pt=refs_qr_size_pt,
-                    extra_keywords=["Synapsen:Whiteboard"],
+                    extra_keywords=["Synapsen:Whiteboard"] + tags,
                 )
