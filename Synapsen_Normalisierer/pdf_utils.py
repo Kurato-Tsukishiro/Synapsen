@@ -1251,6 +1251,73 @@ PANDOC_INPUT_FORMATS = {
 }
 
 
+def preprocess_markdown_page_breaks(markdown_text: str) -> str:
+    """
+    マークダウンテキストに改ページ用のスタイルとタグを適用します。
+    付箋機能の構成 (# {title} -> # [内容]) を考慮し、意図しない改ページを防ぎます。
+
+    Args:
+        markdown_text (str): 変換元のマークダウンテキスト
+
+    Returns:
+        str: 改ページ処理用のCSSおよびHTMLタグが適用されたマークダウンテキスト
+    """
+    # 1. 独自タグ <!-- BP --> を改ページ用のdiv要素に置換
+    # (^|\n) を用いて、テキストの先頭または改行の直後にある場合のみマッチさせます。
+    # これにより、文中にインラインで記述された解説用の <!-- BP --> が誤って改ページされるのを防ぎます。
+    # \n* で元の改行を吸収し、明示的に \n\n を挿入してMarkdownパーサーの誤認も防ぎます。
+    processed_text = re.sub(
+        r"(^|\n)([ \t]*)<!--\s*BP\s*-->\s*\n*",
+        r'\1\2<div class="page-break"></div>\n\n',
+        markdown_text,
+        flags=re.IGNORECASE,
+    )
+
+    # 2. 付箋の「# [内容]」に対する改ページ無効化
+    processed_text = re.sub(
+        r"^#\s+\[内容\]\s*\n*",
+        r'<h1 class="no-page-break">[内容]</h1>\n\n',
+        processed_text,
+        flags=re.MULTILINE,
+    )
+
+    # 3. 見出し1 (#) の改ページ制御と、独自クラス用のCSS定義
+    css_injection = """
+<style>
+    /* 見出しレベル1の直前で改ページ */
+    h1 {
+        page-break-before: always;
+        break-before: page;
+    }
+    /* ただし、ドキュメント内で最初の見出しレベル1の場合は改ページを無効化 */
+    h1:first-of-type {
+        page-break-before: avoid;
+        break-before: auto;
+    }
+
+    /* 付箋機能での「# [内容]」自身の改ページを強制無効化 */
+    h1.no-page-break {
+        page-break-before: avoid !important;
+        break-before: auto !important;
+    }
+
+    /* 「# [内容]」の直後に見出しレベル1が来た場合、連鎖的な改ページを無効化 */
+    h1.no-page-break + h1 {
+        page-break-before: avoid !important;
+        break-before: auto !important;
+    }
+
+    /* 独自タグ <!-- BP --> 用の改ページクラス */
+    .page-break {
+        page-break-before: always;
+        break-before: page;
+    }
+</style>
+"""
+    # 処理したテキストの末尾にCSSを追加して返す
+    return processed_text + "\n" + css_injection
+
+
 def convert_document_to_pdf(
     input_path: Path,
     output_pdf_path: Path,
@@ -1319,6 +1386,10 @@ def convert_document_to_pdf(
                 modified_content,
                 flags=re.MULTILINE,
             )
+
+            # --- 改ページ処理 (見出し1と独自タグ) の適用 ---
+            # 他のMarkdown固有の処理が終わった最後に呼び出し、最終的なHTML/CSSを付与する
+            modified_content = preprocess_markdown_page_breaks(modified_content)
 
         # テキストファイルの場合
         elif file_suffix == ".txt":
