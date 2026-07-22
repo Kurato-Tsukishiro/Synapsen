@@ -38,7 +38,7 @@ from logging_setup import setup_logging         # noqa: E402
 # 定数定義
 # ==============================================================================
 # 現在のDBのスキーマバージョン
-CURRET_SCHEMA_VERSION = 1.2
+CURRET_SCHEMA_VERSION = 2.0
 
 # ==============================================================================
 # ロギング設定の初期化
@@ -607,8 +607,7 @@ class Synapsen_Ersteller(ctk.CTk):
             """
             cursor.execute(create_fts_sql)
 
-            trigger_sql = dedent(
-                """
+            trigger_sql = dedent("""
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_insert
                 AFTER INSERT ON notes
             BEGIN
@@ -639,27 +638,22 @@ class Synapsen_Ersteller(ctk.CTk):
                 VALUES (new.key, new.key, new.title,
                         new.memo, new.tags, new.full_text, new.summary);
             END;
-        """
-            )
+        """)
             cursor.executescript(trigger_sql)
 
             # --- リンクテーブル作成 ▼▼▼ ---
-            cursor.execute(
-                """
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS note_links (
                 source_key TEXT NOT NULL,
                 target_key TEXT NOT NULL,
                 PRIMARY KEY (source_key, target_key)
             )
-            """
-            )
+            """)
 
-            cursor.execute(
-                """
+            cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_target_key
                 ON note_links (target_key)
-            """
-            )
+            """)
 
             conn.commit()
 
@@ -1290,6 +1284,30 @@ class Synapsen_Ersteller(ctk.CTk):
                     try:
                         src_doc = fitz.open(note_path)
 
+                        # Canvasデータの抽出と処理
+                        import re
+
+                        note_key = note.get("key")
+                        canvas_dict = None
+
+                        # SubjectのメタデータからCanvasデータを抽出
+                        src_meta = src_doc.metadata
+                        src_subj = src_meta.get("subject", "") or ""
+                        json_match = re.search(
+                            r"<synapsen>(.*?)</synapsen>", src_subj, re.DOTALL
+                        )
+                        if json_match:
+                            try:
+                                meta_data = json.loads(json_match.group(1))
+                                if "canvas_data" in meta_data:
+                                    canvas_dict = meta_data["canvas_data"]
+                            except Exception as ce:
+                                logger.warning(
+                                    f"ノート {note_key} のSubjectからCanvasデータのパースに失敗: {ce}"
+                                )
+
+                        note["canvas_data"] = canvas_dict
+
                         for src_pno in range(len(src_doc)):
                             if current_doc_page_cursor >= index_start_page_idx:
                                 break
@@ -1398,6 +1416,7 @@ class Synapsen_Ersteller(ctk.CTk):
                             "merged_pdf_filename": note.get("merged_pdf_filename"),
                             "summary": note.get("summary") or "",  # 修正: None回避
                             "updated_at": note.get("updated_at") or "",
+                            "canvas_data": note.get("canvas_data") or None,
                         }
                         metadata_to_embed.append(clean_note)
 
@@ -1437,6 +1456,51 @@ class Synapsen_Ersteller(ctk.CTk):
                 # --- G. DB/CSV保存 ---
                 if self.auto_append_db and self.default_db_path:
                     self.append_to_master_db(updated_notes_info)
+
+                    # CanvasデータをDBに保存
+                    # Canvasデータは、notesテーブルではなく、専用テーブルに保存する
+                    # notesテーブルは検索に使用するデータであり、Canvasデータは検索に使用しない重いデータである
+                    # 従って、表示・検索への影響を防ぐ為にテーブルを分ける必要がある。
+                    try:
+                        conn = sqlite3.connect(self.default_db_path)
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS canvas_metadata (
+                            key TEXT PRIMARY KEY,
+                            canvas_data TEXT,
+                            updated_at TEXT
+                        )
+                        """)
+                        canvas_count = 0
+                        for note in updated_notes_info:
+                            k = note.get("key")
+                            v = note.get("canvas_data")
+                            if k and v:
+                                cursor.execute(
+                                    """
+                                INSERT OR REPLACE INTO canvas_metadata (
+                                    key,
+                                    canvas_data,
+                                    updated_at)
+                                VALUES (?, ?, ?)
+                                """,
+                                    (
+                                        k,
+                                        json.dumps(v, ensure_ascii=False),
+                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    ),
+                                )
+                                canvas_count += 1
+                        conn.commit()
+                        if canvas_count > 0:
+                            logger.info(
+                                f"{canvas_count} 件のCanvasデータをDBに保存しました。"
+                            )
+                    except Exception as dbe:
+                        logger.error(f"CanvasデータのDB保存に失敗: {dbe}")
+                    finally:
+                        if conn:
+                            conn.close()
 
                 if self.create_individual_csv:
                     self.save_merged_index_csv(updated_notes_info, current_save_path)

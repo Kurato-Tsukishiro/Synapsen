@@ -210,11 +210,24 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
             schema_ver = 1.0
             notes_list = []
+            self.extracted_canvas_data = {}
 
             if isinstance(json_data, dict):
                 schema_ver = json_data.get("schema_version", 1.0)
                 notes_list = json_data.get("notes_data", [])
+
+                # 各ノートオブジェクトから canvas_data を抽出
+                for note in notes_list:
+                    k = note.get("key")
+                    c = note.get("canvas_data")
+                    if k and c:
+                        self.extracted_canvas_data[k] = c
+
                 self.log(f"スキーマバージョン: {schema_ver} (新形式) を検出。")
+                if self.extracted_canvas_data:
+                    self.log(
+                        f"キャンバスバックアップデータ: {len(self.extracted_canvas_data)} 件を検出。"
+                    )
             elif isinstance(json_data, list):
                 schema_ver = 1.0  # スキーマを実装する前のノートはスキーマ1.0とみなす
                 notes_list = json_data
@@ -384,8 +397,7 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             cursor.execute(create_fts_sql)
 
             # 3. 自動同期トリガー
-            trigger_sql = dedent(
-                """
+            trigger_sql = dedent("""
             CREATE TRIGGER IF NOT EXISTS trg_notes_after_insert
                 AFTER INSERT ON notes
             BEGIN
@@ -416,26 +428,21 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                 VALUES (new.key, new.key, new.title,
                         new.memo, new.tags, new.full_text, new.summary);
             END;
-        """
-            )
+        """)
             cursor.executescript(trigger_sql)
 
             # 4. リンクテーブル
-            cursor.execute(
-                """
+            cursor.execute("""
             CREATE TABLE IF NOT EXISTS note_links (
                 source_key TEXT NOT NULL,
                 target_key TEXT NOT NULL,
                 PRIMARY KEY (source_key, target_key)
             )
-            """
-            )
-            cursor.execute(
-                """
+            """)
+            cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_target_key
                 ON note_links (target_key)
-            """
-            )
+            """)
 
             conn.commit()
 
@@ -507,6 +514,36 @@ class DBRecoveryWindow(ctk.CTkToplevel):
             self.log(
                 f"[リンク更新] 全 {count_links_processed} 件のリンク情報を反映しました。"
             )
+
+            # --- 3. Canvasメタデータの復旧 ---
+            if hasattr(self, "extracted_canvas_data") and self.extracted_canvas_data:
+                self.log("キャンバスデータの復元中...")
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS canvas_metadata (
+                    key TEXT PRIMARY KEY,
+                    canvas_data TEXT,
+                    updated_at TEXT
+                )
+                """)
+                from datetime import datetime
+
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for k, v in self.extracted_canvas_data.items():
+                    cursor.execute(
+                        """
+                    INSERT OR REPLACE INTO canvas_metadata (
+                        key,
+                        canvas_data,
+                        updated_at
+                        )
+                    VALUES (?, ?, ?)
+                    """,
+                        (k, json.dumps(v, ensure_ascii=False), now_str),
+                    )
+                conn.commit()
+                self.log(
+                    f"[キャンバス復元] {len(self.extracted_canvas_data)} 件のキャンバスデータを反映しました。"
+                )
 
             if skipped_count > 0:
                 self.log(
