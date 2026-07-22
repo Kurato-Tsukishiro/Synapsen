@@ -9,6 +9,7 @@ from pytesseract import Output
 import csv
 import shutil
 import re
+import urllib.parse
 import subprocess
 import qrcode
 import json
@@ -1318,6 +1319,105 @@ def preprocess_markdown_page_breaks(markdown_text: str) -> str:
     return processed_text + "\n" + css_injection
 
 
+def resolve_markdown_image_paths(markdown_text: str, base_dir: Path) -> str:
+    """
+    Markdownテキスト内の相対パスで指定された画像リンクを絶対パスに変換する。
+
+    Pandocの読み込みエラーを防ぐため、パーセントエンコーディングを解除した
+    プレーンなPOSIXパス(スラッシュ区切り)を使用します。
+
+    Args:
+        markdown_text (str): 元のMarkdownテキスト
+        base_dir (Path): 相対パスの基準となるディレクトリ
+
+    Returns:
+        str: 画像パスが解決されたMarkdownテキスト
+    """
+
+    def replacer_md(match: re.Match) -> str:
+        alt_text = match.group(1)
+        img_path = match.group(2)
+
+        # 既に絶対URL(http, https, data等)の場合はスキップ
+        if re.match(r"^(http|https|data):", img_path, re.IGNORECASE):
+            return match.group(0)
+
+        # URLエンコードされている可能性を考慮しデコード
+        decoded_path = urllib.parse.unquote(img_path)
+
+        # 'file://' プレフィックスがあれば除去してローカルパスとして扱う
+        if decoded_path.lower().startswith("file://"):
+            parsed_path = decoded_path[7:]
+            # Windowsの絶対パス (/C:/...) の先頭スラッシュを除去
+            if (
+                parsed_path.startswith("/")
+                and len(parsed_path) > 2
+                and parsed_path[2] == ":"
+            ):
+                parsed_path = parsed_path[1:]
+            path_obj = Path(parsed_path)
+        else:
+            path_obj = Path(decoded_path)
+
+        # 絶対パス化
+        if path_obj.is_absolute():
+            absolute_path = path_obj.resolve()
+        else:
+            absolute_path = (base_dir / path_obj).resolve()
+
+        # posix形式（スラッシュ区切り）の絶対パスを取得。
+        # Pandocのパースエラーを防ぐため、パーセントエンコーディングは行わない
+        posix_path = absolute_path.as_posix()
+
+        # パスに空白が含まれる場合は、Pandocが正しく解釈できるよう山括弧で囲む
+        if " " in posix_path:
+            return f"![{alt_text}](<{posix_path}>)"
+        else:
+            return f"![{alt_text}]({posix_path})"
+
+    def replacer_html(match: re.Match) -> str:
+        prefix = match.group(1)
+        img_path = match.group(2)
+        suffix = match.group(3)
+
+        if re.match(r"^(http|https|data):", img_path, re.IGNORECASE):
+            return match.group(0)
+
+        decoded_path = urllib.parse.unquote(img_path)
+
+        if decoded_path.lower().startswith("file://"):
+            parsed_path = decoded_path[7:]
+            if (
+                parsed_path.startswith("/")
+                and len(parsed_path) > 2
+                and parsed_path[2] == ":"
+            ):
+                parsed_path = parsed_path[1:]
+            path_obj = Path(parsed_path)
+        else:
+            path_obj = Path(decoded_path)
+
+        if path_obj.is_absolute():
+            absolute_path = path_obj.resolve()
+        else:
+            absolute_path = (base_dir / path_obj).resolve()
+
+        posix_path = absolute_path.as_posix()
+
+        # HTMLのsrc属性はクォーテーションで囲まれているため、空白があっても安全
+        return f"{prefix}file:///{posix_path}{suffix}"
+
+    # 1. Markdownの画像構文: ![alt](path) にマッチ
+    md_pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
+    resolved_text = re.sub(md_pattern, replacer_md, markdown_text)
+
+    # 2. HTMLの画像タグ: <img src="path"> にマッチ
+    html_pattern = r'(<img[^>]+src=[\'"])([^"\']+)([\'"][^>]*>)'
+    resolved_text = re.sub(html_pattern, replacer_html, resolved_text)
+
+    return resolved_text
+
+
 def convert_document_to_pdf(
     input_path: Path,
     output_pdf_path: Path,
@@ -1386,6 +1486,12 @@ def convert_document_to_pdf(
                 modified_content,
                 flags=re.MULTILINE,
             )
+
+            # --- 画像の相対パスを絶対URIに解決 ---
+            # MarkdownやHTMLの画像パス指定を、入力ファイルの親ディレクトリを基準に絶対URIへ変換します。
+            # ※ `input_path` から基準ディレクトリを算出して関数に渡します。
+            base_dir = Path(input_path).parent
+            modified_content = resolve_markdown_image_paths(modified_content, base_dir)
 
             # --- 改ページ処理 (見出し1と独自タグ) の適用 ---
             # 他のMarkdown固有の処理が終わった最後に呼び出し、最終的なHTML/CSSを付与する
