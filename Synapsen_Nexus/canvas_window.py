@@ -487,6 +487,7 @@ class CanvasKeySelectionDialog(ctk.CTkToplevel):
     Canvasのデータを統合PDFから開く際、
     複数データが存在した時に、開く対象のノートを設定する為のダイアログ。
     """
+
     def __init__(self, parent, options_dict):
         super().__init__(parent)
 
@@ -1147,17 +1148,70 @@ class CanvasWindow(BaseSubWindow):
                 h=v.get("h", 80),
             )
 
+        # 付箋 (予約キーのノートへの変換ロジックを追加)
+        import re
+
+        sticky_pattern = re.compile(r"^\[\[(\d{14})(?::.*)?\]\]$")
+
         for s in data.get("stickies", []):
-            self.create_sticky_item(
-                s["x"],
-                s["y"],
-                s.get("title", ""),
-                s.get("content", ""),
-                bg_color=s.get("bg_color", "#FFFFA5"),
-                w=s.get("w", 180),
-                h=s.get("h", 120),
-                uid=s.get("uid"),
-            )
+            title = s.get("title", "").strip()
+            uid = s.get("uid")
+            match = sticky_pattern.match(title)
+            converted_to_note = False
+
+            if match and self.parent_app and self.parent_app.db_conn:
+                key = match.group(1)
+                try:
+                    cursor = self.parent_app.db_conn.cursor()
+                    cursor.execute(
+                        "SELECT title, commonplace_key FROM notes WHERE key = ?", (key,)
+                    )
+                    row = cursor.fetchone()
+
+                    if row:
+                        note_title, cp_key = row
+
+                        # すでにキャンバス上に同キーのノートが存在しない場合のみ作成
+                        if key not in self.notes_on_canvas:
+                            self.create_note_item(
+                                key,
+                                note_title,
+                                cp_key if cp_key else "",
+                                s["x"],
+                                s["y"],
+                                w=s.get("w", 160),  # 元の付箋の幅を引き継ぐ
+                                h=s.get("h", 80),  # 元の付箋の高さを引き継ぐ
+                            )
+
+                        converted_to_note = True
+
+                        # 付箋に紐付いていた接続情報を、ノートへの接続に書き換える
+                        for c in data.get("connections", []):
+                            if (
+                                c.get("from_type") == "sticky"
+                                and c.get("from_key") == uid
+                            ):
+                                c["from_type"] = "note"
+                                c["from_key"] = key
+                            if c.get("to_type") == "sticky" and c.get("to_key") == uid:
+                                c["to_type"] = "note"
+                                c["to_key"] = key
+
+                except Exception as e:
+                    logger.error(f"Failed to convert sticky to note: {e}")
+
+            # ノートに変換されなかった場合は通常の付箋として描画
+            if not converted_to_note:
+                self.create_sticky_item(
+                    s["x"],
+                    s["y"],
+                    title,
+                    s.get("content", ""),
+                    bg_color=s.get("bg_color", "#FFFFA5"),
+                    w=s.get("w", 180),
+                    h=s.get("h", 120),
+                    uid=uid,
+                )
 
         for s in data.get("shapes", []):
             if s["type"] == "line":
