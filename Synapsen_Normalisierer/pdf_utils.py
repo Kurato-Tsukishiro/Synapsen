@@ -219,7 +219,7 @@ def add_metadata_to_clip(
         keywords_list = [k.strip() for k in keywords.split(";") if k.strip()]
 
         # 基本フラグ
-        skip_flag = "Synapsen:SkipNormalization"
+        skip_flag = "DPDocType:notebook; Synapsen:SkipNormalization"
         if skip_flag not in keywords_list:
             keywords_list.append(skip_flag)
 
