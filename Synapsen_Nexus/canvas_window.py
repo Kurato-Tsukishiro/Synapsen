@@ -480,6 +480,95 @@ Esc : キャンセル (保存せずに閉じる)
 
 
 # ==============================================================================
+# CanvasKeySelectionDialog (PDFからCanvasデータを開く為のダイアログ)
+# ==============================================================================
+class CanvasKeySelectionDialog(ctk.CTkToplevel):
+    """
+    Canvasのデータを統合PDFから開く際、
+    複数データが存在した時に、開く対象のノートを設定する為のダイアログ。
+    """
+    def __init__(self, parent, options_dict):
+        super().__init__(parent)
+
+        self._custom_icon_path = None
+        if hasattr(parent, "_custom_icon_path") and parent._custom_icon_path:
+            self._custom_icon_path = parent._custom_icon_path
+        elif hasattr(parent, "icon_path") and parent.icon_path:
+            self._custom_icon_path = str(parent.icon_path)
+        elif (
+            hasattr(parent, "parent_app")
+            and hasattr(parent.parent_app, "icon_path")
+            and parent.parent_app.icon_path
+        ):
+            self._custom_icon_path = str(parent.parent_app.icon_path)
+
+        if self._custom_icon_path:
+            # ウィンドウ生成直後のリセットを防ぐため、少し遅延させて適用
+            self.after(200, lambda: self.iconbitmap(default=self._custom_icon_path))
+
+        self.title("キャンバスデータの選択")
+        self.geometry("400x200")
+        self.grab_set()
+        self.result = None
+        self.options_dict = options_dict
+
+        # ウィンドウを中央に配置
+        self.update_idletasks()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        extra_x = int((self.winfo_screenwidth() - w) / 2)
+        extra_y = int((self.winfo_screenheight() - h) / 2)
+        self.geometry(f"+{extra_x}+{extra_y}")
+
+        ctk.CTkLabel(
+            self,
+            text="複数のキャンバスデータが見つかりました。\n復元するノートを選択してください：",
+            justify="center",
+        ).pack(padx=10, pady=15)
+
+        display_names = list(options_dict.keys())
+        self.combo = ctk.CTkComboBox(self, values=display_names, width=320)
+        self.combo.pack(padx=10, pady=10)
+        self.combo.set(display_names[0])
+
+        ctk.CTkButton(
+            self,
+            text="決定",
+            command=self.on_ok,
+            width=100,
+            fg_color=Colors.UI_BASIC,
+            hover_color=Colors.adjust_brightness(Colors.UI_BASIC),
+        ).pack(padx=10, pady=15)
+
+    def on_ok(self):
+        selected_display = self.combo.get()
+        self.result = self.options_dict.get(selected_display)
+        self.destroy()
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
+
+
+# ==============================================================================
 # CanvasWindow (メインクラス)
 # ==============================================================================
 class CanvasWindow(BaseSubWindow):
@@ -3118,7 +3207,13 @@ class CanvasWindow(BaseSubWindow):
 
     def load_from_file(self):
         file_path = filedialog.askopenfilename(
-            filetypes=[("JSON Files", "*.json")], title="キャンバスを開く", parent=self
+            filetypes=[
+                ("JSON/PDF Files", "*.json;*.pdf"),
+                ("JSON Files", "*.json"),
+                ("PDF Files", "*.pdf"),
+            ],
+            title="キャンバスまたはPDFを開く",
+            parent=self,
         )
         if file_path:
             if self.notes_on_canvas or self.stickies_on_canvas:
@@ -3126,7 +3221,116 @@ class CanvasWindow(BaseSubWindow):
                     "確認", "現在のキャンバスをクリアして読み込みますか？", parent=self
                 ):
                     return
-            self.load_canvas_data(Path(file_path))
+
+            p = Path(file_path)
+            if p.suffix.lower() == ".pdf":
+                self.load_canvas_data_from_pdf(p)
+            else:
+                self.load_canvas_data(p)
+
+    def load_canvas_data_from_pdf(self, path):
+        """PDFからキャンバスデータを抽出し、読み込んで再配置する"""
+        if not path.exists():
+            return
+
+        try:
+            doc = fitz.open(str(path))
+            emb_names = doc.embfile_names()
+
+            canvas_data = None
+
+            # 1. SubjectのメタデータからCanvasデータを抽出
+            import re
+
+            meta = doc.metadata
+            subj = meta.get("subject", "") or ""
+            json_match = re.search(r"<synapsen>(.*?)</synapsen>", subj, re.DOTALL)
+            if json_match:
+                try:
+                    meta_data = json.loads(json_match.group(1))
+                    if "canvas_data" in meta_data:
+                        canvas_data = meta_data["canvas_data"]
+                except Exception as ce:
+                    logger.warning(f"PDFのSubjectからCanvasパース失敗: {ce}")
+
+            # 2. 個別エクスポート(統合前)の単一データをチェック
+            if not canvas_data and "synapsen_canvas_data.json" in emb_names:
+                canvas_data_bytes = doc.embfile_get("synapsen_canvas_data.json")
+                canvas_data = json.loads(canvas_data_bytes.decode("utf-8"))
+
+            else:
+                if not canvas_data:
+                    canvas_keys = []
+                    key_to_embname = {}
+
+                    # 統合PDFのメタデータバックアップ内をチェック
+                    backup_canvas_dict = {}
+                    key_to_title = {}
+                    if "synapsen_metadata_backup.json" in emb_names:
+                        backup_bytes = doc.embfile_get("synapsen_metadata_backup.json")
+                        backup_json = json.loads(backup_bytes.decode("utf-8"))
+
+                        # 1. 各ノートオブジェクトから canvas_data とタイトルを抽出
+                        notes_data = backup_json.get("notes_data", [])
+                        for note in notes_data:
+                            k = note.get("key")
+                            t = note.get("title")
+                            if k:
+                                key_to_title[k] = t or k
+                            c = note.get("canvas_data")
+                            if k and c:
+                                if k not in canvas_keys:
+                                    canvas_keys.append(k)
+                                backup_canvas_dict[k] = c
+
+                    if canvas_keys:
+                        if len(canvas_keys) == 1:
+                            target_key = canvas_keys[0]
+                        else:
+                            # 複数存在する場合はダイアログで選択するためにオプションマップを作成
+                            options_dict = {}
+                            for k in canvas_keys:
+                                title = key_to_title.get(k, k)
+                                display_name = f"{title} ({k})" if title != k else k
+                                options_dict[display_name] = k
+
+                            dialog = CanvasKeySelectionDialog(self, options_dict)
+                            self.wait_window(dialog)
+                            target_key = dialog.result
+
+                        if target_key:
+                            if target_key in key_to_embname:
+                                emb_name = key_to_embname[target_key]
+                                canvas_data_bytes = doc.embfile_get(emb_name)
+                                canvas_data = json.loads(
+                                    canvas_data_bytes.decode("utf-8")
+                                )
+                            elif target_key in backup_canvas_dict:
+                                canvas_data = backup_canvas_dict[target_key]
+
+            doc.close()
+
+            if canvas_data:
+                # 読み込み前に一度完全にリセット
+                self.clear_canvas_items(reset_view=True)
+                # 共通化した復元メソッドを使用
+                self._restore_from_dict(canvas_data)
+                self.undo_stack.clear()
+                self.redo_stack.clear()
+                self.center_view()
+                messagebox.showinfo(
+                    "完了", "PDFからキャンバスデータを読み込みました。", parent=self
+                )
+            else:
+                messagebox.showerror(
+                    "エラー",
+                    "PDF内に有効なキャンバスデータが見つかりませんでした。",
+                    parent=self,
+                )
+
+        except Exception as e:
+            logger.error(f"Canvas load from PDF error: {e}")
+            messagebox.showerror("エラー", f"PDFからの読込失敗: {e}", parent=self)
 
     def load_canvas_data(self, path):
         """キャンバスデータをファイルから読み込み、アイテムを再配置する"""
@@ -3530,6 +3734,12 @@ class CanvasWindow(BaseSubWindow):
                     # ノートが存在する場合は一覧を追記します
                     comment_text += f"\n\n[使用ノート一覧]\n{notes_list_str}"
 
+                canvas_dict = {}
+                try:
+                    canvas_dict = self._generate_save_data_dict()
+                except Exception as ce:
+                    logger.warning(f"キャンバスデータの生成に失敗: {ce}")
+
                 add_metadata_to_clip(
                     pdf_path_str=str(output_path),
                     font_path=str(font_path),
@@ -3543,4 +3753,5 @@ class CanvasWindow(BaseSubWindow):
                     cited_keys_list=cited_keys,
                     refs_qr_size_pt=refs_qr_size_pt,
                     extra_keywords=["Synapsen:Whiteboard"] + tags,
+                    additional_metadata={"canvas_data": canvas_dict},
                 )

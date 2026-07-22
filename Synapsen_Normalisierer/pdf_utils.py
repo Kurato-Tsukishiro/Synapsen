@@ -144,10 +144,43 @@ def add_metadata_to_clip(
     cited_keys_list: list[str] | None = None,
     refs_qr_size_pt: int = 75,
     extra_keywords: list[str] | None = None,
+    additional_metadata: dict | None = None,
 ) -> None:
     """
-    PDFにメタデータ(QR/テキスト)を描画し、同時にPDFプロパティにも情報を埋め込みます。
-    処理済みであることを示すキーワードも埋め込みます。
+    Args:
+        pdf_path_str (str):
+            処理対象となるPDFファイルのパス。
+        font_path (str):
+            メタデータ(テキスト)描画に使用するフォントファイルのパス。
+        paper_width (float):
+            PDFの用紙幅 (pt単位)。
+        paper_height (float):
+            PDFの用紙高さ (pt単位)。
+        key_rect_tuple (tuple):
+            1ページ目に Index Key や QRコード を描画する領域の座標 (x0, y0, x1, y1)。
+        index_key_to_embed (str):
+            埋め込む Index Key (分類用のキー文字列)。
+        text_color (tuple | None):
+            描画するテキストの色を表すRGBタプル (R, G, B)。
+        comment_to_embed (str):
+            最終ページに描画・埋め込むコメントテキスト。
+        sist_string_formal (str | None, optional):
+            最終ページに描画する SIST 02 形式の正式な書誌情報。
+        sist_string_readable (str | None, optional):
+            最終ページに描画する可読形式の書誌情報。
+        base_name (str | None, optional):
+            処理元ファイルのベースネーム。ユニークID(key)の自動抽出・生成に使用されます。
+        cited_keys_list (list[str] | None, optional):
+            最終ページに専用QRコードとして描画・埋め込む引用先Keyのリスト。
+        refs_qr_size_pt (int, optional):
+            最終ページに描画する引用Key用QRコードのサイズ (pt単位)。デフォルトは 75。
+        extra_keywords (list[str] | None, optional):
+            DFプロパティの `keywords` に追加するタグ等の文字列リスト。
+        additional_metadata (dict | None, optional):
+            "cpk"等の既存キーと競合しない、メタデータ(subject)として追加で埋め込みたい任意の辞書データ。
+
+    Returns:
+        None
     """
 
     # --- 埋め込む情報が何もなければ、処理をスキップ ---
@@ -157,6 +190,7 @@ def add_metadata_to_clip(
         and not sist_string_formal
         and not cited_keys_list
         and not base_name
+        and not additional_metadata
     ):
         logger.info(
             f"埋め込むメタデータがないためスキップ: {Path(pdf_path_str).name}",
@@ -223,6 +257,9 @@ def add_metadata_to_clip(
                 key_time = time_str if time_str != "999999" else "000000"
                 auto_generated_key = date_str + key_time
                 meta_info["key"] = auto_generated_key
+
+        if additional_metadata:
+            meta_info.update(additional_metadata)
 
         if meta_info:
             # Subjectフィールドの末尾に <synapsen>...</synapsen> で囲んで追記
