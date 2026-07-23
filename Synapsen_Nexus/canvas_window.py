@@ -2731,6 +2731,7 @@ class CanvasWindow(BaseSubWindow):
 
     # --- Export Helpers ---
     def _convert_sticky_to_note_pipeline(self, sticky_obj):
+        """付箋単体からPDFノートを作成し、キャンバス上の付箋を予約キー付き付箋へ更新する"""
         default_title = sticky_obj.get("title", "NOTITLE")
         current_color = sticky_obj.get("bg_color", "#FFFFA5")
         key_options = getattr(self.parent_app, "commonplace_keys_options", [])
@@ -2762,9 +2763,33 @@ class CanvasWindow(BaseSubWindow):
             cited_keys = sorted(list(connected_keys | text_links))
             # -----------------------
 
-            self._process_md_pdf_creation(
+            # PDF生成処理の実行 (成功時に生成されたファイル名/Key等の情報を取得できるように拡張)
+            created_pdf_path = self._process_md_pdf_creation(
                 title, content, key, color, cited_keys, tags=tags
             )
+
+            # --- PDF作成成功後の付箋タイトルの更新処理 ---
+            if created_pdf_path:
+                # 生成されたPDFのファイル名頭14桁 (YYYYMMDD_hhmmss -> YYYYMMDDhhmmss) を抽出
+                stem_parts = created_pdf_path.stem.split("_")
+                if len(stem_parts) >= 2:
+                    timestamp_key = stem_parts[0] + stem_parts[1]
+
+                    # 履歴スナップショットを取得
+                    self._snapshot()
+
+                    # 予約キー形式のタイトルを構築
+                    new_title = f"[[{timestamp_key}:{title}]]"
+
+                    # キャンバス上の付箋オブジェクトを更新
+                    sticky_obj["title"] = new_title
+                    display_text = self._create_sticky_display_text(new_title, content)
+
+                    # UI(テキスト表示)を更新
+                    self.canvas.itemconfigure(sticky_obj["ids"][1], text=display_text)
+
+                    # キャンバス状態を保存
+                    self.save_canvas()
 
     def _convert_selected_stickies_pipeline(self):
         combined_content = ""
@@ -2844,6 +2869,32 @@ class CanvasWindow(BaseSubWindow):
     def _process_md_pdf_creation(
         self, title, content, index_key, bg_color, cited_keys=None, tags=None
     ):
+        """
+        付箋（Sticky Note）のデータから正規化済みのPDFファイルを生成し、出力ディレクトリに保存する。
+
+        Synapsenの「PDF中心主義（PDF-Centric）」および「データフローの一方通行性」の原則に基づき、
+        Nexus(Canvas)から直接マスターDBへ新規ノートのレコード（INSERT）を登録することはせず、
+        本関数を用いて実体のあるPDFファイルとしてエクスポートする。
+
+        内部でMarkdownの生成、Normalisiererの処理（PDF化・フラット化・サイズ正規化）、
+        およびメタデータ（QRコード、引用Key等）の埋め込みを一括で行う。
+        生成されたPDFは Watchdog の Inbox または Nexus_Output に保存され、後続の Ersteller による
+        統合フローに乗ることで、正式なノートとしてマスターDBに取り込まれる。
+
+        Args:
+            title (str): 付箋のタイトル（出力ファイル名のベースにも使用される）。
+            content (str): 付箋の本文（Markdown形式対応）。
+            index_key (str): ノートに付与する Index Key。
+            bg_color (str): 付箋の背景色（CSSとして注入される16進数カラーコード）。
+            cited_keys (list[str], optional): この付箋が引用・接続している既存ノートのKeyリスト。
+                ここにKeyを含めることで、Erstellerでの取り込み時に自動的にリンク関係（References）が構築される。
+            tags (list[str], optional): 付箋に付与する追加タグのリスト。
+                システムにより 'Synapsen:Sticky' タグが自動で追加埋め込みされる。
+
+        Returns:
+            Path | None: 生成に成功した場合は出力されたPDFのファイルパス（Pathオブジェクト）。
+                         エラーが発生した場合は None を返す。
+        """
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = re.sub(r'[\\/:\*\?"<>\|]', "_", title if title else "NOTITLE")
         base_name = f"{now_str}_{safe_title}"
@@ -2971,8 +3022,10 @@ class CanvasWindow(BaseSubWindow):
                 f"付箋からPDFを生成し、{folder_name} に保存しました:\n{pdf_path.name}",
                 parent=self,
             )
+            return pdf_path
         except Exception as e:
             messagebox.showerror("エラー", f"処理に失敗しました:\n{e}", parent=self)
+            return None
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
