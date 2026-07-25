@@ -831,6 +831,138 @@ class Synapsen_Ersteller(ctk.CTk):
                 f"{keys_inherited_count}件のサイドノートにIndex Keyを継承しました。"
             )
 
+        # 3. Canvasメタデータから予約キーのリンク情報を抽出し、memoに追記
+        import re
+        import fitz
+
+        # 予約キー（[[YYYYMMDDhhmmss]] 形式）を抽出する正規表現
+        reserved_key_pattern = re.compile(r"^\[\[(\d{14})(?::.*)?\]\]$")
+
+        # 追記用辞書: { "対象のノートキー": set(["[[リンク先キー]]", ...]) }
+        links_to_add_to_memo = {}
+
+        for info in self.all_notes_info:
+            tags = info.get("tags", [])
+            # Canvas全体を出力したPDF (STypes_Canvas) のみを対象とする
+            if "STypes_Canvas" in tags:
+                pdf_path = info.get("filepath")
+                if not pdf_path or not Path(pdf_path).is_file():
+                    continue
+
+                try:
+                    with fitz.open(pdf_path) as src_doc:
+                        src_meta = src_doc.metadata
+                        src_subj = src_meta.get("subject", "") or ""
+
+                        # 隠しJSONの抽出
+                        json_match = re.search(
+                            r"<synapsen>(.*?)</synapsen>", src_subj, re.DOTALL
+                        )
+                        if json_match:
+                            meta_data = json.loads(json_match.group(1))
+                            c_data = meta_data.get("canvas_data")
+                            if not c_data:
+                                continue
+
+                            stickies = c_data.get("stickies", [])
+                            connections = c_data.get("connections", [])
+
+                            # I. 予約キーを持つ付箋の UID と キー文字列(14桁) のマッピング
+                            sticky_uid_to_reserved_key = {}
+                            for s in stickies:
+                                title = s.get("title", "").strip()
+                                match = reserved_key_pattern.match(title)
+                                if match:
+                                    sticky_uid_to_reserved_key[s.get("uid")] = (
+                                        match.group(1)
+                                    )
+
+                            if not sticky_uid_to_reserved_key:
+                                continue
+
+                            # II. 接続情報を解析し、追記すべきリンクを収集
+                            for c in connections:
+                                f_type, f_key = c.get("from_type"), c.get("from_key")
+                                t_type, t_key = c.get("to_type"), c.get("to_key")
+
+                                def add_link(source_reserved_key, target_link_str):
+                                    if source_reserved_key not in links_to_add_to_memo:
+                                        links_to_add_to_memo[source_reserved_key] = (
+                                            set()
+                                        )
+                                    links_to_add_to_memo[source_reserved_key].add(
+                                        target_link_str
+                                    )
+
+                                # from側が付箋で、予約キーを持つ場合
+                                if (
+                                    f_type == "sticky"
+                                    and f_key in sticky_uid_to_reserved_key
+                                ):
+                                    src_rkey = sticky_uid_to_reserved_key[f_key]
+                                    if t_type == "note":
+                                        add_link(src_rkey, f"[[{t_key}]]")
+                                    elif (
+                                        t_type == "sticky"
+                                        and t_key in sticky_uid_to_reserved_key
+                                    ):
+                                        add_link(
+                                            src_rkey,
+                                            f"[[{sticky_uid_to_reserved_key[t_key]}]]",
+                                        )
+
+                                # to側が付箋で、予約キーを持つ場合
+                                if (
+                                    t_type == "sticky"
+                                    and t_key in sticky_uid_to_reserved_key
+                                ):
+                                    tgt_rkey = sticky_uid_to_reserved_key[t_key]
+                                    if f_type == "note":
+                                        add_link(tgt_rkey, f"[[{f_key}]]")
+                                    elif (
+                                        f_type == "sticky"
+                                        and f_key in sticky_uid_to_reserved_key
+                                    ):
+                                        add_link(
+                                            tgt_rkey,
+                                            f"[[{sticky_uid_to_reserved_key[f_key]}]]",
+                                        )
+
+                except Exception as e:
+                    logger.error(
+                        f"Canvasリンク解析エラー ({pdf_path}): {e}",
+                        extra={"sensitive": True},
+                    )
+
+        # III. 抽出したリンクを、実際に存在するノートの memo に追記する
+        if links_to_add_to_memo:
+            links_added_count = 0
+            for info in self.all_notes_info:
+                n_key = info.get("key")
+                if n_key and n_key in links_to_add_to_memo:
+                    links = links_to_add_to_memo[n_key]
+                    existing_memo = info.get("memo", "")
+
+                    # 既存のメモにないリンクのみをフィルタリング
+                    new_links = [link for link in links if link not in existing_memo]
+
+                    if new_links:
+                        append_text = "\n".join(new_links)
+                        if not existing_memo.strip():
+                            info["memo"] = append_text
+                        else:
+                            # 既存メモの末尾の改行状態を考慮して安全に追記
+                            if not existing_memo.endswith("\n"):
+                                info["memo"] = existing_memo + "\n" + append_text
+                            else:
+                                info["memo"] = existing_memo + append_text
+                        links_added_count += len(new_links)
+
+            if links_added_count > 0:
+                logger.info(
+                    f"{links_added_count}件のCanvasリンクを予約キーのノートに引き継ぎました。"
+                )
+
         self.all_notes_info.sort(key=lambda note: (note["date"], note["time"]))
         self.deselect_all()  # 読み込み時は選択をリセット
         self.update_note_list()
