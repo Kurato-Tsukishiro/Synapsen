@@ -1747,10 +1747,21 @@ class Synapsen_Ersteller(ctk.CTk):
             for path in sorted(list(added_paths)):
                 info = Process.get_note_info(Path(path), self.key_rect)
                 if info:
+                    # 必須キーの初期化
+                    info.setdefault("summary", "")
+                    info.setdefault("memo", "")
                     self.all_notes_info.append(info)
             added_count = len(added_paths)
 
         if added_count > 0 or deleted_count > 0:
+            # scan_folderで実行されている補完処理を同期時にも適用
+            # 1. サイドノートへのキー継承処理
+            self._inherit_side_note_keys(self.all_notes_info)
+
+            # 2. Canvasリンクの抽出と適用
+            links_to_add = self._extract_canvas_links(self.all_notes_info)
+            self._apply_canvas_links_to_memos(self.all_notes_info, links_to_add)
+
             self.all_notes_info.sort(key=lambda note: (note["date"], note["time"]))
             self.update_note_list()  # UIを再描画
             self.update_batch_buttons_state()  # ボタン状態を更新
