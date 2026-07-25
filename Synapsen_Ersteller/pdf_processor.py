@@ -4,6 +4,7 @@ from pypdf import PdfReader
 import fitz  # PyMuPDF
 import unicodedata
 import json
+from typing import List, Dict
 
 # --- 追加インポート ---
 from PIL import Image
@@ -332,6 +333,70 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
             "summary": "",
             "is_warning": True,
         }
+
+
+def extract_canvas_links_for_reserved_keys(
+    canvas_json_path: Path,
+) -> Dict[str, List[str]]:
+    """
+    canvas_data.json を解析し、予約キー(付箋)に対する接続先リンクのリストを取得します。
+
+    Args:
+        canvas_json_path (Path): canvas_data.json のパス
+
+    Returns:
+        Dict[str, List[str]]: { "予約キー": ["[[接続先キー1]]", "[[接続先キー2]]"], ... }
+    """
+    if not canvas_json_path.exists():
+        return {}
+
+    try:
+        with open(canvas_json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        # ロガーが利用可能な環境であればロギングします
+        logger.error(f"Canvasデータの読み込みに失敗しました: {e}")
+        return {}
+
+    # 付箋のタイトルが [[YYYYMMDDhhmmss]] 形式であるかを判定する正規表現
+    reserved_key_pattern = re.compile(r"^\[\[(\d{14})(?::.*)?\]\]$")
+
+    # 1. 予約キーを持つ付箋の UID と Key のマッピングを作成
+    sticky_uid_to_key = {}
+    for s in data.get("stickies", []):
+        title = s.get("title", "").strip()
+        match = reserved_key_pattern.match(title)
+        if match:
+            sticky_uid_to_key[s.get("uid")] = match.group(1)
+
+    if not sticky_uid_to_key:
+        return {}
+
+    # 2. connectionsデータから、予約キー付箋に接続されているアイテムを抽出
+    links_to_add = {k: set() for k in sticky_uid_to_key.values()}
+
+    for c in data.get("connections", []):
+        f_type, f_key = c.get("from_type"), c.get("from_key")
+        t_type, t_key = c.get("to_type"), c.get("to_key")
+
+        # from側が予約キー付箋の場合
+        if f_type == "sticky" and f_key in sticky_uid_to_key:
+            target_reserved_key = sticky_uid_to_key[f_key]
+            if t_type == "note":
+                links_to_add[target_reserved_key].add(f"[[{t_key}]]")
+            elif t_type == "sticky" and t_key in sticky_uid_to_key:
+                links_to_add[target_reserved_key].add(f"[[{sticky_uid_to_key[t_key]}]]")
+
+        # to側が予約キー付箋の場合
+        if t_type == "sticky" and t_key in sticky_uid_to_key:
+            target_reserved_key = sticky_uid_to_key[t_key]
+            if f_type == "note":
+                links_to_add[target_reserved_key].add(f"[[{f_key}]]")
+            elif f_type == "sticky" and f_key in sticky_uid_to_key:
+                links_to_add[target_reserved_key].add(f"[[{sticky_uid_to_key[f_key]}]]")
+
+    # set を list に変換して返す
+    return {k: list(v) for k, v in links_to_add.items() if v}
 
 
 # ==============================================================================
