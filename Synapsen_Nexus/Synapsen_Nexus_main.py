@@ -1613,7 +1613,7 @@ class Synapsen_Nexus(
             current_data.get("memo", ""),
             self.db_conn,
             lambda k: self.open_preview_window(k, default_view_mode="compact"),
-            450,
+            820,
         )
 
         # 辞書リストを渡す (SQL化対応)
