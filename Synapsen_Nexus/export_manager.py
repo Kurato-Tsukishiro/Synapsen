@@ -253,7 +253,10 @@ class ExportManager:
                         processed_count += 1
 
                     except Exception as e:
-                        logger.error(f"[ExportManager] PDF add page error: {e}")
+                        logger.error(
+                            f"[ExportManager] PDF add page error: {e}",
+                            extra={"sensitive": True},
+                        )
 
             if processed_count > 0:
                 with open(save_path, "wb") as f:
@@ -355,7 +358,9 @@ class ExportManager:
                             title_map[key] = title if title else "(タイトルなし)"
 
                 except Exception as e:
-                    logger.error(f"MOC生成時のDB取得エラー: {e}")
+                    logger.error(
+                        f"MOC生成時のDB取得エラー: {e}", extra={"sensitive": True}
+                    )
                 finally:
                     if conn:
                         conn.close()
@@ -484,7 +489,7 @@ class ExportManager:
             return True
 
         except Exception as e:
-            logger.error(f"MOC生成エラー: {e}")
+            logger.error(f"MOC生成エラー: {e}", extra={"sensitive": True})
             return False
 
     """
@@ -545,7 +550,9 @@ class ExportManager:
             )
 
         except Exception as e:
-            logger.error(f"アイコン画像の読み込みエラー: {e}")
+            logger.error(
+                f"アイコン画像の読み込みエラー: {e}", extra={"sensitive": True}
+            )
             return "FILE NOT FOUND"
 
     def _create_fallback_page_reader(self, title, date, key):
@@ -592,7 +599,10 @@ class ExportManager:
             return PdfReader(io.BytesIO(pdf_bytes))
 
         except Exception as e:
-            logger.error(f"[ExportManager] Fallback generation failed: {e}")
+            logger.error(
+                f"[ExportManager] Fallback generation failed: {e}",
+                extra={"sensitive": True},
+            )
             return None
 
     def _save_meta_txt(self, dir_path, mode, count, query):
@@ -645,7 +655,10 @@ class ExportManager:
                     full_text_map[key] = text if text else ""
 
             except Exception as e:
-                logger.error(f"[ExportManager] full_text の一括取得に失敗: {e}")
+                logger.error(
+                    f"[ExportManager] full_text の一括取得に失敗: {e}",
+                    extra={"sensitive": True},
+                )
             finally:
                 if conn:
                     conn.close()

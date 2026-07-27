@@ -186,7 +186,10 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         )
 
                     except Exception as e:
-                        logger.warning(f"Metadata parse error ({pdf_path.name}): {e}")
+                        logger.warning(
+                            f"Metadata parse error ({pdf_path.name}): {e}",
+                            extra={"sensitive": True},
+                        )
 
                 # ============================================================
                 # Phase 2: QRコード / テキスト解析
@@ -230,7 +233,10 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                             qr_found = True
                                     break
                         except Exception as e:
-                            logger.warning(f"QR scan error (Page 1): {e}")
+                            logger.warning(
+                                f"QR scan error (Page 1): {e}",
+                                extra={"sensitive": True},
+                            )
 
                     # 2B. QRコード (Last Page)
                     if len(doc) > 1 and decode is not None:
@@ -266,7 +272,10 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                                             pass
                                         break
                         except Exception as e:
-                            logger.warning(f"QR scan error (Last Page): {e}")
+                            logger.warning(
+                                f"QR scan error (Last Page): {e}",
+                                extra={"sensitive": True},
+                            )
 
                     # 2C. テキスト抽出
                     if not qr_found and key_rect and len(key_rect) == 4:
@@ -355,7 +364,10 @@ def extract_canvas_links_for_reserved_keys(
             data = json.load(f)
     except Exception as e:
         # ロガーが利用可能な環境であればロギングします
-        logger.error(f"Canvasデータの読み込みに失敗しました: {e}")
+        logger.error(
+            f"Canvasデータの読み込みに失敗しました: {e}",
+            extra={"sensitive": True},
+        )
         return {}
 
     # 付箋のタイトルが [[YYYYMMDDhhmmss]] 形式であるかを判定する正規表現

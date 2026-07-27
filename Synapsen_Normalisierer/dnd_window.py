@@ -446,7 +446,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 if isinstance(item["data"], Path)
             }
             if item_data in existing_paths:
-                logger.warning(f"スキップ (既に追加済み): {original_name}")
+                logger.warning(
+                    f"スキップ (既に追加済み): {original_name}",
+                    extra={"sensitive": True},
+                )
                 return False
 
         # 内部リストにアイテム辞書を追加
@@ -1191,7 +1194,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     ):
                         item_data = temp_extracted_pdf  # 抽出成功時はパスを差し替え
                 except Exception as e:
-                    logger.warning(f"警告: {base_name} のページ抽出に失敗: {e}")
+                    logger.warning(
+                        f"警告: {base_name} のページ抽出に失敗: {e}",
+                        extra={"sensitive": True},
+                    )
                     # 失敗した場合は元のファイルをそのまま使用
 
             if isinstance(item_data, Path) and item_data.suffix.lower() == ".md":
@@ -1200,7 +1206,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     convert_document_to_pdf(item_data, temp_md_pdf, paper_size_str)
                     item_data = temp_md_pdf
                 except Exception as e:
-                    logger.warning(f"警告: {base_name} のMarkdown変換に失敗: {e}")
+                    logger.warning(
+                        f"警告: {base_name} のMarkdown変換に失敗: {e}",
+                        extra={"sensitive": True},
+                    )
                     messagebox.showerror(
                         "Markdown変換エラー",
                         f"{base_name} の変換に失敗しました:\n{e}",
@@ -1249,7 +1258,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 else:
                     logger.warning(
                         f"Ollamaフラグ({base_name})を検出しましたが、"
-                        "configにモデル設定がないためOCRをスキップします。"
+                        "configにモデル設定がないためOCRをスキップします。",
+                        extra={"sensitive": True},
                     )
                     should_run_ocr = False
 
@@ -1390,7 +1400,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         item_data = temp_extracted_pdf  # 抽出成功時はパスを差し替え
                 except Exception as e:
                     logger.warning(
-                        f"警告: {item_original_name} のページ抽出に失敗: {e}"
+                        f"警告: {item_original_name} のページ抽出に失敗: {e}",
+                        extra={"sensitive": True},
                     )
 
             # --- 1-A: MD -> PDF ---
@@ -1405,7 +1416,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     item_data = temp_md_pdf
                 except Exception as e:
                     logger.error(
-                        f"警告: {item_original_name} のMarkdown変換に失敗: {e}"
+                        f"警告: {item_original_name} のMarkdown変換に失敗: {e}",
+                        extra={"sensitive": True},
                     )
                     continue
 
@@ -1466,7 +1478,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 else:
                     logger.warning(
                         f"Ollamaフラグ({item_original_name})を検出しましたが、"
-                        "configにモデル設定がないためOCRをスキップします。"
+                        "configにモデル設定がないためOCRをスキップします。",
+                        extra={"sensitive": True},
                     )
                     should_run_ocr = False
 
@@ -1513,7 +1526,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 for page in reader.pages:
                     writer.add_page(page)
             except Exception as e:
-                logger.error(f"警告: {pdf_path.name} の連結に失敗: {e}")
+                logger.error(
+                    f"警告: {pdf_path.name} の連結に失敗: {e}",
+                    extra={"sensitive": True},
+                )
 
         # 連結したPDFを一時ファイル (final_output_pdf の場所) に保存
         with open(final_output_pdf, "wb") as f:
