@@ -282,7 +282,10 @@ def add_metadata_to_clip(
             try:
                 page1.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
-                logger.warning(f"フォント埋め込み警告 (Page 1): {e}")
+                logger.warning(
+                    f"フォント埋め込み警告 (Page 1): {e}",
+                    extra={"sensitive": True},
+                )
 
             # ============================================================
             # A. QRコードの生成と描画 (Page 1: cpk と key のみ)
@@ -317,7 +320,10 @@ def add_metadata_to_clip(
                 page1.insert_image(qr_rect, stream=img_bytes)
 
             except Exception as e:
-                logger.error(f"QRコード生成エラー (Page 1): {e}")
+                logger.error(
+                    f"QRコード生成エラー (Page 1): {e}",
+                    extra={"sensitive": True},
+                )
 
             # ============================================================
             # B. テキストの描画 (Index Key がある場合のみ)
@@ -349,7 +355,10 @@ def add_metadata_to_clip(
             try:
                 page_last.insert_font(fontname=font_alias, fontfile=font_path)
             except Exception as e:
-                logger.warning(f"フォント埋め込み警告 (Last Page): {e}")
+                logger.warning(
+                    f"フォント埋め込み警告 (Last Page): {e}",
+                    extra={"sensitive": True},
+                )
 
             shape_last = page_last.new_shape()
 
@@ -466,7 +475,10 @@ def add_metadata_to_clip(
                 )
 
             except Exception as e:
-                logger.error(f"最終ページの引用Key用QRコード生成エラー: {e}")
+                logger.error(
+                    f"最終ページの引用Key用QRコード生成エラー: {e}",
+                    extra={"sensitive": True},
+                )
 
         # 変更を上書き保存
         doc.saveIncr()
@@ -730,10 +742,12 @@ def normalize_pdf_to_papersize(
             if keywords and "Synapsen:SkipNormalization" in keywords:
                 skip_processing = True
     except Exception as e:
-        logger.warning(f"メタデータ確認中にエラー: {e}")
+        logger.warning(f"メタデータ確認中にエラー: {e}", extra={"sensitive": True})
 
     if skip_processing:
-        logger.info(f"正規化スキップフラグ検出: {input_path}")
+        logger.info(
+            f"正規化スキップフラグ検出: {input_path}", extra={"sensitive": True}
+        )
         shutil.copy2(input_path, output_path)
         return
     # -----------------------
@@ -875,7 +889,10 @@ def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool
         doc.save(output_path, garbage=4, deflate=True)
         return True
     except Exception as e:
-        logger.error(f"ページ抽出中にエラー ({input_path}): {e}")
+        logger.error(
+            f"ページ抽出中にエラー ({input_path}): {e}",
+            extra={"sensitive": True},
+        )
         raise
     finally:
         if doc:
@@ -1102,14 +1119,20 @@ def embed_ocr_text_in_pdf(
 
             # 元ファイルへの上書き (Windowsではclose後に移動必須)
             shutil.move(temp_output_path, pdf_path_str)
-            logger.info(f"OCR完了・上書き保存: {Path(pdf_path_str).name}")
+            logger.info(
+                f"OCR完了・上書き保存: {Path(pdf_path_str).name}",
+                extra={"sensitive": True},
+            )
         else:
             logger.info("OCR対象ページがなかったため、保存をスキップしました。")
             doc.close()
             doc = None  # ★重要
 
     except Exception as e:
-        logger.error(f"OCR処理全体エラー ({pdf_path_str}): {e}")
+        logger.error(
+            f"OCR処理全体エラー ({pdf_path_str}): {e}",
+            extra={"sensitive": True},
+        )
 
         if Path(temp_output_path).is_file():
             try:
@@ -1228,7 +1251,10 @@ def convert_pil_image_to_pdf(pil_image: Image.Image, output_pdf_path: Path) -> N
         pdf_doc.save(str(output_pdf_path))
 
     except Exception as e:
-        logger.error(f"クリップボード画像のPDF変換に失敗しました。 {e}")
+        logger.error(
+            f"クリップボード画像のPDF変換に失敗しました。 {e}",
+            extra={"sensitive": True},
+        )
         raise
     finally:
         if img_bytes_io:
@@ -1714,7 +1740,10 @@ def convert_document_to_pdf(
             f.write(html_content)
 
     except Exception as e:
-        logger.warning(f"CSS注入に失敗しましたが続行します: {e}")
+        logger.warning(
+            f"CSS注入に失敗しましたが続行します: {e}",
+            extra={"sensitive": True},
+        )
 
     # --- ステップ 3: Playwright で HTML を PDF に変換 ---
     playwright_paper_format = paper_size_str.upper()
@@ -1769,7 +1798,10 @@ def convert_document_to_pdf(
             try:
                 temp_html_path.unlink()
             except Exception as e_del:
-                logger.warning(f"一時HTMLファイルの削除に失敗: {e_del}")
+                logger.warning(
+                    f"一時HTMLファイルの削除に失敗: {e_del}",
+                    extra={"sensitive": True},
+                )
 
         if temp_modified_content_path.is_file():
             try:

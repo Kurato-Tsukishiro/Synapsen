@@ -123,14 +123,20 @@ class PDFHandler(FileSystemEventHandler):
 
     def _run_conversion(self, filepath, output_path):
         try:
-            self.logger.info(f"検知: {filepath.name}")
+            self.logger.info(f"検知: {filepath.name}", extra={"sensitive": True})
 
             # ファイル書き込み完了待ち
             if not self._wait_for_file_ready(filepath):
-                self.logger.warning(f"タイムアウト (アクセス不可): {filepath.name}")
+                self.logger.warning(
+                    f"タイムアウト (アクセス不可): {filepath.name}",
+                    extra={"sensitive": True},
+                )
                 return
 
-            self.logger.info(f"変換開始 ({self.target_size}): {filepath.name}")
+            self.logger.info(
+                f"変換開始 ({self.target_size}): {filepath.name}",
+                extra={"sensitive": True},
+            )
             paper_width, paper_height = PAPER_SIZES.get(
                 self.target_size, PAPER_SIZES["A4"]
             )
@@ -143,7 +149,9 @@ class PDFHandler(FileSystemEventHandler):
                     paper_height,
                     target_format=self.target_size,
                 )
-                self.logger.info(f"完了 -> {output_path.name}")
+                self.logger.info(
+                    f"完了 -> {output_path.name}", extra={"sensitive": True}
+                )
 
                 try:
                     filepath.unlink()
@@ -199,9 +207,7 @@ class WatchdogApp(ctk.CTk):
         super().__init__()
         self.title("Synapsen Watchdog")
         self.geometry("500x400")
-        self.configure(
-            fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL)
-        )
+        self.configure(fg_color=(Colors.BACKGROUND_PANEL, Colors.BACKGROUND_DARK_PANEL))
 
         # アイコン設定
         icon_path = ROOT_DIR / "assets" / "synapsen.ico"
@@ -288,18 +294,23 @@ class WatchdogApp(ctk.CTk):
         o_path = Path(output_dir)
 
         if not w_path.exists():
-            self.logger.error(f"監視フォルダが見つかりません: {w_path}")
+            self.logger.error(
+                f"監視フォルダが見つかりません: {w_path}",
+                extra={"sensitive": True},
+            )
             return
 
         if not o_path.exists():
             try:
                 o_path.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                self.logger.error(f"出力フォルダ作成エラー: {e}")
+                self.logger.error(
+                    f"出力フォルダ作成エラー: {e}", extra={"sensitive": True}
+                )
                 return
 
-        self.logger.info(f"監視開始: {w_path}")
-        self.logger.info(f"出力先: {o_path} ({target_size})")
+        self.logger.info(f"監視開始: {w_path}", extra={"sensitive": True})
+        self.logger.info(f"出力先: {o_path} ({target_size})", extra={"sensitive": True})
         self.info_label.configure(text=f"監視中: {w_path.name}")
 
         event_handler = PDFHandler(o_path, target_size, self.logger)

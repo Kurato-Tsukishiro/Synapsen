@@ -357,7 +357,10 @@ class DBRecoveryWindow(ctk.CTkToplevel):
                     return ""
 
                 except Exception as e:
-                    logger.error(f"Text extraction error for {row.get('key')}: {e}")
+                    logger.error(
+                        f"Text extraction error for {row.get('key')}: {e}",
+                        extra={"sensitive": True},
+                    )
                     return ""
 
             # 各行に対してテキスト抽出を実行

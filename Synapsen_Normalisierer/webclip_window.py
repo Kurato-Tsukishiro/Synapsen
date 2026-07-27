@@ -528,7 +528,9 @@ class WebClipWindow(ctk.CTkToplevel):
 
         except PlaywrightTimeoutError as e:
             # --- タイムアウトの場合 (フォールバック準備) ---
-            logger.warning(f"ページ読み込みタイムアウト: {e}")
+            logger.warning(
+                f"ページ読み込みタイムアウト: {e}", extra={"sensitive": True}
+            )
             self.status_label.configure(
                 text="タイムアウト。簡易情報(タイトル/ドメイン)を取得します...",
                 text_color=Colors.LABEL_WARNING,
@@ -567,7 +569,7 @@ class WebClipWindow(ctk.CTkToplevel):
 
         except Exception as e:
             # --- その他のエラー (ブラウザ無し等) ---
-            logger.error(f"ページ読み込みエラー: {e}")
+            logger.error(f"ページ読み込みエラー: {e}", extra={"sensitive": True})
             messagebox.showerror(
                 "情報取得エラー",
                 f"エラーが発生しました:\n{e}\n\nURLやブラウザのインストール状況を確認してください。",
@@ -774,7 +776,10 @@ class WebClipWindow(ctk.CTkToplevel):
             Exception,
         ) as e:
             # --- フォールバック: 簡易PDF生成 ---
-            logger.error(f"Webクリップ変換失敗 (フォールバック実行): {e}")
+            logger.error(
+                f"Webクリップ変換失敗 (フォールバック実行): {e}",
+                extra={"sensitive": True},
+            )
             self.status_label.configure(
                 text="取得失敗。書誌情報のみのPDFを生成します...",
                 text_color=Colors.LABEL_WARNING,
@@ -820,7 +825,10 @@ class WebClipWindow(ctk.CTkToplevel):
                 conversion_success = True
 
             except Exception as e_fallback:
-                logger.error(f"フォールバックPDF生成も失敗: {e_fallback}")
+                logger.error(
+                    f"フォールバックPDF生成も失敗: {e_fallback}",
+                    extra={"sensitive": True},
+                )
                 messagebox.showerror(
                     "エラー",
                     f"PDF作成に完全に失敗しました:\n{e}\n\n(簡易PDF生成エラー: {e_fallback})",

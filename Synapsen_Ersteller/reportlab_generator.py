@@ -82,7 +82,10 @@ class ReportLabPDFGenerator:
             else:
                 pdfmetrics.registerFont(TTFont(self.font_name, target_path))
         except Exception as e:
-            logger.error(f"ReportLab フォント登録エラー '{target_path}': {e}")
+            logger.error(
+                f"ReportLab フォント登録エラー '{target_path}': {e}",
+                extra={"sensitive": True},
+            )
             self.font_name = "Helvetica"
 
     def _truncate_text(

@@ -58,7 +58,7 @@ def load_app_config(base_path):
         config_path = base_path.parent / "config.ini"
 
     config_path = config_path.resolve()  # 絶対パスに正規化
-    logger.debug(f"Loading config from: {config_path}")
+    logger.debug(f"Loading config from: {config_path}", extra={"sensitive": True})
 
     if not config_path.is_file():
         raise FileNotFoundError(f"config.iniが見つかりません: {config_path}")
@@ -546,7 +546,10 @@ def find_file_in_paths(filename: str, search_dirs: list[Path]) -> Path | None:
                 if found:
                     return found
             except Exception as e:
-                logger.warning(f"サブフォルダ検索中にエラー ({folder}): {e}")
+                logger.warning(
+                    f"サブフォルダ検索中にエラー ({folder}): {e}",
+                    extra={"sensitive": True},
+                )
 
     return None
 
@@ -582,7 +585,10 @@ def _open_pdf_in_browser(file_uri: str, browser_path: str | None = None):
     # 3. エラー時のフォールバック処理
     except FileNotFoundError:
         # 3a. 指定されたパスが見つからない
-        logger.warning(f"指定されたブラウザパスが見つかりません: {browser_path}")
+        logger.warning(
+            f"指定されたブラウザパスが見つかりません: {browser_path}",
+            extra={"sensitive": True},
+        )
         messagebox.showwarning(
             "ブラウザエラー",
             f"config.ini で指定されたパスにブラウザが見つかりません:\n"
@@ -661,7 +667,10 @@ def open_pdf_viewer(
             except (ValueError, TypeError):
                 page_number = 1
         else:
-            logger.warning(f"統合PDFが見つかりません: {merged_pdf_filename}")
+            logger.warning(
+                f"統合PDFが見つかりません: {merged_pdf_filename}",
+                extra={"sensitive": True},
+            )
 
     # 2. 統合PDFが見つからない場合、元ファイルを探す
     if target_pdf_path is None:

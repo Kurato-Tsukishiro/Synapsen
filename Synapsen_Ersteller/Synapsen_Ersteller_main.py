@@ -278,7 +278,7 @@ class Synapsen_Ersteller(ctk.CTk):
             config_path = os.path.join(
                 os.path.abspath(os.path.join(base_path, "..")), "config.ini"
             )
-        logger.debug(f"Loading config from: {config_path}")
+        logger.debug(f"Loading config from: {config_path}", extra={"sensitive": True})
 
         # config.ini があるフォルダのパスを基準として定義
         config_dir = os.path.dirname(config_path)
@@ -346,11 +346,16 @@ class Synapsen_Ersteller(ctk.CTk):
         if os.path.isabs(expanded_path):
             # configの値が絶対パス（または環境変数展開後、絶対パスになった）の場合、そのまま使用
             self.font_path = expanded_path
-            logger.debug(f"Font path is ABSOLUTE: {self.font_path}")
+            logger.debug(
+                f"Font path is ABSOLUTE: {self.font_path}", extra={"sensitive": True}
+            )
         else:
             # configの値が相対パスの場合、config_dir と結合する
             self.font_path = os.path.join(config_dir, expanded_path)
-            logger.debug(f"Font path is RELATIVE, resolved to: {self.font_path}")
+            logger.debug(
+                f"Font path is RELATIVE, resolved to: {self.font_path}",
+                extra={"sensitive": True},
+            )
 
         # 5. tags_data_pathの解決
         tags_path_from_config = config.get(
@@ -477,7 +482,7 @@ class Synapsen_Ersteller(ctk.CTk):
                 logger.info(
                     f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。"
                 )
-                logger.debug(f"{self.tags_data_path}")
+                logger.debug(f"{self.tags_data_path}", extra={"sensitive": True})
         except Exception as e:
             logger.error(f"tags.txtの読み込み中にエラーが発生しました: {e}")
 
@@ -1234,7 +1239,9 @@ class Synapsen_Ersteller(ctk.CTk):
 
             # A. ファイル存在チェック
             if not pdf_path.is_file():
-                logger.warning(f"除外(未検出): {pdf_path.name}")
+                logger.warning(
+                    f"除外(未検出): {pdf_path.name}", extra={"sensitive": True}
+                )
                 excluded_count += 1
                 continue
 
@@ -1245,7 +1252,10 @@ class Synapsen_Ersteller(ctk.CTk):
                 real_pages = len(reader.pages)
 
                 if real_pages <= 0:
-                    logger.warning(f"除外(ページなし): {pdf_path.name}")
+                    logger.warning(
+                        f"除外(ページなし): {pdf_path.name}",
+                        extra={"sensitive": True},
+                    )
                     excluded_count += 1
                     continue
 
@@ -1253,7 +1263,10 @@ class Synapsen_Ersteller(ctk.CTk):
                 note["pages"] = real_pages
 
             except Exception as e:
-                logger.warning(f"除外(読込不可): {pdf_path.name} - {e}")
+                logger.warning(
+                    f"除外(読込不可): {pdf_path.name} - {e}",
+                    extra={"sensitive": True},
+                )
                 excluded_count += 1
                 continue
 
@@ -1458,7 +1471,8 @@ class Synapsen_Ersteller(ctk.CTk):
                                     canvas_dict = meta_data["canvas_data"]
                             except Exception as ce:
                                 logger.warning(
-                                    f"ノート {note_key} のSubjectからCanvasデータのパースに失敗: {ce}"
+                                    f"ノート {note_key} のSubjectからCanvasデータのパースに失敗: {ce}",
+                                    extra={"sensitive": True},
                                 )
 
                         note["canvas_data"] = canvas_dict
@@ -1497,7 +1511,10 @@ class Synapsen_Ersteller(ctk.CTk):
                             current_doc_page_cursor += 1
 
                     except Exception as e:
-                        logger.error(f"ノート結合エラー ({note.get('title')}): {e}")
+                        logger.error(
+                            f"ノート結合エラー ({note.get('title')}): {e}",
+                            extra={"sensitive": True},
+                        )
                         note_pages = note.get("pages", 0)
                         current_doc_page_cursor += note_pages
                         if current_doc_page_cursor > index_start_page_idx:
@@ -1587,7 +1604,9 @@ class Synapsen_Ersteller(ctk.CTk):
                         "synapsen_metadata_backup.json", json_data.encode("utf-8")
                     )
                 except Exception as e:
-                    logger.warning(f"メタデータ埋め込み失敗: {e}")
+                    logger.warning(
+                        f"メタデータ埋め込み失敗: {e}", extra={"sensitive": True}
+                    )
 
                 # --- F. 保存処理 ---
                 self.label.configure(
@@ -1652,7 +1671,10 @@ class Synapsen_Ersteller(ctk.CTk):
                                 f"{canvas_count} 件のCanvasデータをDBに保存しました。"
                             )
                     except Exception as dbe:
-                        logger.error(f"CanvasデータのDB保存に失敗: {dbe}")
+                        logger.error(
+                            f"CanvasデータのDB保存に失敗: {dbe}",
+                            extra={"sensitive": True},
+                        )
                     finally:
                         if conn:
                             conn.close()
@@ -1665,7 +1687,10 @@ class Synapsen_Ersteller(ctk.CTk):
                     final_doc.close()
                 if skeleton_doc:
                     skeleton_doc.close()
-                logger.error(f"Fatal error in Vol {current_vol_num}: {e}")
+                logger.error(
+                    f"Fatal error in Vol {current_vol_num}: {e}",
+                    extra={"sensitive": True},
+                )
                 messagebox.showerror(
                     "エラー",
                     f"{current_vol_num}冊目の処理中にエラーが発生しました:\n{e}",
@@ -2101,7 +2126,9 @@ class Synapsen_Ersteller(ctk.CTk):
             pdf_path_obj = find_file_in_paths(filename, search_paths)
 
             if not pdf_path_obj:
-                logger.warning(f"PDFが見つかりません: {filename}")
+                logger.warning(
+                    f"PDFが見つかりません: {filename}", extra={"sensitive": True}
+                )
                 not_found_count += 1
                 continue
 
@@ -2145,7 +2172,10 @@ class Synapsen_Ersteller(ctk.CTk):
 
                 if need_update:
                     # C. 更新処理
-                    logger.info(f"更新対象: {filename} (DB: {db_last_updated})")
+                    logger.info(
+                        f"更新対象: {filename} (DB: {db_last_updated})",
+                        extra={"sensitive": True},
+                    )
 
                     # 新しいメタデータを作成
                     metadata_to_embed = []
@@ -2194,7 +2224,9 @@ class Synapsen_Ersteller(ctk.CTk):
                 doc.close()
 
             except Exception as e:
-                logger.error(f"PDF処理エラー ({filename}): {e}")
+                logger.error(
+                    f"PDF処理エラー ({filename}): {e}", extra={"sensitive": True}
+                )
                 # docが開かれていたら閉じる
                 try:
                     doc.close()
