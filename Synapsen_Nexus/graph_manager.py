@@ -5,6 +5,7 @@ import webbrowser
 from pathlib import Path
 from textwrap import dedent
 from utils import get_pdf_uri_for_note
+import export_manager
 import sqlite3
 
 import logging
@@ -131,8 +132,7 @@ class GraphManager:
         nt.from_nx(G)
 
         # 物理演算設定
-        nt.set_options(
-            """
+        nt.set_options("""
         var options = {
           "physics": {
             "solver": "barnesHut",
@@ -171,8 +171,7 @@ class GraphManager:
             }
           }
         }
-        """
-        )
+        """)
 
         # 3. 保存パスの決定
         if output_path:
@@ -194,8 +193,7 @@ class GraphManager:
     @staticmethod
     def _inject_custom_js(html_path):
         """生成されたHTMLにカスタムインタラクション用JSを注入する"""
-        custom_js = dedent(
-            """
+        custom_js = dedent("""
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof network !== 'undefined') {
                 // ダブルクリック: PDFを開く
@@ -237,17 +235,30 @@ class GraphManager:
                 });
             }
         });
-        """
-        )
+        """)
 
         try:
             with open(html_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            # ファビコン設定
+            favicon_base64 = export_manager.ExportManager.EMOJI_MAP.get(
+                export_manager.EmojiType.ICON, "FILE NOT FOUND"
+            )
+            favicon_text = (
+                f'<link rel="icon" '
+                f'href="data:image/x-icon;base64,{favicon_base64}" '
+                f'type="image/x-icon">\n'
+            )
+            favicon_tag = "<head>\n" + f"\t\t{favicon_text}"
+
             script_tag = (
                 '<script type="text/javascript">\n' + f"{custom_js}\n</script>\n</head>"
             )
-            content = content.replace("</head>", script_tag, 1)
+
+            content = content.replace("<head>", favicon_tag, 1).replace(
+                "</head>", script_tag, 1
+            )
 
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(content)
