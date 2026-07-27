@@ -22,10 +22,9 @@ class ConfigEditorWindow(ctk.CTkToplevel):
 
         # アイコン設定 (親から継承)
         if hasattr(parent, "icon_path") and parent.icon_path:
-            try:
-                self.iconbitmap(default=str(parent.icon_path))
-            except Exception:
-                pass
+            self._custom_icon_path = str(parent.icon_path)
+        if self._custom_icon_path:
+            self.iconbitmap(default=str(parent.icon_path))
 
         self.title("Synapsen 設定")
         self.configure(
@@ -51,6 +50,28 @@ class ConfigEditorWindow(ctk.CTkToplevel):
             return
 
         self._create_widgets()
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
     def _create_widgets(self):
         # スクロール可能なメインフレーム

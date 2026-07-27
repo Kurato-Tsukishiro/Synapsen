@@ -44,10 +44,9 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
         # アイコン設定 (親から継承)
         if hasattr(parent, "icon_path") and parent.icon_path:
-            try:
-                self.iconbitmap(default=str(parent.icon_path))
-            except Exception:
-                pass
+            self._custom_icon_path = str(parent.icon_path)
+        if self._custom_icon_path:
+            self.iconbitmap(default=str(parent.icon_path))
 
         self.grab_set()  # モーダル化
 
@@ -149,6 +148,30 @@ class DBRecoveryWindow(ctk.CTkToplevel):
 
         # 内部保持用データ
         self.extracted_data = []
+
+    
+
+    def iconbitmap(self, *args, **kwargs):
+        """
+        iconbitmap の呼び出しをインターセプト（横取り）する。
+
+        CustomTkinterが内部でこのメソッドを呼び出して
+        アイコンをデフォルトに戻そうとしても、
+        強制的にカスタムアイコンを設定し直す。
+        """
+        if self._custom_icon_path:
+            try:
+                # 常にカスタムアイコンパスを使って親メソッドを呼ぶ
+                super().iconbitmap(self._custom_icon_path)
+            except Exception:
+                # ウィンドウが存在しない場合などのエラーを無視
+                pass
+        else:
+            # カスタムアイコンがない場合は、通常の動作をさせる
+            try:
+                super().iconbitmap(*args, **kwargs)
+            except Exception:
+                pass
 
     def log(self, message):
         self.info_textbox.configure(state="normal")
