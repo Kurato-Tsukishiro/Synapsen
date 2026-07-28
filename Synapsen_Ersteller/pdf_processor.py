@@ -172,7 +172,7 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         # 引用 (Refs) -> メモ欄へ
                         if "refs" in meta_data and isinstance(meta_data["refs"], list):
                             links = [f"[[{r}]]" for r in meta_data["refs"]]
-                            if links:
+                            if links and "Synapsen:Whiteboard" not in keywords:
                                 memo_from_refs = "\n".join(links) + "\n"
 
                         # コメント -> 140文字以内ならSummary欄、超える場合はメモ欄へ
