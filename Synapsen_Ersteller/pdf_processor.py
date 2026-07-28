@@ -172,12 +172,21 @@ def get_note_info(pdf_path: Path, key_rect: tuple):
                         # 引用 (Refs) -> メモ欄へ
                         if "refs" in meta_data and isinstance(meta_data["refs"], list):
                             links = [f"[[{r}]]" for r in meta_data["refs"]]
-                            if links:
+                            if links and "Synapsen:Whiteboard" not in keywords:
                                 memo_from_refs = "\n".join(links) + "\n"
 
-                        # コメント -> Summary欄へ
+                        # コメント -> 140文字以内ならSummary欄、超える場合はメモ欄へ
                         if "comment" in meta_data and meta_data["comment"]:
-                            summary_content = meta_data["comment"]
+                            comment_text = meta_data["comment"]
+                            if len(comment_text) > 140:
+                                # 既存の引用リンク等がある場合の改行制御
+                                if memo_from_refs and not memo_from_refs.endswith("\n"):
+                                    memo_from_refs += "\n \n"
+
+                                # 区切り文字 [Comment] を付与して追記
+                                memo_from_refs += f"\n[Comment]\n{comment_text}\n"
+                            else:
+                                summary_content = comment_text
 
                         data_found_priority = True
                         logger.info(
