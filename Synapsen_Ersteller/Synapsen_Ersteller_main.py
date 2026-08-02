@@ -1,6 +1,7 @@
 # === 1. 標準ライブラリ ===
 import os
 import sys
+import re
 from pathlib import Path
 import tkinter
 import csv
@@ -474,11 +475,17 @@ class Synapsen_Ersteller(ctk.CTk):
             tag_file = Path(self.tags_data_path)
             if tag_file.is_file():
                 with open(tag_file, "r", encoding="utf-8") as f:
-                    self.predefined_tags = [
-                        line.strip()
-                        for line in f
-                        if line.strip() and not line.startswith("#")
-                    ]
+                    tags_list = []
+                    for line in f:
+                        stripped_line = line.strip()
+                        # 空行やコメント行でないかチェック
+                        if not stripped_line or stripped_line.startswith("#"):
+                            continue
+                        # エイリアス部の削除
+                        s = r"\s*\[.*?\]\s*$"
+                        tag_name = re.sub(s, "", stripped_line).strip()
+                        tags_list.append(tag_name)
+                    self.predefined_tags = sorted(tags_list)
                 logger.info(
                     f"{len(self.predefined_tags)}件の事前定義タグを読み込みました。"
                 )

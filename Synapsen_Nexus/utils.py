@@ -181,10 +181,12 @@ def load_app_config(base_path):
                         for line in f:
                             stripped_line = line.strip()
                             # 空行やコメント行でないかチェック
-                            if stripped_line and not stripped_line.startswith(
-                                "#"
-                            ):  # noqa: E501
-                                tags_list.append(stripped_line)
+                            if not stripped_line or stripped_line.startswith("#"):
+                                continue
+                            # エイリアス部の削除
+                            s = r"\s*\[.*?\]\s*$"
+                            tag_name = re.sub(s, "", stripped_line).strip()
+                            tags_list.append(tag_name)
                         config_data["predefined_tags"] = sorted(tags_list)
             except Exception as e:
                 logger.error(f"tags.txtの読み込み中にエラー: {e}")
