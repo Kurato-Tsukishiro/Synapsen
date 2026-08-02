@@ -99,6 +99,7 @@ class Synapsen_Normalisierer(ctk.CTk):
     Attributes:
         icon_path (Path | None): アプリケーションアイコンのパス。
         font_path (str | None): config.iniから読み込んだフォントパス。
+        tags_data_path (str | None): config.iniから読み込んだ事前定義タグを保存しているテキストファイルのパス。
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
         enable_tesseract_ocr (bool): Tesseract OCRを実行するか否か。
@@ -123,6 +124,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         # --- 設定値の初期化 ---
         self.font_path = None
+        self.tags_data_path = None
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
@@ -212,7 +214,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         config.iniファイルから各種設定を読み込み、クラス属性にセットします。
 
         読み込む設定:
-        - Paths: font_path, tags_data_path, database_path
+        - Paths: font_path, tags_data_path
         - ReportLab: paper_size, font, author, title_prefix
         - Automation:
             enable_tesseract_ocr,
@@ -249,14 +251,26 @@ class Synapsen_Normalisierer(ctk.CTk):
             config = configparser.ConfigParser(interpolation=None)
             config.read(config_path, encoding="utf-8")
 
-            # 1. フォントパスの読み込み (Normalisierer の中核機能)
+            # 1. パスの読み込み
+            # 1-I. フォントパスの読み込み (Normalisierer の中核機能)
             font_path_from_config = config.get("Paths", "font_path", fallback="")
-            expanded_path = os.path.expandvars(font_path_from_config)
-            if os.path.isabs(expanded_path):
-                self.font_path = expanded_path
+            expanded_font_path = os.path.expandvars(font_path_from_config)
+            if os.path.isabs(expanded_font_path):
+                self.font_path = expanded_font_path
             else:
-                self.font_path = os.path.join(config_dir, expanded_path)
+                self.font_path = os.path.join(config_dir, expanded_font_path)
             self.config_data["font_path"] = self.font_path
+
+            # 1-II. 事前定義タグ設定ファイルのパスの読み込み
+            tags_data_path_from_config = config.get(
+                "Paths", "tags_data_path", fallback=""
+            )
+            expanded_tags_data_path = os.path.expandvars(tags_data_path_from_config)
+            if os.path.isabs(expanded_tags_data_path):
+                self.tags_data_path = expanded_tags_data_path
+            else:
+                self.tags_data_path = os.path.join(config_dir, expanded_tags_data_path)
+            self.config_data["tags_data_path"] = self.tags_data_path
 
             # --- セクション名の切り替え処理 ---
 
@@ -674,12 +688,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         """
         tags_map = {}
         try:
-            if getattr(sys, "frozen", False):
-                base_path = Path(sys.executable).parent
-            else:
-                base_path = Path(__file__).parent.parent
-
-            tags_file_path = base_path / "PDFTags.txt"
+            tags_file_path = Path(self.tags_data_path)
 
             if not tags_file_path.exists():
                 logger.warning(f"PDFTags.txt が見つかりません: {tags_file_path}")
