@@ -651,7 +651,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                     for t in raw_tags:
                         t_lower = t.lower()
                         if t_lower in self.tags_map:
-                            extracted_tags.append(self.tags_map[t_lower])
+                            # アンダースコアでタグを分割する(階層構造の展開)
+                            parts = self.tags_map[t_lower].split("_")
+                            for i in range(len(parts)):
+                                hierarchical_tag = "_".join(parts[: i + 1])
+                                if hierarchical_tag not in extracted_tags:
+                                    extracted_tags.append(hierarchical_tag)
 
                 self.status_label.configure(
                     text=f"{status_prefix} メタデータ埋込: {output_base_name}"
