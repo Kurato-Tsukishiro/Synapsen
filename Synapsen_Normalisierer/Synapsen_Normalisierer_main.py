@@ -24,6 +24,7 @@ from pdf_utils import (
     convert_pil_image_to_pdf,
     convert_document_to_pdf,
     embed_normalization_metadata,
+    transplant_ocr_text_from_pdf,
 )
 
 current_dir = Path(__file__).parent
@@ -487,6 +488,22 @@ class Synapsen_Normalisierer(ctk.CTk):
             paper_size_str = self.config_data.get("paper_size", "A4")
 
             for i, (item_data, base_name) in enumerate(all_items):
+                # OCR用PDFファイル(_ocr.pdf) 自身の処理をスキップ
+                # ループの最初で判定し、以降の不要な処理(正規表現など)を回避する
+                original_item_path = (
+                    item_data if isinstance(item_data, Path) else Path(str(item_data))
+                )
+                if original_item_path.name.lower().endswith("_ocr.pdf"):
+                    logger.info(
+                        f"外部OCRファイル ({original_item_path.name}) のため、単独の正規化処理をスキップします。",
+                        extra={"sensitive": True},
+                    )
+                    if hasattr(self, "status_label"):
+                        self.status_label.configure(
+                            text=f"スキップ (OCRファイル): {original_item_path.name}"
+                        )
+                        self.update_idletasks()
+                    continue
 
                 status_prefix = f"処理中 ({i+1}/{total_files}):"
                 self.status_label.configure(text=f"{status_prefix} {base_name}")
@@ -596,6 +613,33 @@ class Synapsen_Normalisierer(ctk.CTk):
                     flatten_ink=self.flatten_ink,
                 )
 
+                # --- [ステップ2.5: OCR用PDFファイルからのOCRテキスト移植] ---
+                # 入力元がファイルである場合、同階層の _ocr.pdf を探す
+                original_item_path = item_data if isinstance(item_data, Path) else None
+                ocr_transplanted = False
+
+                if original_item_path:
+                    ocr_source_path = (
+                        original_item_path.parent / f"{original_item_path.stem}_ocr.pdf"
+                    )
+                    if ocr_source_path.exists() and ocr_source_path.is_file():
+                        self.status_label.configure(
+                            text=(
+                                f"{status_prefix} 透明化テキスト統合中: "
+                                f"{ocr_source_path.name}"
+                            )
+                        )
+                        self.update_idletasks()
+                        try:
+                            # 座標ズレを防ぐため、正規化(リサイズ)前の temp_flattened_pdf にテキストを移植する
+                            ocr_transplanted = transplant_ocr_text_from_pdf(
+                                str(temp_flattened_pdf),
+                                str(ocr_source_path),
+                                self.font_path,
+                            )
+                        except Exception as e:
+                            logger.error(f"透明化テキスト統合エラー: {e}")
+
                 # --- [ステップ3: 正規化 (サイズ統一)] ---
                 self.status_label.configure(
                     text=f"{status_prefix} 正規化中: {base_name}"
@@ -610,38 +654,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # --- [ステップ4: OCR埋め込み] ---
-                # 2. パラメータの決定
-                current_ocr_engine = "tesseract"
-                should_run_ocr = self.enable_tesseract_ocr
-
-                # Ollamaフラグがある場合、設定が有効なら強制ON、無効ならスキップ(安全策)
-                if use_ollama:
-                    if self.ollama_model:
-                        current_ocr_engine = "ollama"
-                        should_run_ocr = True
-                    else:
-                        logger.warning(
-                            f"Ollamaフラグ({base_name})を検出しましたが、"
-                            "configにモデル設定がないためOCRをスキップします。"
-                        )
-                        should_run_ocr = False
-
-                self.status_label.configure(
-                    text=f"{status_prefix} OCR処理中({current_ocr_engine})...: {base_name}"
-                )
-                self.update_idletasks()
-
-                # 3. OCR実行
-                embed_ocr_text_in_pdf(
-                    pdf_path_str=str(final_output_pdf),
-                    enable_ocr=should_run_ocr,
-                    font_path=self.font_path,
-                    ocr_engine=current_ocr_engine,
-                    ollama_config={
-                        "model": self.ollama_model,
-                        "url": self.ollama_api_url,
-                    },
-                )
+                # OCR用PDFから移植した場合は、処理をスキップする。
+                if not ocr_transplanted:
+                    # 移植していない場合は処理を実行する。
+                    self._process_ocr_sequence(
+                        base_name, final_output_pdf, use_ollama, status_prefix
+                    )
 
                 # --- [ステップ5: 正規化メタデータ (フラグ・タグ) 埋め込み] ---
                 # ファイル名からタグを抽出
@@ -685,6 +703,84 @@ class Synapsen_Normalisierer(ctk.CTk):
                     shutil.rmtree(temp_dir)
                 except Exception as e:
                     logger.warning(f"一時フォルダの削除に失敗しました: {e}")
+
+    def _process_ocr_sequence(
+        self,
+        base_name: str,
+        ocr_target_pdf_path_str: str,
+        use_ollama: bool,
+        status_prefix: str,
+    ) -> None:
+        """UIの更新からOCRの実行までの一連のシーケンスを制御する中継関数
+
+        Args:
+            base_name (str): OCR処理対象の元々のファイル名
+            ocr_target_pdf_path_str (str): OCR処理対象のPDFのパス
+            use_ollama (bool): ollamaをOCR処理に使用するか(ファイル名によるフラグが指定されていたか)
+            status_prefix (str): 「何ファイル中、何ファイル目のOCR処理を実行しているか」のラベル表示用テキスト
+        """
+
+        def _determine_ocr_engine(use_ollama: bool) -> tuple[bool, str]:
+            """
+            OCR処理の実行が可能であるかの判定と、使用するエンジン名の取得を行う。
+
+            Args:
+                use_ollama (bool): ollamaをOCR処理に使用するか(ファイル名によるフラグが指定されていたか)
+
+            Returns:
+                tuple[bool, str]: 実行可能かどうかの真偽値、及び使用するエンジン名。
+            """
+            if use_ollama:
+                if self.ollama_model:  # config上で、モデル設定が行われているか
+                    return True, "ollama"
+                else:
+                    # ログ出力のみ
+                    logger.warning(
+                        "Ollamaフラグを検出しましたが、configにモデル設定がないためOCRをスキップします。"
+                    )
+                    return False, "NONE"
+
+            return self.enable_tesseract_ocr, "tesseract"
+
+        def _embed_ocr_text(
+            ocr_target_pdf_path_str: str,
+            engine: str,
+        ) -> None:
+            """OCR処理の呼び出し
+
+            Args:
+                ocr_target_pdf_path_str (str): OCR処理対象のPDFのパス
+                engine (str): OCR処理を実行するエンジン
+            """
+
+            # OCRを行うかはチェック済みなので、ここでは純粋にOCR処理の呼び出しを行うだけ
+            embed_ocr_text_in_pdf(
+                pdf_path_str=str(ocr_target_pdf_path_str),
+                enable_ocr=True,  # ここにこれたなら必ずTrue
+                font_path=self.font_path,
+                ocr_engine=engine,  # 判定済みのエンジン ("tesseract" または "ollama")
+                ollama_config={
+                    "model": self.ollama_model,
+                    "url": self.ollama_api_url,
+                },
+            )
+
+        # 1. 状態の判定ロジックを呼び出す（UI操作なし）
+        should_run, engine = _determine_ocr_engine(use_ollama)
+
+        # 2. ガード句：実行不要及び実行不能なら、画面を汚さずにこの関数を即座に抜ける
+        if not should_run:
+            return
+
+        # 3. 実行確定時のみUIを更新する
+        self.status_label.configure(
+            text=f"{status_prefix} OCR処理中({engine})...: {base_name}",
+            extra={"sensitive": True},
+        )
+        self.update_idletasks()
+
+        # 4. 実際のOCR（embed_ocr_text_in_pdf の呼び出し）を実行
+        _embed_ocr_text(ocr_target_pdf_path_str=ocr_target_pdf_path_str, engine=engine)
 
     def _load_pdf_tags(self) -> dict[str, str]:
         """

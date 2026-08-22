@@ -9,6 +9,8 @@ from PIL import ImageGrab, Image
 import tempfile
 import shutil
 from pypdf import PdfReader, PdfWriter
+from dataclasses import dataclass
+from typing import Self
 import fitz  # PDFプレビュー用
 import io
 
@@ -27,6 +29,7 @@ from pdf_utils import (
     normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
     extract_pdf_pages,
+    transplant_ocr_text_from_pdf,
 )
 
 import logging
@@ -1227,12 +1230,33 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 convert_pil_image_to_pdf(item_data, temp_converted_pdf)
                 path_to_flatten = temp_converted_pdf
 
+            # --- 2: フラット化 ---
             high_fidelity_flatten(
                 str(path_to_flatten),
                 str(temp_flattened_pdf),
                 font_path,
                 flatten_ink=flatten_ink,
             )
+
+            # --- 2.5: OCR用PDFファイルからのOCRテキスト移植 ---
+            original_item_path = item_data if isinstance(item_data, Path) else None
+            ocr_transplanted = False
+
+            if original_item_path:
+                ocr_source_path = (
+                    original_item_path.parent / f"{original_item_path.stem}_ocr.pdf"
+                )
+                if ocr_source_path.exists() and ocr_source_path.is_file():
+                    self.parent_app.status_label.configure(
+                        text=f"{status_prefix} 透明化テキスト統合中: {ocr_source_path.name}"
+                    )
+                    self.parent_app.update_idletasks()
+                    try:
+                        ocr_transplanted = transplant_ocr_text_from_pdf(
+                            str(temp_flattened_pdf), str(ocr_source_path), font_path
+                        )
+                    except Exception as e:
+                        logger.error(f"透明化テキスト統合エラー: {e}")
 
             # --- 3: 正規化 ---
             self.parent_app.status_label.configure(
@@ -1248,36 +1272,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 4: OCR ---
-            current_ocr_engine = "tesseract"
-            should_run_ocr = enable_tesseract
+            # OCR用PDFから移植した場合は、処理をスキップする。
+            if not ocr_transplanted:
+                ollama_data = self._ollamaData(
+                    use_ollama=use_ollama,
+                    ollama_model=ollama_model,
+                    ollama_api_url=ollama_api_url,
+                )
 
-            if use_ollama:
-                if ollama_model:
-                    current_ocr_engine = "ollama"
-                    should_run_ocr = True
-                else:
-                    logger.warning(
-                        f"Ollamaフラグ({base_name})を検出しましたが、"
-                        "configにモデル設定がないためOCRをスキップします。",
-                        extra={"sensitive": True},
-                    )
-                    should_run_ocr = False
-
-            self.parent_app.status_label.configure(
-                text=f"{status_prefix} OCR埋込処理中({current_ocr_engine}): {base_name}"
-            )
-            self.parent_app.update_idletasks()
-
-            embed_ocr_text_in_pdf(
-                str(final_output_pdf),
-                should_run_ocr,
-                font_path,
-                ocr_engine=current_ocr_engine,
-                ollama_config={
-                    "model": ollama_model,
-                    "url": ollama_api_url,
-                },
-            )
+                # 移植していない場合は処理を実行する。
+                self._process_ocr_sequence(
+                    base_name, final_output_pdf, font_path, ollama_data, status_prefix
+                )
 
             # --- 5: メタデータ追記 ---
             self.parent_app.status_label.configure(
@@ -1444,6 +1450,27 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 flatten_ink=flatten_ink,
             )
 
+            # --- 2.5: OCR用PDFファイルからのOCRテキスト移植 ---
+            # D&Dされた元パス情報を使用して、同階層の _ocr.pdf を検索
+            original_item_path = item_data if isinstance(item_data, Path) else None
+            ocr_transplanted = False
+
+            if original_item_path:
+                ocr_source_path = (
+                    original_item_path.parent / f"{original_item_path.stem}_ocr.pdf"
+                )
+                if ocr_source_path.exists() and ocr_source_path.is_file():
+                    self.parent_app.status_label.configure(
+                        text=f"{status_prefix} 透明化テキスト統合中: {ocr_source_path.name}"
+                    )
+                    self.parent_app.update_idletasks()
+                    try:
+                        ocr_transplanted = transplant_ocr_text_from_pdf(
+                            str(temp_flattened_pdf), str(ocr_source_path), font_path
+                        )
+                    except Exception as e:
+                        logger.error(f"透明化テキスト統合エラー: {e}")
+
             # --- 3: 正規化 (出力先を normalized_part_pdf に) ---
             self.parent_app.status_label.configure(
                 text=f"{status_prefix} 正規化中: {item_original_name}"
@@ -1458,49 +1485,36 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 4: OCR (normalized_part_pdf に対して実行) ---
-            # OCR設定の判定 (元のファイル名末尾によるLocal LLM判定)
-            use_ollama = False
-            # 統合モードでは base_name は全て同じ名前になっているため、
-            # item_original_name (D&Dされた元のファイル名) を使用して判定する
-            if isinstance(item_original_name, str):
-                p_original = Path(item_original_name)
-                stem_original = p_original.stem.lower()
-                if stem_original.endswith("_hand") or stem_original.endswith("_llm"):
-                    use_ollama = True
+            if not ocr_transplanted:
+                # OCR設定の判定 (元のファイル名末尾によるLocal LLM判定)
+                use_ollama = False
+                # 統合モードでは base_name は全て同じ名前になっているため、
+                # item_original_name (D&Dされた元のファイル名) を使用して判定する
+                if isinstance(item_original_name, str):
+                    p_original = Path(item_original_name)
+                    stem_original = p_original.stem.lower()
+                    if stem_original.endswith("_hand") or stem_original.endswith(
+                        "_llm"
+                    ):
+                        use_ollama = True
 
-            current_ocr_engine = "tesseract"
-            should_run_ocr = enable_tesseract
-
-            if use_ollama:
-                if ollama_model:
-                    current_ocr_engine = "ollama"
-                    should_run_ocr = True
-                else:
-                    logger.warning(
-                        f"Ollamaフラグ({item_original_name})を検出しましたが、"
-                        "configにモデル設定がないためOCRをスキップします。",
-                        extra={"sensitive": True},
-                    )
-                    should_run_ocr = False
-
-            self.parent_app.status_label.configure(
-                text=(
-                    f"{status_prefix} OCR埋込処理中({current_ocr_engine}): "
-                    f"{item_original_name}"
+            # --- 4: OCR ---
+            # OCR用PDFから移植した場合は、処理をスキップする。
+            if not ocr_transplanted:
+                ollama_data = self._ollamaData(
+                    use_ollama=use_ollama,
+                    ollama_model=ollama_model,
+                    ollama_api_url=ollama_api_url,
                 )
-            )
-            self.parent_app.update_idletasks()
 
-            embed_ocr_text_in_pdf(
-                str(normalized_part_pdf),
-                should_run_ocr,
-                font_path,
-                ocr_engine=current_ocr_engine,
-                ollama_config={
-                    "model": ollama_model,
-                    "url": ollama_api_url,
-                },
-            )
+                # 移植していない場合は処理を実行する。
+                self._process_ocr_sequence(
+                    base_name,
+                    final_output_pdf,
+                    font_path,
+                    ollama_data,
+                    status_prefix,
+                )
 
             # 連結リストに追加
             normalized_pdf_paths.append(normalized_part_pdf)
@@ -1564,4 +1578,81 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         )
         self.parent_app.status_label.configure(
             text="処理が完了しました。", text_color="gray"
+        )
+
+    @dataclass
+    class _ollamaData:
+        """ollama関連の設定値を管理するデータクラス
+
+        Attributes:
+            use_ollama (bool): ollamaをOCR処理に使用するか(ファイル名によるフラグが指定されていたか)
+            ollama_model (str): 使用するollamaのモデル
+            ollama_api_url (str): OllamaサーバーのURL
+        """
+
+        use_ollama: bool
+        ollama_model: str
+        ollama_api_url: str
+
+    def _process_ocr_sequence(
+        self,
+        base_name: str,
+        ocr_target_pdf_path_str: str,
+        font_path: str,
+        ollama_data: _ollamaData,
+        status_prefix: str,
+    ) -> None:
+        def _determine_ocr_engine(
+            ollama_data: Self, enable_tesseract_ocr: bool
+        ) -> tuple[bool, str]:
+            if ollama_data.use_ollama:
+                if ollama_data.ollama_model:
+                    return True, "ollama"
+                else:
+                    # ログ出力のみ
+                    logger.warning(
+                        "Ollamaフラグを検出しましたが、configにモデル設定がないためOCRをスキップします。"
+                    )
+                    return False, "NONE"
+
+                return enable_tesseract_ocr, "tesseract"
+
+        def _embed_ocr_text(
+            ocr_target_pdf_path_str: str,
+            font_path: str,
+            engine: str,
+            ollama_data: Self,
+        ) -> None:
+
+            # OCRを行うかはチェック済みなので、ここでは純粋にOCR処理の呼び出しを行うだけ
+            embed_ocr_text_in_pdf(
+                str(ocr_target_pdf_path_str),
+                True,  # ここにこれたなら必ずTrue
+                font_path,
+                ocr_engine=engine,
+                ollama_config={
+                    "model": ollama_data.ollama_model,
+                    "url": ollama_data.ollama_api_url,
+                },
+            )
+
+        # 1. 状態の判定ロジックを呼び出す（UI操作なし）
+        should_run, engine = _determine_ocr_engine(ollama_data.use_ollama)
+
+        # 2. ガード句：実行不要及び実行不能なら、画面を汚さずにこの関数を即座に抜ける
+        if not should_run:
+            return
+
+        # 3. 実行確定時のみUIを更新する
+        self.parent_app.status_label.configure(
+            text=f"{status_prefix} OCR埋込処理中({engine}): {base_name}"
+        )
+        self.parent_app.update_idletasks()
+
+        # 4. 実際のOCR（embed_ocr_text_in_pdf の呼び出し）を実行
+        _embed_ocr_text(
+            ocr_target_pdf_path_str=ocr_target_pdf_path_str,
+            font_path=font_path,
+            engine=engine,
+            ollama_data=ollama_data,
         )
