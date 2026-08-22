@@ -1170,6 +1170,112 @@ def embed_ocr_text_in_pdf(
             raise Exception(f"OCR後のPDFファイル上書きに失敗: {e_move}")
 
 
+def transplant_ocr_text_from_pdf(
+    target_pdf_path: str, source_pdf_path: str, font_path: str
+) -> bool:
+    """
+    source_pdf_path (例: _ocr.pdf) からテキストと座標情報を抽出し、
+    target_pdf_path (正規化前のPDF) に透明テキストレイヤーとして埋め込みます。
+
+    Args:
+        target_pdf_path (str): 正規化前の、透明テキストの統合先となるPDFのパス。
+        source_pdf_path (str): 統合する、透明テキストを有するPDFのパス。
+        font_path (str): 埋め込む透明化テキストに使用するフォントのパス。
+
+    Returns:
+        bool: 埋め込みが成功したかの真偽値。
+    """
+    doc_src = None
+    doc_tgt = None
+    OCR_FONT_NAME = "synapsen_ocr_font"
+    temp_output_path = target_pdf_path + "._temp_transplant.pdf"
+
+    try:
+        doc_src = fitz.open(source_pdf_path)
+        doc_tgt = fitz.open(target_pdf_path)
+
+        pages_processed = 0
+        for i in range(min(len(doc_src), len(doc_tgt))):
+            page_src = doc_src[i]
+            page_tgt = doc_tgt[i]
+
+            # --- ページサイズからスケーリング比率を計算 ---
+            src_rect = page_src.rect
+            tgt_rect = page_tgt.rect
+
+            # ゼロ除算を防止
+            if src_rect.width == 0 or src_rect.height == 0:
+                continue
+
+            scale_x = tgt_rect.width / src_rect.width
+            scale_y = tgt_rect.height / src_rect.height
+
+            text_dict = page_src.get_text("dict")
+            if not text_dict or "blocks" not in text_dict:
+                continue
+
+            try:
+                page_tgt.insert_font(fontname=OCR_FONT_NAME, fontfile=font_path)
+            except Exception:
+                pass
+
+            blocks = text_dict["blocks"]
+            for b in blocks:
+                if b.get("type") == 0:  # text block
+                    for line in b.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = span.get("text", "").strip()
+                            if not text:
+                                continue
+
+                            origin = span.get("origin")
+                            fs = span.get("size")
+                            if origin and fs:
+                                # --- 座標とフォントサイズをターゲットPDFのスケールに合わせる ---
+                                scaled_x = origin[0] * scale_x
+                                scaled_y = origin[1] * scale_y
+                                point = fitz.Point(scaled_x, scaled_y)
+
+                                # フォントサイズは通常、縦方向のスケールに合わせる
+                                scaled_fs = fs * scale_y
+
+                                page_tgt.insert_text(
+                                    point,
+                                    text,
+                                    fontname=OCR_FONT_NAME,
+                                    fontsize=scaled_fs,
+                                    render_mode=3,  # 3 = 透明テキスト
+                                    rotate=0,
+                                )
+            pages_processed += 1
+
+        if pages_processed > 0:
+            doc_tgt.save(temp_output_path, garbage=4, deflate=True)
+            doc_tgt.close()
+            doc_tgt = None
+            shutil.move(temp_output_path, target_pdf_path)
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"OCRテキスト移植エラー: {e}")
+        if Path(temp_output_path).is_file():
+            try:
+                Path(temp_output_path).unlink()
+            except Exception:
+                pass
+        return False
+    finally:
+        if doc_src:
+            doc_src.close()
+        if doc_tgt:
+            try:
+                doc_tgt.close()
+            except Exception:
+                pass
+
+
 # ==============================================================================
 # 画像 -> PDF 変換関数
 # ==============================================================================
