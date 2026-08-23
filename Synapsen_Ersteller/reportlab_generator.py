@@ -672,6 +672,9 @@ class ReportLabPDFGenerator:
         date = note.get("date", "")
         if len(date) == 8:
             date = f"{date[:4]}/{date[4:6]}/{date[6:]}"
+        time = note.get("time", "")
+        if len(time) == 6:
+            time = f"{time[:2]}:{time[2:4]}:{time[4:]}"
 
         cp_key = note.get("commonplace_key", "").lower()
         icon = self.key_icons.get(cp_key, "")
@@ -698,7 +701,7 @@ class ReportLabPDFGenerator:
         # テキスト描画
         pdf_canvas.setFillColor(COLOR_BLACK)
         pdf_canvas.setFont(self.font_name, 9)
-        raw_text = f"{date}  {title}"
+        raw_text = f"{date} {time}  {title}"
         max_header_w = width - current_x - margin_x - 30 * mm
         text = self._truncate_text(
             pdf_canvas, raw_text, max_header_w, self.font_name, 9
