@@ -1282,7 +1282,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
                 # 移植していない場合は処理を実行する。
                 self._process_ocr_sequence(
-                    base_name, final_output_pdf, font_path, ollama_data, status_prefix
+                    base_name,
+                    final_output_pdf,
+                    font_path,
+                    enable_tesseract,
+                    ollama_data,
+                    status_prefix,
                 )
 
             # --- 5: メタデータ追記 ---
@@ -1512,6 +1517,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     base_name,
                     final_output_pdf,
                     font_path,
+                    enable_tesseract,
                     ollama_data,
                     status_prefix,
                 )
@@ -1599,6 +1605,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         base_name: str,
         ocr_target_pdf_path_str: str,
         font_path: str,
+        enable_tesseract: bool,
         ollama_data: _ollamaData,
         status_prefix: str,
     ) -> None:
@@ -1615,7 +1622,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
                     return False, "NONE"
 
-                return enable_tesseract_ocr, "tesseract"
+            return enable_tesseract_ocr, "tesseract"
 
         def _embed_ocr_text(
             ocr_target_pdf_path_str: str,
@@ -1637,7 +1644,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
         # 1. 状態の判定ロジックを呼び出す（UI操作なし）
-        should_run, engine = _determine_ocr_engine(ollama_data.use_ollama)
+        should_run, engine = _determine_ocr_engine(ollama_data, enable_tesseract)
 
         # 2. ガード句：実行不要及び実行不能なら、画面を汚さずにこの関数を即座に抜ける
         if not should_run:
