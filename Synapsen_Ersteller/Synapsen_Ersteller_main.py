@@ -321,6 +321,7 @@ class Synapsen_Ersteller(ctk.CTk):
             }
             config["Automation"] = {
                 "enable_tesseract_ocr": "false",
+                "use_ocr_engine": "NONE",
                 "flatten_ink_annotations": "false",
                 "auto_append_to_default_db": "true",
                 "create_individual_csv": "false",

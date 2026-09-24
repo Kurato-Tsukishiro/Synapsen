@@ -25,6 +25,7 @@ from pdf_utils import (
     convert_document_to_pdf,
     embed_normalization_metadata,
     transplant_ocr_text_from_pdf,
+    run_yomitoku_ocr,
 )
 
 current_dir = Path(__file__).parent
@@ -130,6 +131,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
         self.cp_keys_list = None
+        self.ocr_engine = "NONE"
         self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
         self._load_config()
@@ -295,6 +297,9 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
 
             # 3-II ollamaの設定
+            self.ocr_engine = config.get("Automation", "use_ocr_engine", fallback="")
+            self.config_data["use_ocr_engine"] = self.ocr_engine
+
             self.ollama_model = config.get(
                 "Automation", "ollama_ocr_model", fallback=""
             )
@@ -619,16 +624,22 @@ class Synapsen_Normalisierer(ctk.CTk):
                     flatten_ink=self.flatten_ink,
                 )
 
-                # --- [ステップ2.5: OCR用PDFファイルからのOCRテキスト移植] ---
+                # --- 3: OCR (正規化前 実行) ---
+                # --- [ステップ3-I: OCR用PDFファイルからのOCRテキスト移植] ---
                 # 入力元がファイルである場合、同階層の _ocr.pdf を探す
                 original_item_path = item_data if isinstance(item_data, Path) else None
-                ocr_transplanted = False
+                ocr_transplanted = False  # 正規化前にOCR処理を実行しているか
+                is_ocr_file_exists = False  # OCR用PDFが存在するか
 
                 if original_item_path:
                     ocr_source_path = (
                         original_item_path.parent / f"{original_item_path.stem}_ocr.pdf"
                     )
-                    if ocr_source_path.exists() and ocr_source_path.is_file():
+                    # OCR用PDFの有無を記録
+                    is_ocr_file_exists = (
+                        ocr_source_path.exists() and ocr_source_path.is_file()
+                    )
+                    if is_ocr_file_exists:
                         self.status_label.configure(
                             text=(
                                 f"{status_prefix} 透明化テキスト統合中: "
@@ -646,7 +657,33 @@ class Synapsen_Normalisierer(ctk.CTk):
                         except Exception as e:
                             logger.error(f"透明化テキスト統合エラー: {e}")
 
-                # --- [ステップ3: 正規化 (サイズ統一)] ---
+                # --- [ステップ3-II: YomitokuによるOCR化を実行] ---
+                # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
+                if self.ocr_engine == "Yomitoku" and not is_ocr_file_exists:
+                    try:
+                        ocr_transplanted = run_yomitoku_ocr(
+                            temp_flattened_pdf,
+                            self.font_path,
+                        )
+
+                        if ocr_transplanted:
+                            logger.info(
+                                f"YomitokuによるOCR処理に成功: {temp_flattened_pdf.name}",
+                                extra={"sensitive": True},
+                            )
+                        else:
+                            self.ocr_engine = "tesseract"
+                            logger.warning(
+                                "YomitokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                            )
+                    except Exception as e:
+                        self.ocr_engine = "tesseract"
+                        logger.error(
+                            f"yomitokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                        )
+
+                # --- [ステップ4: 正規化 (サイズ統一)] ---
+                # OCR用PDFから移植した場合やYomitokuでOCR化した場合は、処理をスキップする。
                 self.status_label.configure(
                     text=f"{status_prefix} 正規化中: {base_name}"
                 )
@@ -659,15 +696,15 @@ class Synapsen_Normalisierer(ctk.CTk):
                     target_format=paper_size_str,
                 )
 
-                # --- [ステップ4: OCR埋め込み] ---
-                # OCR用PDFから移植した場合は、処理をスキップする。
+                # --- 5: OCR (正規化後 実行) ---
+                # OCR用PDFから移植した場合やYomitokuでOCR化した場合は、処理をスキップする。
                 if not ocr_transplanted:
                     # 移植していない場合は処理を実行する。
                     self._process_ocr_sequence(
                         base_name, final_output_pdf, use_ollama, status_prefix
                     )
 
-                # --- [ステップ5: 正規化メタデータ (フラグ・タグ) 埋め込み] ---
+                # --- [ステップ6: 正規化メタデータ (フラグ・タグ) 埋め込み] ---
                 # ファイル名からタグを抽出
                 extracted_tags = []
                 for match in re.finditer(r"\[(.*?)\]", base_name):
@@ -717,7 +754,9 @@ class Synapsen_Normalisierer(ctk.CTk):
         use_ollama: bool,
         status_prefix: str,
     ) -> None:
-        """UIの更新からOCRの実行までの一連のシーケンスを制御する中継関数
+        """
+        UIの更新からOCRの実行までの一連のシーケンスを制御する中継関数
+        (dnd_windowにも同様の関数がある為、これを変更した時はそちら側の変更も行う)
 
         Args:
             base_name (str): OCR処理対象の元々のファイル名
@@ -746,7 +785,18 @@ class Synapsen_Normalisierer(ctk.CTk):
                     )
                     return False, "NONE"
 
-            return self.enable_tesseract_ocr, "tesseract"
+            # Python 3.10以降の match-case 構文で分岐
+            match self.ocr_engine:
+                case "tesseract":
+                    return True, self.ocr_engine
+                case "Yomitoku" | "NONE":
+                    return False, self.ocr_engine
+                case _:
+                    # 上記のどれにも一致しない場合（不正な設定）
+                    logger.warning(
+                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({self.ocr_engine})"
+                    )
+                    return False, "NONE"
 
         def _embed_ocr_text(
             ocr_target_pdf_path_str: str,

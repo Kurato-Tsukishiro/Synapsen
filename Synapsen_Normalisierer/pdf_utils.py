@@ -12,6 +12,7 @@ import shutil
 import re
 import urllib.parse
 import subprocess
+import tempfile
 import qrcode
 import json
 
@@ -901,8 +902,88 @@ def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool
 
 
 # ==============================================================================
-# OCR処理 (Tesseract / Ollama)
+# OCR処理 (Tesseract / Yomitoku / Ollama)
 # ==============================================================================
+def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
+    """
+    Yomitokuを使用した、OCR処理を実行します。
+    OCRの結果は、正規化前の処理対象(pdf_path)に透明化テキストを埋め込みます。
+
+    Args:
+        pdf_path (Path): 正規化・OCR化実行対象のPDFのPath。
+        font_path_str (str): 透明化テキストに使用するフォントのパス(str)。
+
+    Returns:
+        bool: OCR処理が成功したか
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
+        yomitoku_cmd = [
+            "yomitoku",
+            str(pdf_path),
+            "-o",
+            str(temp_dir_path),
+            "-f",
+            "pdf",
+            "--combine",
+        ]
+
+        try:
+            # YomitokuによるOCR処理の実行
+            # CLIとして使用している為、CC BY-NC-SA 4.0(Yomitoku)と、
+            # AGPL-3.0(Synapsenのコード)のライセンスの衝突は回避している
+            # あくまでこれはコードのライセンス衝突の回避である為、
+            # Synapsen上でYomitokuを有効にしてOCR機能を利用する場合、システムの実行・運用は商用不可となる。
+            subprocess.run(
+                yomitoku_cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                check=True,
+            )
+            # Pathオブジェクトを使用して安全にパスを構築してログ出力
+            file_name = pdf_path.name
+            expected_output_path = temp_dir_path / f"_{file_name}"
+            logger.info(str(expected_output_path))
+
+        except FileNotFoundError:
+            logger.error(
+                "Yomitoku が見つかりません。\n"
+                "YomitokuによるOCR処理は Yomitoku のインストールとモデルの重みファイルのダウンロードが必要です。"
+            )
+            return False
+
+        except subprocess.CalledProcessError as e:
+            # check=Trueにより、コマンド失敗時(戻り値が0以外)に例外が発生する
+            error_text = f"Yomitokuの実行に失敗しました。標準エラー出力: {e.stderr}"
+            logger.error(error_text)
+            return False
+
+        try:
+            source_pdf_path = None
+
+            # rglobで見つかった最初のファイルを取得
+            for temp_file_path in temp_dir_path.rglob(f"*{file_name}"):
+                source_pdf_path = temp_file_path
+                break  # 複数のマッチを防ぐため break を有効化
+
+            if source_pdf_path is None:
+                logger.error("Yomitokuの出力ファイルが見つかりませんでした。")
+                return False
+
+            # 座標ズレを防ぐため、正規化(リサイズ)前の temp_flattened_pdf にテキストを移植する
+            ocr_transplanted = transplant_ocr_text_from_pdf(
+                str(pdf_path),
+                str(source_pdf_path),
+                font_path_str,
+            )
+
+            return ocr_transplanted
+
+        except Exception as e:
+            logger.error(f"YomitokuによるOCR処理に失敗: {e}")
+            return False
 
 
 def _run_ollama_ocr(img_data: bytes, model: str, url: str) -> str:
@@ -1060,7 +1141,13 @@ def embed_ocr_text_in_pdf(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
                         )
 
-                else:
+                elif ocr_engine == "yomitoku":
+                    # yomitokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
+                    # ocr_engineが"yomitoku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
+                    # その為呼ばれる事はないが、それを明記する為に分岐として記載。
+                    pass
+
+                elif ocr_engine == "tesseract":
                     # --- Tesseract ---
                     img = Image.open(io.BytesIO(img_data))
                     logger.info(f"Tesseract OCR実行中 (Page {page_num + 1})...")
@@ -1107,6 +1194,9 @@ def embed_ocr_text_in_pdf(
                             render_mode=3,
                             rotate=0,
                         )
+
+                else:
+                    logger.error(f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine})")
 
             except Exception as e_page:
                 logger.error(f"Page {page_num + 1} 処理エラー: {e_page}")
@@ -1192,11 +1282,13 @@ def transplant_ocr_text_from_pdf(
     target_pdf_path: str, source_pdf_path: str, font_path: str
 ) -> bool:
     """
-    source_pdf_path (例: _ocr.pdf) からテキストと座標情報を抽出し、
-    target_pdf_path (正規化前のPDF) に透明テキストレイヤーとして埋め込みます。
+    source_pdf_path (OCR処理済みのPDF等) からテキストと座標情報を抽出し、
+    target_pdf_path (透明テキストの統合先となるPDF) に透明テキストレイヤーとして埋め込みます。
+
+    ※ターゲットPDFが正規化前・正規化後のどちらであっても対応可能です。
 
     Args:
-        target_pdf_path (str): 正規化前の、透明テキストの統合先となるPDFのパス。
+        target_pdf_path (str): 透明テキストの統合先となるPDFのパス。
         source_pdf_path (str): 統合する、透明テキストを有するPDFのパス。
         font_path (str): 埋め込む透明化テキストに使用するフォントのパス。
 
@@ -1250,8 +1342,13 @@ def transplant_ocr_text_from_pdf(
                             fs = span.get("size")
                             if origin and fs:
                                 # --- 座標とフォントサイズをターゲットPDFのスケールに合わせる ---
-                                scaled_x = origin[0] * scale_x
-                                scaled_y = origin[1] * scale_y
+                                # PDFの左上座標(x0, y0)が0ではない場合(クロップ等)を考慮しオフセットを加味する
+                                scaled_x = (
+                                    tgt_rect.x0 + (origin[0] - src_rect.x0) * scale_x
+                                )
+                                scaled_y = (
+                                    tgt_rect.y0 + (origin[1] - src_rect.y0) * scale_y
+                                )
                                 point = fitz.Point(scaled_x, scaled_y)
 
                                 # フォントサイズは通常、縦方向のスケールに合わせる
