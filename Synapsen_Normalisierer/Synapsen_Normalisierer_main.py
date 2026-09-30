@@ -676,7 +676,6 @@ class Synapsen_Normalisierer(ctk.CTk):
                         )
 
                 # --- [ステップ4: 正規化 (サイズ統一)] ---
-                # OCR用PDFから移植した場合やYomitokuでOCR化した場合は、処理をスキップする。
                 self.status_label.configure(
                     text=f"{status_prefix} 正規化中: {base_name}"
                 )
