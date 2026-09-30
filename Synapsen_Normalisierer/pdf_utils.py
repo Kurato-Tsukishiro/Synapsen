@@ -1141,9 +1141,9 @@ def embed_ocr_text_in_pdf(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
                         )
 
-                elif ocr_engine == "yomitoku":
+                elif ocr_engine == "Yomitoku":
                     # yomitokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
-                    # ocr_engineが"yomitoku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
+                    # ocr_engineが"Yomitoku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
                     # その為呼ばれる事はないが、それを明記する為に分岐として記載。
                     pass
 
