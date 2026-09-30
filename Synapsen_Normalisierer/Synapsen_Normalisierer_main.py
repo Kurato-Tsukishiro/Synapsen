@@ -104,7 +104,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         tags_data_path (str | None): config.iniから読み込んだ事前定義タグを保存しているテキストファイルのパス。
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
-        enable_tesseract_ocr (bool): Tesseract OCRを実行するか否か。
+        ocr_engine (str): OCRのエンジン設定。
         flatten_ink (bool): インク注釈をフラット化するか否か。
         config_data (dict): config.iniから読み込んだ設定の辞書。
         dnd_window (DragAndDropWindow | None): D&Dウィンドウのインスタンス。
@@ -129,9 +129,8 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.tags_data_path = None
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
-        self.enable_tesseract_ocr = False
-        self.cp_keys_list = None
         self.ocr_engine = "NONE"
+        self.cp_keys_list = None
         self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
         self._load_config()
@@ -221,7 +220,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         - Paths: font_path, tags_data_path
         - ReportLab: paper_size, font, author, title_prefix
         - Automation:
-            enable_tesseract_ocr,
+            ocr_engine,
             auto_append_to_default_db,
             flatten_ink_annotations
         - Extraction: key_rect
@@ -290,13 +289,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.paper_height = A4_HEIGHT
             self.config_data["paper_size"] = paper_size_str
 
-            # 3. Tesseract OCR の有効/無効 設定
-            self.enable_tesseract_ocr = config.getboolean(
-                "Automation", "enable_tesseract_ocr", fallback=False
-            )
-            self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
-
-            # 3-II ollamaの設定
+            # 3. OCRエンジン設定の取得
             self.ocr_engine = config.get("Automation", "use_ocr_engine", fallback="")
             self.config_data["use_ocr_engine"] = self.ocr_engine
 

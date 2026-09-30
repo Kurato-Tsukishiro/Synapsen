@@ -923,7 +923,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         key_rect_tuple = config_data.get("key_rect", (0, 0, 0, 0))
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
-        enable_tesseract = config_data.get("enable_tesseract_ocr", False)
         ocr_engine = config_data.get("use_ocr_engine", "NONE")
 
         # Ollama設定を取得
@@ -1081,7 +1080,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     font_path,
                     paper_width,
                     paper_height,
-                    enable_tesseract,
                     ocr_engine,
                     ollama_model,
                     ollama_api_url,
@@ -1106,7 +1104,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     font_path,
                     paper_width,
                     paper_height,
-                    enable_tesseract,
                     ocr_engine,
                     ollama_model,
                     ollama_api_url,
@@ -1144,7 +1141,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        enable_tesseract,
         ocr_engine,
         ollama_model,
         ollama_api_url,
@@ -1321,7 +1317,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     base_name,
                     final_output_pdf,
                     font_path,
-                    enable_tesseract,
                     ocr_engine,
                     ollama_data,
                     status_prefix,
@@ -1365,7 +1360,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        enable_tesseract,
         ocr_engine,
         ollama_model,  # Arg Added
         ollama_api_url,  # Arg Added
@@ -1585,7 +1579,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     base_name,
                     final_output_pdf,
                     font_path,
-                    enable_tesseract,
                     ocr_engine,
                     ollama_data,
                     status_prefix,
@@ -1674,7 +1667,6 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         base_name: str,
         ocr_target_pdf_path_str: str,
         font_path: str,
-        enable_tesseract: bool,
         ocr_engine: str,
         ollama_data: _ollamaData,
         status_prefix: str,
@@ -1685,19 +1677,16 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             base_name (str): 処理対象のファイル名
             ocr_target_pdf_path_str (str): 処理対象のパス
             font_path (str): 透明化テキストのフォント
-            enable_tesseract (bool): tesseractによるOCR化が有効か
             ocr_engine (str): 処理を実行するエンジン
             ollama_data (_ollamaData): Local LLMによるOCR処理の設定データ
             status_prefix (str): ラベル表示の前接頭辞
         """
-        def _determine_ocr_engine(
-            ollama_data: Self, enable_tesseract_ocr: bool
-        ) -> tuple[bool, str]:
+
+        def _determine_ocr_engine(ollama_data: Self) -> tuple[bool, str]:
             """正規化後のOCR処理を実行するかの判定とエンジンの取得
 
             Args:
                 ollama_data (Self): Local LLMによるOCR処理の設定データ
-                enable_tesseract_ocr (bool): tesseractによるOCR化が有効か
 
             Returns:
                 tuple[bool, str]: 正規化後のOCR処理を実行するか, OCRを実行するエンジン名
@@ -1754,7 +1743,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
         # 1. 状態の判定ロジックを呼び出す（UI操作なし）
-        should_run, engine = _determine_ocr_engine(ollama_data, enable_tesseract)
+        should_run, engine = _determine_ocr_engine(ollama_data)
 
         # 2. ガード句：実行不要及び実行不能なら、画面を汚さずにこの関数を即座に抜ける
         if not should_run:

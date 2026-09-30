@@ -803,10 +803,10 @@ options =
 [Automation]
 ; --- Normalisierer (正規化) 設定 ---
 
-; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
-; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
-enable_tesseract_ocr = 
+; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / Yomitoku)
+; NONE の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+; Tesseract-OCR 及び Yomitokuのどちらもインストールしていない場合は NONE にして下さい。
+use_ocr_engine = 
 
 ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
 ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。
@@ -971,10 +971,12 @@ options = タスク,アイデア,思考・考察,コミュニケーション,学
 [Automation]
 ; --- Normalisierer (正規化) 設定 ---
 
-; Tesseract OCR (低速な光学文字認識) を実行するか (true/false)
-; false の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-; Tesseract-OCR をPCにインストールしていない場合は false にしてください。
-enable_tesseract_ocr = false
+[Automation]
+; --- Normalisierer (正規化) 設定 ---
+; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / Yomitoku)
+; NONE の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
+; Tesseract-OCR 及び Yomitokuのどちらもインストールしていない場合は NONE にして下さい。
+use_ocr_engine = NONE
 
 ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
 ; true: インクをページに焼き付けます。筆圧情報（線の強弱）は失われ均一な線になります。

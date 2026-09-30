@@ -320,7 +320,6 @@ class Synapsen_Ersteller(ctk.CTk):
                 "日常・その他": "#F2F2F2",
             }
             config["Automation"] = {
-                "enable_tesseract_ocr": "false",
                 "use_ocr_engine": "NONE",
                 "flatten_ink_annotations": "false",
                 "auto_append_to_default_db": "true",

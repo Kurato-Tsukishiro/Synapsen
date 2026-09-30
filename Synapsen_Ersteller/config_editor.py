@@ -5,7 +5,6 @@ from tkinter import filedialog, messagebox
 from pathlib import Path
 import os
 
-
 current_dir = Path(__file__).parent
 root_dir = current_dir.parent
 if str(root_dir) not in sys.path:
@@ -101,8 +100,12 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         # --- [Automation] セクション ---
         self._add_section_label("自動処理 (Automation)")
 
-        self.var_ocr = self._add_checkbox(
-            "Tesseract OCR を有効化", "Automation", "enable_tesseract_ocr"
+        ocr_engine_options = ["NONE", "tesseract", "Yomitoku"]  # OCRのエンジンの選択肢
+        self.box_ocr_engine = self._add_comboBox(
+            "OCRのエンジン設定",
+            "Automation",
+            "use_ocr_engine",
+            ocr_engine_options,
         )
         self.var_flatten = self._add_checkbox(
             "インク注釈をフラット化", "Automation", "flatten_ink_annotations"
@@ -263,12 +266,12 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         entry.pack(side="left", fill="x", expand=True)
         return entry
 
-    def _add_checkbox(self, label_text, section, option):
+    def _add_checkbox(self, label_text, section, key):
         """Boolean用チェックボックス"""
         frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
         frame.pack(fill="x", pady=2)
 
-        val_str = self._get_config_val(section, option).lower()
+        val_str = self._get_config_val(section, key).lower()
         is_checked = val_str == "true"
 
         var = ctk.BooleanVar(value=is_checked)
@@ -282,6 +285,44 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         )
         chk.pack(side="left", padx=5)
         return var
+
+    def _add_comboBox(
+        self, label_text: str, section: str, key: str, options: list[str]
+    ) -> ctk.StringVar:
+        """文字列用コンボボックス
+
+        Args:
+            label_text (str): 編集項目名
+            section (str): パラメーターが存在するセクションの名前
+            key (str): パラメーター名
+            options (list[str]): 選択肢リスト
+
+        Returns:
+            ctk.CTkComboBox: UI(コンボボックス)
+        """
+        frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
+        frame.pack(fill="x", pady=2)
+
+        ctk.CTkLabel(frame, text=label_text, width=200, anchor="w").pack(side="left")
+
+        val = ctk.StringVar(value=self._get_config_val(section, key))
+
+        cb = ctk.CTkComboBox(
+            frame,
+            values=options,
+            variable=val,
+            state="readonly",
+            button_color=Colors.adjust_brightness(Colors.UI_SETTING, 1.1),
+            button_hover_color=Colors.UI_SETTING,
+            dropdown_fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
+            dropdown_hover_color=(
+                Colors.adjust_brightness(Colors.BACKGROUND_HOLLOW, 0.85),
+                Colors.adjust_brightness(Colors.BACKGROUND_DARK_HOLLOW, 0.15),
+            ),
+        )
+        cb.pack(side="left", padx=5)
+
+        return val
 
     def _get_config_val(self, section, option):
         if self.config.has_option(section, option):
@@ -299,7 +340,7 @@ class ConfigEditorWindow(ctk.CTkToplevel):
 
             # Automation
             self.config.set(
-                "Automation", "enable_tesseract_ocr", str(self.var_ocr.get()).lower()
+                "Automation", "use_ocr_engine", str(self.box_ocr_engine.get()).lower()
             )
             self.config.set(
                 "Automation",
