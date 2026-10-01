@@ -212,7 +212,7 @@ Synapsenは、MarkdownファイルやCanvasの付箋機能からPDFを生成す�
 
 #### 🖇 外部OCR連携（透明テキスト自動統合）
 
-Synapsenは、TesseractやOllamaを用いた内蔵のOCR機能に加え、外部のOCRツール（Yomitokuなど）で生成された高精度なテキストデータを自動的に読み込み、正規化後のPDFに統合する機能を備えています。
+Synapsenは、TesseractやOllamaを用いた内蔵のOCR機能に加え、外部のOCRツール（YomiTokuなど）で生成された高精度なテキストデータを自動的に読み込み、正規化後のPDFに統合する機能を備えています。
 
 この機能により、Synapsen本体とは独立した外部プロセスとしてお好みのツールを実行し、標準的なPDFフォーマットを介してシームレスかつクリーンに連携・活用することが可能です。
 
@@ -649,6 +649,16 @@ Synapsenでは、以下のフローで手書きノートを運用することで
     * インストール後、`pytesseract` が認識できるようPATHを通してください。
     * 導入方法は、こちらの解説記事などを参考にしてください。<br>
         → **[画像から文字を瞬時に読み取る！Tesseractとpytesseractの驚異の力【Python】](https://qiita.com/ryome/items/16fc42854fe93de78a2f)**
+* **(オプション) YomiToku**
+    * Synapsenでは、高精度なOCRエンジンである [YomiToku](https://github.com/kotaro-kinoshita/YomiToku) を利用して、正規化対象のPDFに透明化テキストを埋め込む機能も利用できます。
+    * 本機能を利用するには、環境に別途 `yomitoku` をインストールし、必要なモデルの重みファイルをダウンロードしておく必要があります。
+    * 導入方法や初期設定の詳細については、以下の公式リポジト及びドキュメントをご参照ください。
+      * → [YomiToku 公式リポジトリ](https://github.com/kotaro-kinoshita/YomiToku)
+      * → [YomiToku 公式ドキュメント](https://kotaro-kinoshita.github.io/YomiToku/)
+      * → [YomiToku 公式ドキュメント(Installation)](https://kotaro-kinoshita.github.io/yomitoku/installation/#installation)
+    * この機能を使用する場合、ライセンスの特殊運用が発生します。
+    * 以下の項目を確認して下さい。
+      * → [⚠️例外：OCRエンジンに「YomiToku」を使用した場合のライセンスおよび商用利用制限](#⚠️例外：OCRエンジンに「YomiToku」を使用した場合のライセンスおよび商用利用制限)
 * **(オプション) Pandoc**
     * `Normalisierer` でMarkdown (.md) ファイルのPDF変換機能を使う場合に必要です。
     * `Install_Poetry.bat` により、`winget` を使用して自動インストールを試みます。
@@ -803,9 +813,9 @@ options =
 [Automation]
 ; --- Normalisierer (正規化) 設定 ---
 
-; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / Yomitoku)
+; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / YomiToku)
 ; NONE の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-; Tesseract-OCR 及び Yomitokuのどちらもインストールしていない場合は NONE にして下さい。
+; Tesseract-OCR 及び YomiTokuのどちらもインストールしていない場合は NONE にして下さい。
 use_ocr_engine = 
 
 ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
@@ -973,9 +983,9 @@ options = タスク,アイデア,思考・考察,コミュニケーション,学
 
 [Automation]
 ; --- Normalisierer (正規化) 設定 ---
-; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / Yomitoku)
+; OCR処理 (低速な光学文字認識) を実行するか、又実行する場合は何のエンジンで行うか (NONE / tesseract / YomiToku)
 ; NONE の場合でも、PDFに埋め込まれた既存のテキスト抽出（高速）は実行されます。
-; Tesseract-OCR 及び Yomitokuのどちらもインストールしていない場合は NONE にして下さい。
+; Tesseract-OCR 及び YomiTokuのどちらもインストールしていない場合は NONE にして下さい。
 use_ocr_engine = NONE
 
 ; ハイライト以外の注釈（手書きインク等）をページ背景に「フラット化」するか (true/false)
@@ -1325,6 +1335,26 @@ AGPL-3.0の条項に基づき、このライブラリを利用する本アプリ
 `Synapsen` が生成するMOC (`.md`)、統合PDF・CanvasエクスポートPDF (`.pdf`)、およびグラフ (`.html`) は、ユーザー自身のデータであり、`Synapsen` プログラムの「出力」です。<br><br>
 これらの出力ファイルには、視認性を高めるために `assets/` フォルダ内のアイコン画像（またはその加工物）が埋め込まれる場合がありますが、**ユーザーはこれらの出力ファイルを `AGPL-3.0` や `CC BY-SA 4.0` の条項を気にすることなく、自由に利用・公開・配布・販売することができます。**<br>
 （出力ファイルに含まれるアセットの利用については、本ツールからの出力の一部として使用される場合に限り、著作権表示やライセンス継承を免除します。）
+
+OCRエンジンに「YomiToku」を使用した場合、出力ファイルのライセンスの変更及び商用利用制限が発生します。詳細は[⚠️例外：OCRエンジンに「YomiToku」を使用した場合のライセンスおよび商用利用制限](#⚠️例外：OCRエンジンに「YomiToku」を使用した場合のライセンスおよび商用利用制限)を確認して下さい。
+
+---
+
+### ⚠️例外：OCRエンジンに「YomiToku」を使用した場合のライセンスおよび商用利用制限
+
+YomiTokuは **CC BY-NC-SA 4.0（表示 - 非営利 - 継承 4.0 国際）** ライセンスの下で提供されています。
+そのため、本ツールにおいてYomiTokuを利用する場合、「コードとしてのライセンス」と「ソフトウェアとして実行・運用した際のライセンス」を明確に分けて考える必要があります。
+
+**1. ソースコードとしてのSynapsen（AGPL-3.0）**
+
+Synapsenのコード自体は `AGPL-3.0` の下で提供されています。<br>
+本ツールでは、YomiTokuをプログラム内に直接組み込むのではなく、外部コマンド（CLI）として呼び出す設計を採用しています。これにより、コードレベルでのライセンス衝突（AGPLとCC BY-NC-SAの非互換性）を回避しており、ソースコード自体はAGPL-3.0の規定に従って扱うことができます。
+
+**2. ソフトウェアとしてのSynapsen（YomiToku有効時の運用と出力物）**
+
+一方で、設定でYomiTokuによるOCR機能を有効にしてソフトウェアとして実際に**実行・運用**する場合、そのプロセスにはYomiTokuが含まれるため、実行行為および成果物に対してCC BY-NC-SA 4.0の「非営利」条項が適用されます。<br>
+したがって、**本OCR機能を有効にした状態での業務利用や商用サービスへの組み込み、および生成されたPDF（成果物）の商用利用はできません。** 導入および運用にあたっては、必ず非商用の範囲でご利用ください。<br><br>
+ライセンスについての詳細及び正確な情報は、[YomiToku 利用ガイドライン](https://kotaro-kinoshita.github.io/YomiToku/commercial_use_guideline/)を参照して下さい。
 
 ---
 
