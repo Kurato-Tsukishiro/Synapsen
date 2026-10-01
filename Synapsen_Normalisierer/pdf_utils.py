@@ -945,7 +945,10 @@ def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
             # Pathオブジェクトを使用して安全にパスを構築してログ出力
             file_name = pdf_path.name
             expected_output_path = temp_dir_path / f"_{file_name}"
-            logger.info(str(expected_output_path))
+            logger.info(
+                f"中間OCRファイル出力 : {str(expected_output_path)}",
+                extra={"sensitive": True},
+            )
 
         except FileNotFoundError:
             logger.error(
@@ -1196,7 +1199,9 @@ def embed_ocr_text_in_pdf(
                         )
 
                 else:
-                    logger.error(f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine})")
+                    logger.error(
+                        f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine})"
+                    )
 
             except Exception as e_page:
                 logger.error(f"Page {page_num + 1} 処理エラー: {e_page}")
