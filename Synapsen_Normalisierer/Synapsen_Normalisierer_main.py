@@ -650,9 +650,9 @@ class Synapsen_Normalisierer(ctk.CTk):
                         except Exception as e:
                             logger.error(f"透明化テキスト統合エラー: {e}")
 
-                # --- [ステップ3-II: YomitokuによるOCR化を実行] ---
+                # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
                 # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-                if self.ocr_engine == "Yomitoku" and not is_ocr_file_exists:
+                if self.ocr_engine == "YomiToku" and not is_ocr_file_exists:
                     try:
                         ocr_transplanted = run_yomitoku_ocr(
                             temp_flattened_pdf,
@@ -661,18 +661,18 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                         if ocr_transplanted:
                             logger.info(
-                                f"YomitokuによるOCR処理に成功: {temp_flattened_pdf.name}",
+                                f"YomiTokuによるOCR処理に成功: {temp_flattened_pdf.name}",
                                 extra={"sensitive": True},
                             )
                         else:
                             self.ocr_engine = "tesseract"
                             logger.warning(
-                                "YomitokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                                "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                             )
                     except Exception as e:
                         self.ocr_engine = "tesseract"
                         logger.error(
-                            f"yomitokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                            f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                         )
 
                 # --- [ステップ4: 正規化 (サイズ統一)] ---
@@ -689,7 +689,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # --- 5: OCR (正規化後 実行) ---
-                # OCR用PDFから移植した場合やYomitokuでOCR化した場合は、処理をスキップする。
+                # OCR用PDFから移植した場合やYomiTokuでOCR化した場合は、処理をスキップする。
                 if not ocr_transplanted:
                     # 移植していない場合は処理を実行する。
                     self._process_ocr_sequence(
@@ -781,7 +781,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             match self.ocr_engine:
                 case "tesseract":
                     return True, self.ocr_engine
-                case "Yomitoku" | "NONE":
+                case "YomiToku" | "NONE":
                     return False, self.ocr_engine
                 case _:
                     # 上記のどれにも一致しない場合（不正な設定）

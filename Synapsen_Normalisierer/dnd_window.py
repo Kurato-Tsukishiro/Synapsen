@@ -1265,9 +1265,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     except Exception as e:
                         logger.error(f"透明化テキスト統合エラー: {e}")
 
-            # --- [ステップ3-II: YomitokuによるOCR化を実行] ---
+            # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
             # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-            if ocr_engine == "Yomitoku" and not is_ocr_file_exists:
+            if ocr_engine == "YomiToku" and not is_ocr_file_exists:
                 try:
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
@@ -1276,18 +1276,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
                     if ocr_transplanted:
                         logger.info(
-                            f"YomitokuによるOCR処理に成功: {temp_flattened_pdf.name}",
+                            f"YomiTokuによるOCR処理に成功: {temp_flattened_pdf.name}",
                             extra={"sensitive": True},
                         )
                     else:
                         ocr_engine = "tesseract"
                         logger.warning(
-                            "YomitokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                            "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                         )
                 except Exception as e:
                     ocr_engine = "tesseract"
                     logger.error(
-                        f"yomitokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                        f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                     )
 
             # --- 4: 正規化 ---
@@ -1304,7 +1304,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 5: OCR (正規化後 実行) ---
-            # OCR用PDFから移植した場合やYomitokuでOCR化した場合は、処理をスキップする。
+            # OCR用PDFから移植した場合やYomiTokuでOCR化した場合は、処理をスキップする。
             if not ocr_transplanted:
                 ollama_data = self._ollamaData(
                     use_ollama=use_ollama,
@@ -1514,8 +1514,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     except Exception as e:
                         logger.error(f"透明化テキスト統合エラー: {e}")
 
-            # --- [ステップ3-II: YomitokuによるOCR化を実行] ---
-            if ocr_engine == "Yomitoku" and not is_ocr_file_exists:
+            # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
+            if ocr_engine == "YomiToku" and not is_ocr_file_exists:
                 try:
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
@@ -1524,18 +1524,18 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
                     if ocr_transplanted:
                         logger.info(
-                            f"YomitokuによるOCR処理に成功: {temp_flattened_pdf.name}",
+                            f"YomiTokuによるOCR処理に成功: {temp_flattened_pdf.name}",
                             extra={"sensitive": True},
                         )
                     else:
                         ocr_engine = "tesseract"
                         logger.warning(
-                            "YomitokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                            "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                         )
                 except Exception as e:
                     ocr_engine = "tesseract"
                     logger.error(
-                        f"yomitokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                        f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                     )
 
             # --- 4: 正規化 (出力先を normalized_part_pdf に) ---
@@ -1705,7 +1705,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             match ocr_engine:
                 case "tesseract":
                     return True, ocr_engine
-                case "Yomitoku" | "NONE":
+                case "YomiToku" | "NONE":
                     return False, ocr_engine
                 case _:
                     # 上記のどれにも一致しない場合（不正な設定）

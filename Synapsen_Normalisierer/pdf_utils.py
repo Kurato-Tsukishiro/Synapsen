@@ -902,11 +902,11 @@ def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool
 
 
 # ==============================================================================
-# OCR処理 (Tesseract / Yomitoku / Ollama)
+# OCR処理 (Tesseract / YomiToku / Ollama)
 # ==============================================================================
 def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
     """
-    Yomitokuを使用した、OCR処理を実行します。
+    YomiTokuを使用した、OCR処理を実行します。
     OCRの結果は、正規化前の処理対象(pdf_path)に透明化テキストを埋め込みます。
 
     Args:
@@ -929,11 +929,11 @@ def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
         ]
 
         try:
-            # YomitokuによるOCR処理の実行
-            # CLIとして使用している為、CC BY-NC-SA 4.0(Yomitoku)と、
+            # YomiTokuによるOCR処理の実行
+            # CLIとして使用している為、CC BY-NC-SA 4.0(YomiToku)と、
             # AGPL-3.0(Synapsenのコード)のライセンスの衝突は回避している
             # あくまでこれはコードのライセンス衝突の回避である為、
-            # Synapsen上でYomitokuを有効にしてOCR機能を利用する場合、システムの実行・運用は商用不可となる。
+            # Synapsen上でYomiTokuを有効にしてOCR機能を利用する場合、システムの実行・運用は商用不可となる。
             subprocess.run(
                 yomitoku_cmd,
                 capture_output=True,
@@ -952,14 +952,14 @@ def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
 
         except FileNotFoundError:
             logger.error(
-                "Yomitoku が見つかりません。\n"
-                "YomitokuによるOCR処理は Yomitoku のインストールとモデルの重みファイルのダウンロードが必要です。"
+                "YomiToku が見つかりません。\n"
+                "YomiTokuによるOCR処理は YomiToku のインストールとモデルの重みファイルのダウンロードが必要です。"
             )
             return False
 
         except subprocess.CalledProcessError as e:
             # check=Trueにより、コマンド失敗時(戻り値が0以外)に例外が発生する
-            error_text = f"Yomitokuの実行に失敗しました。標準エラー出力: {e.stderr}"
+            error_text = f"YomiTokuの実行に失敗しました。標準エラー出力: {e.stderr}"
             logger.error(error_text)
             return False
 
@@ -972,7 +972,7 @@ def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
                 break  # 複数のマッチを防ぐため break を有効化
 
             if source_pdf_path is None:
-                logger.error("Yomitokuの出力ファイルが見つかりませんでした。")
+                logger.error("YomiTokuの出力ファイルが見つかりませんでした。")
                 return False
 
             # 座標ズレを防ぐため、正規化(リサイズ)前の temp_flattened_pdf にテキストを移植する
@@ -985,7 +985,7 @@ def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
             return ocr_transplanted
 
         except Exception as e:
-            logger.error(f"YomitokuによるOCR処理に失敗: {e}")
+            logger.error(f"YomiTokuによるOCR処理に失敗: {e}")
             return False
 
 
@@ -1144,9 +1144,9 @@ def embed_ocr_text_in_pdf(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
                         )
 
-                elif ocr_engine == "Yomitoku":
-                    # yomitokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
-                    # ocr_engineが"Yomitoku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
+                elif ocr_engine == "YomiToku":
+                    # YomiTokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
+                    # ocr_engineが"YomiToku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
                     # その為呼ばれる事はないが、それを明記する為に分岐として記載。
                     pass
 

@@ -100,7 +100,7 @@ class ConfigEditorWindow(ctk.CTkToplevel):
         # --- [Automation] セクション ---
         self._add_section_label("自動処理 (Automation)")
 
-        ocr_engine_options = ["NONE", "tesseract", "Yomitoku"]  # OCRのエンジンの選択肢
+        ocr_engine_options = ["NONE", "tesseract", "YomiToku"]  # OCRのエンジンの選択肢
         self.box_ocr_engine = self._add_comboBox(
             "OCRのエンジン設定",
             "Automation",
