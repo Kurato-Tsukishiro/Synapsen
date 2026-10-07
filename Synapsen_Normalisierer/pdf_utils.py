@@ -1,5 +1,6 @@
 import unicodedata
 import fitz  # PyMuPDF
+from enum import Enum
 from pypdf import PdfReader, PdfWriter, Transformation
 from pathlib import Path
 import pytesseract
@@ -904,6 +905,24 @@ def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool
 # ==============================================================================
 # OCR処理 (Tesseract / YomiToku / Ollama)
 # ==============================================================================
+class OCREngineType(Enum):
+    """
+    OCRのエンジン
+    """
+    NONE = "NONE"
+    tesseract = "tesseract"
+    YomiToku = "YomiToku"
+    Ollama = "Ollama"  # コンフィグによる設定は出来ないが、ファイル名でのエンジン指定に用いる
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            for member in cls:
+                if member.value.lower() == value.lower():  # 大文字・小文字の違いを無視する
+                    return member
+        return OCREngineType.NONE
+
+
 def run_yomitoku_ocr(pdf_path: Path, font_path_str: str) -> bool:
     """
     YomiTokuを使用した、OCR処理を実行します。
@@ -1036,7 +1055,7 @@ def embed_ocr_text_in_pdf(
     enable_ocr: bool,
     font_path: str,
     cp_keys: list[str] = None,
-    ocr_engine: str = "tesseract",
+    ocr_engine: OCREngineType = OCREngineType.tesseract,
     ollama_config: dict = None,
     lang: str = "jpn+jpn_vert",
 ) -> None:
@@ -1049,7 +1068,7 @@ def embed_ocr_text_in_pdf(
         enable_ocr (bool): Tesseract OCR (低速) を実行するかどうか。
         font_path (str): 埋め込む日本語フォントファイルのパス。
         cp_keys (list[str]): 登録されているCommonplaceKeyのリスト
-        ocr_engine (str): "tesseract" または "ollama"。
+        ocr_engine (OCREngineType): 使用するOCRエンジンの設定
         lang (str): Tesseractが使用する言語。
         ollama_config (dict): Ollamaの設定辞書。
 
@@ -1079,7 +1098,7 @@ def embed_ocr_text_in_pdf(
         pages_processed_count = 0
 
         logger.info(
-            f"OCR処理開始 (Engine: {ocr_engine}): {Path(pdf_path_str).name}",
+            f"OCR処理開始 (Engine: {ocr_engine.value}): {Path(pdf_path_str).name}",
             extra={"sensitive": True},
         )
 
@@ -1118,7 +1137,7 @@ def embed_ocr_text_in_pdf(
                     pass
 
                 # === エンジン別処理 ===
-                if ocr_engine == "ollama":
+                if ocr_engine == OCREngineType.Ollama:
                     # --- Ollama (Package) ---
                     if not ollama_config or not ollama_config.get("model"):
                         logger.warning("Ollama設定が不足しています。")
@@ -1144,13 +1163,13 @@ def embed_ocr_text_in_pdf(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
                         )
 
-                elif ocr_engine == "YomiToku":
+                elif ocr_engine == OCREngineType.YomiToku:
                     # YomiTokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
                     # ocr_engineが"YomiToku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
                     # その為呼ばれる事はないが、それを明記する為に分岐として記載。
                     pass
 
-                elif ocr_engine == "tesseract":
+                elif ocr_engine == OCREngineType.tesseract:
                     # --- Tesseract ---
                     img = Image.open(io.BytesIO(img_data))
                     logger.info(f"Tesseract OCR実行中 (Page {page_num + 1})...")
@@ -1200,7 +1219,7 @@ def embed_ocr_text_in_pdf(
 
                 else:
                     logger.error(
-                        f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine})"
+                        f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine.value})"
                     )
 
             except Exception as e_page:
@@ -1208,7 +1227,7 @@ def embed_ocr_text_in_pdf(
                 continue
 
         # タグ付け (Ollamaのみ)
-        if ocr_engine == "ollama" and pages_processed_count > 0:
+        if ocr_engine == OCREngineType.Ollama and pages_processed_count > 0:
             current_metadata = doc.metadata
             keywords = current_metadata.get("keywords", "")
             ocr_tag = "Synapsen:OCR_Method=Ollama"

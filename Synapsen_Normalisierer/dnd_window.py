@@ -18,6 +18,7 @@ import io
 from image_editor import PerspectiveCropEditor
 
 from pdf_utils import (
+    OCREngineType,
     # D&D/画像クリップ用のメタデータ挿入関数
     add_metadata_to_clip,
     hex_to_rgb_tuple,
@@ -923,7 +924,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         key_rect_tuple = config_data.get("key_rect", (0, 0, 0, 0))
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
-        ocr_engine = config_data.get("use_ocr_engine", "NONE")
+        ocr_engine = self.parent_app.ocr_engine
 
         # Ollama設定を取得
         ollama_model = config_data.get("ollama_model", "")
@@ -1141,7 +1142,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        ocr_engine,
+        ocr_engine: OCREngineType,
         ollama_model,
         ollama_api_url,
         paper_size_str,
@@ -1267,7 +1268,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
             # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
             # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-            if ocr_engine == "YomiToku" and not is_ocr_file_exists:
+            if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                 try:
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
@@ -1280,12 +1281,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                             extra={"sensitive": True},
                         )
                     else:
-                        ocr_engine = "tesseract"
+                        ocr_engine = OCREngineType.tesseract
                         logger.warning(
                             "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                         )
                 except Exception as e:
-                    ocr_engine = "tesseract"
+                    ocr_engine = OCREngineType.tesseract
                     logger.error(
                         f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                     )
@@ -1360,7 +1361,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        ocr_engine,
+        ocr_engine: OCREngineType,
         ollama_model,  # Arg Added
         ollama_api_url,  # Arg Added
         paper_size_str,
@@ -1515,7 +1516,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         logger.error(f"透明化テキスト統合エラー: {e}")
 
             # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
-            if ocr_engine == "YomiToku" and not is_ocr_file_exists:
+            if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                 try:
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
@@ -1528,12 +1529,12 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                             extra={"sensitive": True},
                         )
                     else:
-                        ocr_engine = "tesseract"
+                        ocr_engine = OCREngineType.tesseract
                         logger.warning(
                             "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                         )
                 except Exception as e:
-                    ocr_engine = "tesseract"
+                    ocr_engine = OCREngineType.tesseract
                     logger.error(
                         f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                     )
@@ -1667,7 +1668,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         base_name: str,
         ocr_target_pdf_path_str: str,
         font_path: str,
-        ocr_engine: str,
+        ocr_engine: OCREngineType,
         ollama_data: _ollamaData,
         status_prefix: str,
     ) -> None:
@@ -1677,47 +1678,47 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             base_name (str): 処理対象のファイル名
             ocr_target_pdf_path_str (str): 処理対象のパス
             font_path (str): 透明化テキストのフォント
-            ocr_engine (str): 処理を実行するエンジン
+            ocr_engine (OCREngineType): 処理を実行するエンジン
             ollama_data (_ollamaData): Local LLMによるOCR処理の設定データ
             status_prefix (str): ラベル表示の前接頭辞
         """
 
-        def _determine_ocr_engine(ollama_data: Self) -> tuple[bool, str]:
+        def _determine_ocr_engine(ollama_data: Self) -> tuple[bool, OCREngineType]:
             """正規化後のOCR処理を実行するかの判定とエンジンの取得
 
             Args:
                 ollama_data (Self): Local LLMによるOCR処理の設定データ
 
             Returns:
-                tuple[bool, str]: 正規化後のOCR処理を実行するか, OCRを実行するエンジン名
+                tuple[bool, OCREngineType]: 正規化後のOCR処理を実行するか, OCRを実行するエンジン名
             """
             if ollama_data.use_ollama:
                 if ollama_data.ollama_model:
-                    return True, "ollama"
+                    return True, OCREngineType.Ollama
                 else:
                     # ログ出力のみ
                     logger.warning(
                         "Ollamaフラグを検出しましたが、configにモデル設定がないためOCRをスキップします。"
                     )
-                    return False, "NONE"
+                    return False, OCREngineType.NONE
 
             # Python 3.10以降の match-case 構文で分岐
             match ocr_engine:
-                case "tesseract":
+                case OCREngineType.tesseract:
                     return True, ocr_engine
-                case "YomiToku" | "NONE":
+                case OCREngineType.YomiToku | OCREngineType.NONE:
                     return False, ocr_engine
                 case _:
                     # 上記のどれにも一致しない場合（不正な設定）
                     logger.warning(
-                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({ocr_engine})"
+                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({ocr_engine.value})"
                     )
-                    return False, "NONE"
+                    return False, OCREngineType.NONE
 
         def _embed_ocr_text(
             ocr_target_pdf_path_str: str,
             font_path: str,
-            engine: str,
+            engine: OCREngineType,
             ollama_data: Self,
         ) -> None:
             """OCR処理を呼び出す
@@ -1725,7 +1726,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             Args:
                 ocr_target_pdf_path_str (str): OCR処理対象のパス
                 font_path (str): 透明化テキストのフォント
-                engine (str): OCRを行うエンジン
+                engine (OCREngineType): OCRを行うエンジン
                 ollama_data (Self): Local LLMによるOCR処理の設定データ
             """
 
@@ -1751,7 +1752,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
         # 3. 実行確定時のみUIを更新する
         self.parent_app.status_label.configure(
-            text=f"{status_prefix} OCR埋込処理中({engine}): {base_name}"
+            text=f"{status_prefix} OCR埋込処理中({engine.value}): {base_name}"
         )
         self.parent_app.update_idletasks()
 

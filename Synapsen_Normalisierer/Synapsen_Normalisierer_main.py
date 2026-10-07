@@ -17,6 +17,7 @@ from webclip_window import WebClipWindow
 
 # PDF処理バックエンド
 from pdf_utils import (
+    OCREngineType,
     high_fidelity_flatten,
     normalize_pdf_to_papersize,
     embed_ocr_text_in_pdf,
@@ -104,7 +105,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         tags_data_path (str | None): config.iniから読み込んだ事前定義タグを保存しているテキストファイルのパス。
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
-        ocr_engine (str): OCRのエンジン設定。
+        ocr_engine (OCREngineType): OCRのエンジン設定。
         flatten_ink (bool): インク注釈をフラット化するか否か。
         config_data (dict): config.iniから読み込んだ設定の辞書。
         dnd_window (DragAndDropWindow | None): D&Dウィンドウのインスタンス。
@@ -129,7 +130,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.tags_data_path = None
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
-        self.ocr_engine = "NONE"
+        self.ocr_engine = OCREngineType.NONE
         self.cp_keys_list = None
         self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
@@ -290,7 +291,10 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.config_data["paper_size"] = paper_size_str
 
             # 3. OCRエンジン設定の取得
-            self.ocr_engine = config.get("Automation", "use_ocr_engine", fallback="")
+            ocr_engine_str = config.get("Automation", "use_ocr_engine", fallback="")
+            self.ocr_engine = OCREngineType(
+                ocr_engine_str
+            )  # 文字列で指定されたエンジン名を列挙型に変換して取得
             self.config_data["use_ocr_engine"] = self.ocr_engine
 
             self.ollama_model = config.get(
@@ -652,7 +656,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
                 # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-                if self.ocr_engine == "YomiToku" and not is_ocr_file_exists:
+                if self.ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                     try:
                         ocr_transplanted = run_yomitoku_ocr(
                             temp_flattened_pdf,
@@ -665,12 +669,12 @@ class Synapsen_Normalisierer(ctk.CTk):
                                 extra={"sensitive": True},
                             )
                         else:
-                            self.ocr_engine = "tesseract"
+                            self.ocr_engine = OCREngineType.tesseract
                             logger.warning(
                                 "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
                             )
                     except Exception as e:
-                        self.ocr_engine = "tesseract"
+                        self.ocr_engine = OCREngineType.tesseract
                         logger.error(
                             f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
                         )
@@ -757,7 +761,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             status_prefix (str): 「何ファイル中、何ファイル目のOCR処理を実行しているか」のラベル表示用テキスト
         """
 
-        def _determine_ocr_engine(use_ollama: bool) -> tuple[bool, str]:
+        def _determine_ocr_engine(use_ollama: bool) -> tuple[bool, OCREngineType]:
             """
             OCR処理の実行が可能であるかの判定と、使用するエンジン名の取得を行う。
 
@@ -779,26 +783,26 @@ class Synapsen_Normalisierer(ctk.CTk):
 
             # Python 3.10以降の match-case 構文で分岐
             match self.ocr_engine:
-                case "tesseract":
+                case OCREngineType.tesseract:
                     return True, self.ocr_engine
-                case "YomiToku" | "NONE":
+                case OCREngineType.YomiToku | OCREngineType.NONE:
                     return False, self.ocr_engine
                 case _:
                     # 上記のどれにも一致しない場合（不正な設定）
                     logger.warning(
-                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({self.ocr_engine})"
+                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({self.ocr_engine.value})"
                     )
-                    return False, "NONE"
+                    return False, OCREngineType.NONE
 
         def _embed_ocr_text(
             ocr_target_pdf_path_str: str,
-            engine: str,
+            engine: OCREngineType,
         ) -> None:
             """OCR処理の呼び出し
 
             Args:
                 ocr_target_pdf_path_str (str): OCR処理対象のPDFのパス
-                engine (str): OCR処理を実行するエンジン
+                engine (OCREngineType): OCR処理を実行するエンジン
             """
 
             # OCRを行うかはチェック済みなので、ここでは純粋にOCR処理の呼び出しを行うだけ
@@ -807,7 +811,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 enable_ocr=True,  # ここにこれたなら必ずTrue
                 font_path=self.font_path,
                 cp_keys=self.cp_keys_list,
-                ocr_engine=engine,  # 判定済みのエンジン ("tesseract" または "ollama")
+                ocr_engine=engine,  # 使用可否確認済みのエンジン
                 ollama_config={
                     "model": self.ollama_model,
                     "url": self.ollama_api_url,
@@ -823,7 +827,7 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         # 3. 実行確定時のみUIを更新する
         self.status_label.configure(
-            text=f"{status_prefix} OCR処理中({engine})...: {base_name}",
+            text=f"{status_prefix} OCR処理中({engine.value})...: {base_name}",
             extra={"sensitive": True},
         )
         self.update_idletasks()
