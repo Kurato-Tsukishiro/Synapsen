@@ -1,3 +1,4 @@
+import unicodedata
 import fitz  # PyMuPDF
 from pypdf import PdfReader, PdfWriter, Transformation
 from pathlib import Path
@@ -950,6 +951,7 @@ def embed_ocr_text_in_pdf(
     pdf_path_str: str,
     enable_ocr: bool,
     font_path: str,
+    cp_keys: list[str] = None,
     ocr_engine: str = "tesseract",
     ollama_config: dict = None,
     lang: str = "jpn+jpn_vert",
@@ -962,6 +964,7 @@ def embed_ocr_text_in_pdf(
         pdf_path_str (str): 処理対象のPDFファイルパス（読み書きされる）。
         enable_ocr (bool): Tesseract OCR (低速) を実行するかどうか。
         font_path (str): 埋め込む日本語フォントファイルのパス。
+        cp_keys (list[str]): 登録されているCommonplaceKeyのリスト
         ocr_engine (str): "tesseract" または "ollama"。
         lang (str): Tesseractが使用する言語。
         ollama_config (dict): Ollamaの設定辞書。
@@ -999,6 +1002,21 @@ def embed_ocr_text_in_pdf(
         for page_num, page in enumerate(doc):
             # 既存テキストチェック
             page_text = page.get_text("text", sort=True).strip()
+
+            # cp_keyは既存テキストから省く
+            if cp_keys is not None:
+                # cp_Keyとテキストに文字コード正規化をかける
+                cleaned_keys = [
+                    unicodedata.normalize("NFKC", opt.strip()) for opt in cp_keys
+                ]
+                page_text_normalized = unicodedata.normalize("NFKC", page_text)
+
+                # テキストからcp_keyに当たる文字列を省く
+                ck_pattern = "|".join(map(re.escape, cleaned_keys))
+                page_text_key_remove = re.sub(ck_pattern, "", page_text_normalized)
+
+                page_text = page_text_key_remove  # cp_keyを省いたものを全文として扱う
+
             if len(page_text) > meaningful_text_threshold:
                 logger.debug(f"Page {page_num + 1}: 既存テキストありのためスキップ")
                 continue
