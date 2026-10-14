@@ -1,5 +1,6 @@
 import unicodedata
 import fitz  # PyMuPDF
+from enum import Enum
 from pypdf import PdfReader, PdfWriter, Transformation
 from pathlib import Path
 import pytesseract
@@ -12,6 +13,7 @@ import shutil
 import re
 import urllib.parse
 import subprocess
+import tempfile
 import qrcode
 import json
 
@@ -901,8 +903,197 @@ def extract_pdf_pages(input_path: str, output_path: str, pages_str: str) -> bool
 
 
 # ==============================================================================
-# OCR処理 (Tesseract / Ollama)
+# OCR処理 (Tesseract / YomiToku / Ollama)
 # ==============================================================================
+class OCREngineType(Enum):
+    """
+    OCRのエンジン
+    """
+
+    NONE = "NONE"
+    tesseract = "tesseract"
+    YomiToku = "YomiToku"
+    Ollama = (
+        "Ollama"  # コンフィグによる設定は出来ないが、ファイル名でのエンジン指定に用いる
+    )
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            for member in cls:
+                if (
+                    member.value.lower() == value.lower()
+                ):  # 大文字・小文字の違いを無視する
+                    return member
+        return OCREngineType.NONE
+
+
+def run_yomitoku_ocr(
+    pdf_path: Path,
+    font_path_str: str,
+    should_use_existing_text: bool,
+    cp_keys_re_pattern: re.Pattern,
+) -> bool:
+    """
+    YomiTokuを使用した、OCR処理を実行します。
+    OCRの結果は、正規化前の処理対象(pdf_path)に透明化テキストを埋め込みます。
+
+    Args:
+        pdf_path (Path): 正規化・OCR化実行対象のPDFのPath。
+        font_path_str (str): 透明化テキストに使用するフォントのパス(str)。
+        should_use_existing_text (bool):
+            既存テキストの利用が可能か。
+            (既存テキストを利用可能にする全体設定が有効 且つ ファイル名によるOCR強制実行個別指定が無い)
+        cp_keys_re_pattern (re.Pattern):
+            登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト
+
+    Returns:
+        bool: OCR処理が成功したか
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
+        yomitoku_cmd = [
+            "yomitoku",
+            str(pdf_path),
+            "-o",
+            str(temp_dir_path),
+            "-f",
+            "pdf",
+            "--combine",
+        ]
+
+        if should_use_existing_text:
+            has_existing_text = _check_there_existing_text(pdf_path, cp_keys_re_pattern)
+
+            if has_existing_text:
+                logger.info(
+                    f"既存テキストを優先するため、YomiTokuによるOCR処理をスキップしました。: {pdf_path.name}",
+                    extra={"sensitive": True},
+                )
+                # 既存テキストが存在した場合は『透明化テキスト埋め込み済み』とみなし、
+                # 以下の[``temp_dir_path``に存在するOCR済みファイルを、``pdf_path``にコピーする処理]を行わない事で、
+                # 元々存在する既存のテキスト(``pdf_path``が持つテキスト)を利用する
+                return True
+
+        try:
+            # YomiTokuによるOCR処理の実行
+            # CLIとして使用している為、CC BY-NC-SA 4.0(YomiToku)と、
+            # AGPL-3.0(Synapsenのコード)のライセンスの衝突は回避している
+            # あくまでこれはコードのライセンス衝突の回避である為、
+            # Synapsen上でYomiTokuを有効にしてOCR機能を利用する場合、システムの実行・運用は商用不可となる。
+            subprocess.run(
+                yomitoku_cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                check=True,
+            )
+
+            # Pathオブジェクトを使用して安全にパスを構築してログ出力
+            file_name = pdf_path.name
+            expected_output_path = temp_dir_path / f"_{file_name}"
+            logger.info(
+                f"中間OCRファイル出力 : {str(expected_output_path)}",
+                extra={"sensitive": True},
+            )
+
+        except FileNotFoundError:
+            logger.error(
+                "YomiToku が見つかりません。\n"
+                "YomiTokuによるOCR処理は YomiToku のインストールとモデルの重みファイルのダウンロードが必要です。"
+            )
+            return False
+
+        except subprocess.CalledProcessError as e:
+            # check=Trueにより、コマンド失敗時(戻り値が0以外)に例外が発生する
+            error_text = f"YomiTokuの実行に失敗しました。標準エラー出力: {e.stderr}"
+            logger.error(error_text)
+            return False
+
+        try:
+            source_pdf_path = None
+
+            # rglobで見つかった最初のファイルを取得
+            for temp_file_path in temp_dir_path.rglob(f"*{file_name}"):
+                source_pdf_path = temp_file_path
+                break  # 複数のマッチを防ぐため break を有効化
+
+            if source_pdf_path is None:
+                logger.error("YomiTokuの出力ファイルが見つかりませんでした。")
+                return False
+
+            # 座標ズレを防ぐため、正規化(リサイズ)前の temp_flattened_pdf にテキストを移植する
+            # (pdf_pathをOCR化し、source_pdf_path(source_pdf_path)に出力したテキストを、pdf_pathに戻す処理)
+            ocr_transplanted = transplant_ocr_text_from_pdf(
+                str(pdf_path),
+                str(source_pdf_path),
+                font_path_str,
+            )
+
+            if ocr_transplanted:
+                logger.info(
+                    f"YomiTokuによるOCR処理に成功しました: {pdf_path.name}",
+                    extra={"sensitive": True},
+                )
+
+            return ocr_transplanted
+
+        except Exception as e:
+            logger.error(f"YomiTokuによるOCR処理に失敗: {e}")
+            return False
+
+
+def _check_there_existing_text(pdf_path: Path, cp_keys_re_pattern: re.Pattern) -> bool:
+    """
+    PDFが既存の透明化テキストを閾値以上有するかを判定する。
+    (閾値: PDFのページ数 * 10(定数))
+
+    Args:
+        pdf_path (Path):
+            正規化・OCR化実行対象のPDFのPath
+        cp_keys_re_pattern (re.Pattern):
+            登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト
+
+    Returns:
+        bool: True: 既存のテキストが存在する / False: 存在しない
+    """
+    has_text = False
+    doc = None  # tryの前に初期化する
+
+    try:
+        doc = fitz.open(pdf_path)
+        if doc.is_encrypted:
+            logger.info(
+                f"暗号化されたPDFはスキップ: {pdf_path.name}",
+                extra={"sensitive": True},
+            )
+            return False  # finallyはtryの中でreturnしていても必ず呼ばれる為、早期リターンして問題ない
+
+        page_count = doc.page_count
+        if page_count == 0:
+            return False
+
+        all_text_count = 0  # 全ページの文字数
+        THRESHOLD = 10  # 閾値の係数
+
+        for page in doc:
+            all_text_count += get_existing_text_length(page, cp_keys_re_pattern)
+
+        has_text = all_text_count > (THRESHOLD * page_count)
+
+    except Exception as e:
+        logger.error(f"PDFの読み込みに失敗しました: {e}")
+        has_text = False
+
+    finally:
+        if doc:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+    return has_text
 
 
 def _run_ollama_ocr(img_data: bytes, model: str, url: str) -> str:
@@ -947,12 +1138,40 @@ def _run_ollama_ocr(img_data: bytes, model: str, url: str) -> str:
         return ""
 
 
+def get_existing_text_length(
+    page: fitz.Page,
+    cp_keys_re_pattern: re.Pattern,
+) -> int:
+    """
+    CommonplaceKeyを除いた、既存テキストの文字数を取得する。
+
+    Args:
+        page (fitz.Page):
+            既存テキストの文字数を取得したいページ.
+        cp_keys_re_pattern (re.Pattern):
+            登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト
+
+    Returns:
+        int: CommonplaceKeyを除いた、既存テキストの文字数
+    """
+    # 透明化テキストの全文を取得
+    invisible_text = page.get_text("text", sort=True).strip()
+
+    # テキストに文字コード正規化をかける
+    normalized_text = unicodedata.normalize("NFKC", invisible_text)
+
+    # テキストからcp_keyに当たる文字列を省く
+    removed_text = cp_keys_re_pattern.sub("", normalized_text)
+
+    return len(removed_text)
+
+
 def embed_ocr_text_in_pdf(
     pdf_path_str: str,
     enable_ocr: bool,
     font_path: str,
-    cp_keys: list[str] = None,
-    ocr_engine: str = "tesseract",
+    cp_keys_re_pattern: re.Pattern,
+    ocr_engine: OCREngineType = OCREngineType.tesseract,
     ollama_config: dict = None,
     lang: str = "jpn+jpn_vert",
 ) -> None:
@@ -964,8 +1183,9 @@ def embed_ocr_text_in_pdf(
         pdf_path_str (str): 処理対象のPDFファイルパス（読み書きされる）。
         enable_ocr (bool): Tesseract OCR (低速) を実行するかどうか。
         font_path (str): 埋め込む日本語フォントファイルのパス。
-        cp_keys (list[str]): 登録されているCommonplaceKeyのリスト
-        ocr_engine (str): "tesseract" または "ollama"。
+        cp_keys_re_pattern (re.Pattern):
+            登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト
+        ocr_engine (OCREngineType): 使用するOCRエンジンの設定
         lang (str): Tesseractが使用する言語。
         ollama_config (dict): Ollamaの設定辞書。
 
@@ -990,36 +1210,26 @@ def embed_ocr_text_in_pdf(
             )
             return
 
-        # 1. 高速なテキスト抽出を試みる
-        meaningful_text_threshold = 10
         pages_processed_count = 0
 
         logger.info(
-            f"OCR処理開始 (Engine: {ocr_engine}): {Path(pdf_path_str).name}",
+            f"OCR処理開始 (Engine: {ocr_engine.value}): {Path(pdf_path_str).name}",
             extra={"sensitive": True},
         )
 
         for page_num, page in enumerate(doc):
-            # 既存テキストチェック
-            page_text = page.get_text("text", sort=True).strip()
 
-            # cp_keyは既存テキストから省く
-            if cp_keys is not None:
-                # cp_Keyとテキストに文字コード正規化をかける
-                cleaned_keys = [
-                    unicodedata.normalize("NFKC", opt.strip()) for opt in cp_keys
-                ]
-                page_text_normalized = unicodedata.normalize("NFKC", page_text)
+            # --- 既存テキストチェック ---
+            MEANINGFUL_TEXT_THRESHOLD = 10  # 既存テキスト有と判定する文字数の閾値
+            has_existing_text = (
+                get_existing_text_length(page, cp_keys_re_pattern)
+                > MEANINGFUL_TEXT_THRESHOLD
+            )
 
-                # テキストからcp_keyに当たる文字列を省く
-                ck_pattern = "|".join(map(re.escape, cleaned_keys))
-                page_text_key_remove = re.sub(ck_pattern, "", page_text_normalized)
-
-                page_text = page_text_key_remove  # cp_keyを省いたものを全文として扱う
-
-            if len(page_text) > meaningful_text_threshold:
+            if has_existing_text:
                 logger.debug(f"Page {page_num + 1}: 既存テキストありのためスキップ")
                 continue
+            # --------------------------
 
             pages_processed_count += 1
 
@@ -1034,7 +1244,7 @@ def embed_ocr_text_in_pdf(
                     pass
 
                 # === エンジン別処理 ===
-                if ocr_engine == "ollama":
+                if ocr_engine == OCREngineType.Ollama:
                     # --- Ollama (Package) ---
                     if not ollama_config or not ollama_config.get("model"):
                         logger.warning("Ollama設定が不足しています。")
@@ -1060,7 +1270,13 @@ def embed_ocr_text_in_pdf(
                             f"Page {page_num + 1}: Ollamaからテキストが取得できませんでした。"
                         )
 
-                else:
+                elif ocr_engine == OCREngineType.YomiToku:
+                    # YomiTokuによるOCR化は、正規化の前で行っている為、ここでは実行しない。
+                    # ocr_engineが"YomiToku"の場合、この関数の呼び出しは、呼び出し元でガード句によりブロックされている、
+                    # その為呼ばれる事はないが、それを明記する為に分岐として記載。
+                    pass
+
+                elif ocr_engine == OCREngineType.tesseract:
                     # --- Tesseract ---
                     img = Image.open(io.BytesIO(img_data))
                     logger.info(f"Tesseract OCR実行中 (Page {page_num + 1})...")
@@ -1108,12 +1324,17 @@ def embed_ocr_text_in_pdf(
                             rotate=0,
                         )
 
+                else:
+                    logger.error(
+                        f"OCRの処理を行うエンジンの指定が不正です。 ({ocr_engine.value})"
+                    )
+
             except Exception as e_page:
                 logger.error(f"Page {page_num + 1} 処理エラー: {e_page}")
                 continue
 
         # タグ付け (Ollamaのみ)
-        if ocr_engine == "ollama" and pages_processed_count > 0:
+        if ocr_engine == OCREngineType.Ollama and pages_processed_count > 0:
             current_metadata = doc.metadata
             keywords = current_metadata.get("keywords", "")
             ocr_tag = "Synapsen:OCR_Method=Ollama"
@@ -1192,11 +1413,13 @@ def transplant_ocr_text_from_pdf(
     target_pdf_path: str, source_pdf_path: str, font_path: str
 ) -> bool:
     """
-    source_pdf_path (例: _ocr.pdf) からテキストと座標情報を抽出し、
-    target_pdf_path (正規化前のPDF) に透明テキストレイヤーとして埋め込みます。
+    source_pdf_path (OCR処理済みのPDF等) からテキストと座標情報を抽出し、
+    target_pdf_path (透明テキストの統合先となるPDF) に透明テキストレイヤーとして埋め込みます。
+
+    ※ターゲットPDFが正規化前・正規化後のどちらであっても対応可能です。
 
     Args:
-        target_pdf_path (str): 正規化前の、透明テキストの統合先となるPDFのパス。
+        target_pdf_path (str): 透明テキストの統合先となるPDFのパス。
         source_pdf_path (str): 統合する、透明テキストを有するPDFのパス。
         font_path (str): 埋め込む透明化テキストに使用するフォントのパス。
 
@@ -1250,8 +1473,13 @@ def transplant_ocr_text_from_pdf(
                             fs = span.get("size")
                             if origin and fs:
                                 # --- 座標とフォントサイズをターゲットPDFのスケールに合わせる ---
-                                scaled_x = origin[0] * scale_x
-                                scaled_y = origin[1] * scale_y
+                                # PDFの左上座標(x0, y0)が0ではない場合(クロップ等)を考慮しオフセットを加味する
+                                scaled_x = (
+                                    tgt_rect.x0 + (origin[0] - src_rect.x0) * scale_x
+                                )
+                                scaled_y = (
+                                    tgt_rect.y0 + (origin[1] - src_rect.y0) * scale_y
+                                )
                                 point = fitz.Point(scaled_x, scaled_y)
 
                                 # フォントサイズは通常、縦方向のスケールに合わせる
