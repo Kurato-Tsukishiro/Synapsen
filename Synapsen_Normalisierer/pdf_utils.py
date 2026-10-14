@@ -931,7 +931,7 @@ class OCREngineType(Enum):
 def run_yomitoku_ocr(
     pdf_path: Path,
     font_path_str: str,
-    is_text_extraction_prioritized: bool,
+    should_use_existing_text: bool,
     cp_keys_re_pattern: re.Pattern,
 ) -> bool:
     """
@@ -941,8 +941,9 @@ def run_yomitoku_ocr(
     Args:
         pdf_path (Path): 正規化・OCR化実行対象のPDFのPath。
         font_path_str (str): 透明化テキストに使用するフォントのパス(str)。
-        is_text_extraction_prioritized (bool):
-            既存のテキストが存在する時、YomiTokuでのスキャンは行わない設定が有効か。
+        should_use_existing_text (bool):
+            既存テキストの利用が可能か。
+            (既存テキストを利用可能にする全体設定が有効 且つ ファイル名によるOCR強制実行個別指定が無い)
         cp_keys_re_pattern (re.Pattern):
             登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト
 
@@ -961,7 +962,7 @@ def run_yomitoku_ocr(
             "--combine",
         ]
 
-        if is_text_extraction_prioritized:
+        if should_use_existing_text:
             has_existing_text = _check_there_existing_text(pdf_path, cp_keys_re_pattern)
 
             if has_existing_text:

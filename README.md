@@ -223,13 +223,16 @@ Synapsenは、MarkdownファイルやCanvasの付箋機能からPDFを生成す�
 * **YomiToku**
   * YomiToku を使用して透明テキストレイヤーを埋め込みます。
   * `config.ini` で `use_ocr_engine = YomiToku` に設定することで使用できます。
-  * 既存テキストの抽出を優先するか、既存テキストの有無にかかわらずYomiTokuによるOCR処理を行うかを設定可能です。設定する場合は `config.ini` に以下を追加してください。
-    ```ini
-    ; YomiToku使用時、既存テキストの抽出を優先するか
-    ; true: 既存テキストが閾値以上存在する場合、既存テキスト抽出を行います。
-    ; false: 既存テキストの有無にかかわらず、PDF全体にYomiTokuでのOCR処理を行います。(Default)
-    is_existing_text_extraction_prioritized = false
-    ```
+  * 既存テキストの利用を可能にするか、既存テキストの有無にかかわらずYomiTokuによるOCR処理を行うかを設定可能です。
+    * 設定する場合は `config.ini` に以下を追加してください。
+      ```ini
+      ; YomiToku使用時、既存テキストの利用を可能にするか
+      ; true: 既存テキストが閾値以上存在する場合、既存のテキストを利用します。
+      ; false: 既存テキストの有無にかかわらず、既存テキストを利用せず、PDF全体にYomiTokuでのOCR処理を実行します。(Default)
+      use_existing_text = false
+      ```
+    * 設定に関わらず、ファイル名末尾に _ytocr を付与する事で、対象ファイルのみ既存テキストの利用を無効にし、強制的にYomiTokuによるOCR処理を行うことができます
+      * 例: `use_existing_text = true` と設定している場合でも、`MeetingNote_2024_ytocr.pdf` とすることでこのファイルだけは既存テキストを利用しません。
   * **事前準備:**
     * YomiToku のインストールが必要です。
     * 詳細は[動作環境依存関係](#動作環境依存関係)の `(オプション) YomiToku` を確認してください。

@@ -1,3 +1,4 @@
+from enum import Enum
 import os
 import sys
 import shutil
@@ -107,8 +108,8 @@ class Synapsen_Normalisierer(ctk.CTk):
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
         ocr_engine (OCREngineType): OCRのエンジン設定。
-        is_text_extraction_prioritized (bool):
-            YomiTokuによるOCR化時、既存テキストが含まれた場合OCR化をスキップするか否か。
+        use_existing_text (bool):
+            YomiTokuによるOCR化時、既存テキストを利用できるか(全体設定)。
         cp_keys_list (list[str]): 登録されているCommonplaceKeyのリスト。
         cp_keys_re_pattern (re.Pattern):
             登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト。
@@ -137,7 +138,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.ocr_engine = OCREngineType.NONE
-        self.is_text_extraction_prioritized = False
+        self.use_existing_text = False
         self.cp_keys_list = None
         self.cp_keys_re_pattern = None
         self.flatten_ink = True
@@ -230,7 +231,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         - ReportLab: paper_size, font, author, title_prefix
         - Automation:
             ocr_engine,
-            is_existing_text_extraction_prioritized,
+            use_existing_text,
             auto_append_to_default_db,
             flatten_ink_annotations
         - Extraction: key_rect
@@ -299,13 +300,15 @@ class Synapsen_Normalisierer(ctk.CTk):
                 self.paper_height = A4_HEIGHT
             self.config_data["paper_size"] = paper_size_str
 
-            # 3. OCRエンジン設定の取得
+            # 3. OCR関連設定の取得
+            # 3-I. エンジン設定
             ocr_engine_str = config.get("Automation", "use_ocr_engine", fallback="")
             self.ocr_engine = OCREngineType(
                 ocr_engine_str
             )  # 文字列で指定されたエンジン名を列挙型に変換して取得
             self.config_data["use_ocr_engine"] = self.ocr_engine
 
+            # 3-II ollamaの設定
             self.ollama_model = config.get(
                 "Automation", "ollama_ocr_model", fallback=""
             )
@@ -328,13 +331,11 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
             # config_dataへの記録は7番で実行
 
-            # 3-IV. YomiTokuによるOCR化時、既存テキストが含まれた場合OCR化をスキップするかの設定取得
-            self.is_text_extraction_prioritized = config.getboolean(
-                "Automation", "is_existing_text_extraction_prioritized", fallback=False
+            # 3-IV. YomiTokuによるOCR化時、既存テキスト利用可能にするかの設定取得
+            self.use_existing_text = config.getboolean(
+                "Automation", "use_existing_text", fallback=False
             )
-            self.config_data["is_existing_text_extraction_prioritized"] = (
-                self.is_text_extraction_prioritized
-            )
+            self.config_data["use_existing_text"] = self.use_existing_text
 
             # 4. インク注釈のフラット化設定
             self.flatten_ink = config.getboolean(
@@ -482,6 +483,75 @@ class Synapsen_Normalisierer(ctk.CTk):
         # 汎用処理関数を呼び出す
         self.execute_normalization_process(items_to_process, dest_path)
 
+    class IndividualControlUsingFileName:
+        """ファイル名を使用した、処理制御の状態を管理するクラス
+
+        Attributes:
+            remove_pattern (Flag_Type): ファイル名からフラグとなる文字列を省くための正規表現パターン。
+            use_ollama (bool): OCRエンジンとしてollamが指定されているか。
+            use_yomitoku_force (bool):
+                YomiTokuによるOCR処理時、既存テキストの利用をファイル名により無効化されているか。
+                (全体設定に関わらず、YomiTokuによるOCR処理を既存テキストの有無を無視して行うか。)
+        """
+
+        class Flag_Type(Enum):
+            """ファイル名によって、指定する処理の種類"""
+
+            LLM_OCR = "LLM_OCR"
+            YOMITOKU_OCR = "YOMITOKU_OCR"
+
+        NAME_FLAG_DICT = {
+            "_hand": Flag_Type.LLM_OCR,
+            "_llm": Flag_Type.LLM_OCR,
+            "_ytocr": Flag_Type.YOMITOKU_OCR,
+        }
+        """ファイル名の接尾辞と接尾辞に対応する処理の種類の組み合わせ"""
+
+        _REMOVE_PATTERN = re.compile(
+            "|".join(map(re.escape, NAME_FLAG_DICT.keys())), re.IGNORECASE
+        )
+        """ファイル名からフラグを削除する為の正規表現パターン"""
+
+        def __init__(self, file_name: str):
+            self.remove_pattern = self._REMOVE_PATTERN
+            self.use_ollama = self._get_use_ollama(file_name)
+            self.use_yomitoku_force = self._get_use_yomitoku_force(file_name)
+
+        @classmethod
+        def check_file_name_flag(_cls, flag: Flag_Type, file_name: str) -> bool:
+            """指定した処理の実行が、ファイル名によって有効になっているか
+
+            Args:
+                flag (Flag_Type): 指定する処理
+                file_name (str): 指定の処理が有効であるか、確認する対象のファイル名
+
+            Returns:
+                bool: True: 有効 / False: 無効
+            """
+            if not isinstance(file_name, str):
+                return False
+
+            flag_list = [k for k, v in _cls.NAME_FLAG_DICT.items() if v == flag]
+            name_flag = any(item in file_name.lower() for item in flag_list)
+
+            return name_flag
+
+        @classmethod
+        def _get_use_ollama(_cls, file_name: str):
+            use_ollama = _cls.check_file_name_flag(_cls.Flag_Type.LLM_OCR, file_name)
+            if use_ollama:
+                logger.info("ollamaフラグを検知しました。")
+            return use_ollama
+
+        @classmethod
+        def _get_use_yomitoku_force(_cls, file_name: str):
+            use_yomitoku_force = _cls.check_file_name_flag(
+                _cls.Flag_Type.YOMITOKU_OCR, file_name
+            )
+            if use_yomitoku_force:
+                logger.info("YomiTokuによるOCR処理を優先するフラグを検知しました。")
+            return use_yomitoku_force
+
     def execute_normalization_process(
         self, items_to_process: list, dest_path: Path
     ) -> None:
@@ -542,15 +612,11 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 # --- [ファイル名生成ロジック変更] ---
                 # 1. OCRモードの判定 (先に判定しておく: 元のbase_nameを使用)
-                use_ollama = False
-                if isinstance(base_name, str):
-                    lower_name = base_name.lower()
-                    if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
-                        use_ollama = True
+                file_name_control_state = self.IndividualControlUsingFileName(base_name)
 
                 # 2. 出力ファイル名からフラグを削除 (base_name -> output_base_name)
-                output_base_name = re.sub(
-                    r"(_hand|_llm)$", "", base_name, flags=re.IGNORECASE
+                output_base_name = file_name_control_state.remove_pattern.sub(
+                    "", base_name
                 )
 
                 output_filename = f"{output_base_name}.pdf"
@@ -681,10 +747,16 @@ class Synapsen_Normalisierer(ctk.CTk):
                 # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
                 if self.ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                     try:
+                        # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
+                        should_use_existing_text = (
+                            self.use_existing_text
+                            and not file_name_control_state.use_yomitoku_force
+                        )
+
                         ocr_transplanted = run_yomitoku_ocr(
                             temp_flattened_pdf,
                             self.font_path,
-                            self.is_text_extraction_prioritized,
+                            should_use_existing_text,
                             self.cp_keys_re_pattern,
                         )
 
@@ -722,7 +794,10 @@ class Synapsen_Normalisierer(ctk.CTk):
                 if not ocr_transplanted:
                     # 移植していない場合は処理を実行する。
                     self._process_ocr_sequence(
-                        base_name, final_output_pdf, use_ollama, status_prefix
+                        base_name,
+                        final_output_pdf,
+                        file_name_control_state.use_ollama,
+                        status_prefix,
                     )
 
                 # --- [ステップ6: 正規化メタデータ (フラグ・タグ) 埋め込み] ---

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Self
 import fitz  # PDFプレビュー用
 import io
+from typing import TYPE_CHECKING
 
 # 追加した画像エディタをインポート
 from image_editor import PerspectiveCropEditor
@@ -46,6 +47,9 @@ if str(root_dir) not in sys.path:
 
 from theme import SemanticColors as Colors  # noqa: E402
 
+if TYPE_CHECKING:
+    from Synapsen_Normalisierer_main import Synapsen_Normalisierer
+
 SUPPORTED_EXTENSIONS = [
     ".pdf",
     ".png",
@@ -74,7 +78,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             "original_name" (str) をキーとして持つ。
     """
 
-    def __init__(self, parent_app):
+    def __init__(self, parent_app: "Synapsen_Normalisierer"):
         """
         DragAndDropWindowを初期化します。
 
@@ -1164,17 +1168,13 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             self.parent_app.status_label.configure(text=f"{status_prefix} {base_name}")
             self.parent_app.update_idletasks()
 
-            # OCR設定の判定 (ファイル名末尾によるLocal LLM判定)
-            use_ollama = False
-            if isinstance(base_name, str):
-                lower_name = base_name.lower()
-                if lower_name.endswith("_hand") or lower_name.endswith("_llm"):
-                    use_ollama = True
+            # ファイル名による処理制御状態の取得
+            file_name_control_state = self.parent_app.IndividualControlUsingFileName(
+                base_name
+            )
 
             # 出力ファイル名からフラグを削除
-            output_base_name = re.sub(
-                r"(_hand|_llm)$", "", base_name, flags=re.IGNORECASE
-            )
+            output_base_name = file_name_control_state.remove_pattern.sub("", base_name)
             final_output_pdf = dest_path / f"{output_base_name}.pdf"
 
             temp_converted_pdf = temp_dir / f"conv_{base_name}.pdf"
@@ -1270,11 +1270,17 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
             if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                 try:
+                    # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
+                    should_use_existing_text = (
+                        self.parent_app.use_existing_text
+                        and not file_name_control_state.use_yomitoku_force
+                    )
+
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
                         font_path,
-                        self.parent_app.is_text_extraction_prioritized,
-                        self.parent_app.cp_keys_re_pattern
+                        should_use_existing_text,
+                        self.parent_app.cp_keys_re_pattern,
                     )
 
                     if ocr_transplanted:
@@ -1310,7 +1316,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             # OCR用PDFから移植した場合やYomiTokuでOCR化した場合は、処理をスキップする。
             if not ocr_transplanted:
                 ollama_data = self._ollamaData(
-                    use_ollama=use_ollama,
+                    use_ollama=file_name_control_state.use_ollama,
                     ollama_model=ollama_model,
                     ollama_api_url=ollama_api_url,
                 )
@@ -1420,6 +1426,13 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
             self.parent_app.update_idletasks()
 
+            # ファイル名ロジックの取得
+            # 統合モードでは base_name は全て同じ名前になっているため、
+            # item_original_name (D&Dされた元のファイル名) を使用して判定する
+            file_name_control_state = self.parent_app.IndividualControlUsingFileName(
+                item_original_name
+            )
+
             # 各ステップの一時ファイル
             temp_converted_pdf = temp_dir / f"conv_{i}_{base_name}.pdf"
             temp_flattened_pdf = temp_dir / f"flat_{i}_{base_name}.pdf"
@@ -1520,11 +1533,17 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
             if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                 try:
+                    # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
+                    should_use_existing_text = (
+                        self.parent_app.use_existing_text
+                        and not file_name_control_state.use_yomitoku_force
+                    )
+
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
                         font_path,
-                        self.parent_app.is_text_extraction_prioritized,
-                        self.parent_app.cp_keys_list
+                        should_use_existing_text,
+                        self.parent_app.cp_keys_re_pattern,
                     )
 
                     if ocr_transplanted:
@@ -1557,24 +1576,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 5: OCR (正規化後 実行) (normalized_part_pdf に対して実行) ---
-            # --- [ ステップ5-I: Local LLMによるOCR設定の判定 (元のファイル名末尾による判定)] ---
-            if not ocr_transplanted:
-                use_ollama = False
-                # 統合モードでは base_name は全て同じ名前になっているため、
-                # item_original_name (D&Dされた元のファイル名) を使用して判定する
-                if isinstance(item_original_name, str):
-                    p_original = Path(item_original_name)
-                    stem_original = p_original.stem.lower()
-                    if stem_original.endswith("_hand") or stem_original.endswith(
-                        "_llm"
-                    ):
-                        use_ollama = True
-
-            # --- [ステップ5-2: 正規化後OCR処理] ---
+            # --- [ ステップ5: Local LLMによる、正規化後OCR処理] ---
             # OCR用PDFから移植した場合は、処理をスキップする。
             if not ocr_transplanted:
                 ollama_data = self._ollamaData(
-                    use_ollama=use_ollama,
+                    use_ollama=file_name_control_state.use_ollama,
                     ollama_model=ollama_model,
                     ollama_api_url=ollama_api_url,
                 )
