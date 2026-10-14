@@ -4,6 +4,7 @@ import shutil
 import configparser
 from tkinter import filedialog, messagebox
 from pathlib import Path
+import unicodedata
 import customtkinter as ctk
 import re
 
@@ -106,6 +107,11 @@ class Synapsen_Normalisierer(ctk.CTk):
         paper_width (float): 正規化後の用紙幅 (ポイント)。
         paper_height (float): 正規化後の用紙高 (ポイント)。
         ocr_engine (OCREngineType): OCRのエンジン設定。
+        is_text_extraction_prioritized (bool):
+            YomiTokuによるOCR化時、既存テキストが含まれた場合OCR化をスキップするか否か。
+        cp_keys_list (list[str]): 登録されているCommonplaceKeyのリスト。
+        cp_keys_re_pattern (re.Pattern):
+            登録されているCommonplaceKeyのコンパイル済みの検索パターンオブジェクト。
         flatten_ink (bool): インク注釈をフラット化するか否か。
         config_data (dict): config.iniから読み込んだ設定の辞書。
         dnd_window (DragAndDropWindow | None): D&Dウィンドウのインスタンス。
@@ -131,7 +137,9 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.ocr_engine = OCREngineType.NONE
+        self.is_text_extraction_prioritized = False
         self.cp_keys_list = None
+        self.cp_keys_re_pattern = None
         self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
         self._load_config()
@@ -222,6 +230,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         - ReportLab: paper_size, font, author, title_prefix
         - Automation:
             ocr_engine,
+            is_existing_text_extraction_prioritized,
             auto_append_to_default_db,
             flatten_ink_annotations
         - Extraction: key_rect
@@ -314,7 +323,18 @@ class Synapsen_Normalisierer(ctk.CTk):
             self.cp_keys_list = [
                 opt.strip() for opt in cp_keys_str.split(",") if opt.strip()
             ]
+            self.cp_keys_re_pattern = self._get_CommonplaceKeys_pattern(
+                self.cp_keys_list
+            )
             # config_dataへの記録は7番で実行
+
+            # 3-IV. YomiTokuによるOCR化時、既存テキストが含まれた場合OCR化をスキップするかの設定取得
+            self.is_text_extraction_prioritized = config.getboolean(
+                "Automation", "is_existing_text_extraction_prioritized", fallback=False
+            )
+            self.config_data["is_existing_text_extraction_prioritized"] = (
+                self.is_text_extraction_prioritized
+            )
 
             # 4. インク注釈のフラット化設定
             self.flatten_ink = config.getboolean(
@@ -333,7 +353,10 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
 
             # 7. WebClipウィンドウが参照するその他の設定
-            self.config_data["commonplace_keys_options"] = self.cp_keys_list
+            keys_str = config.get("CommonplaceKeys", "options", fallback="")
+            self.config_data["commonplace_keys_options"] = [
+                key.strip() for key in keys_str.split(",") if key.strip()
+            ]
 
             rect_str = config.get("Extraction", "key_rect", fallback="0,0,0,0").split(
                 ","
@@ -661,6 +684,8 @@ class Synapsen_Normalisierer(ctk.CTk):
                         ocr_transplanted = run_yomitoku_ocr(
                             temp_flattened_pdf,
                             self.font_path,
+                            self.is_text_extraction_prioritized,
+                            self.cp_keys_re_pattern,
                         )
 
                         if ocr_transplanted:
@@ -810,7 +835,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 pdf_path_str=str(ocr_target_pdf_path_str),
                 enable_ocr=True,  # ここにこれたなら必ずTrue
                 font_path=self.font_path,
-                cp_keys=self.cp_keys_list,
+                cp_keys_re_pattern=self.cp_keys_re_pattern,
                 ocr_engine=engine,  # 使用可否確認済みのエンジン
                 ollama_config={
                     "model": self.ollama_model,
@@ -834,6 +859,25 @@ class Synapsen_Normalisierer(ctk.CTk):
 
         # 4. 実際のOCR（embed_ocr_text_in_pdf の呼び出し）を実行
         _embed_ocr_text(ocr_target_pdf_path_str=ocr_target_pdf_path_str, engine=engine)
+
+    @staticmethod
+    def _get_CommonplaceKeys_pattern(cp_keys_list: list[str]) -> re.Pattern:
+        """CommonplaceKeyの正規表現パターンを取得する。
+
+        Args:
+            cp_keys_list (list[str]): 登録されているCommonplaceKeyのリスト
+
+        Returns:
+            str: CommonplaceKeyの正規表現パターン
+        """
+        # 文字コード正規化
+        cleaned_keys = [
+            unicodedata.normalize("NFKC", opt.strip()) for opt in cp_keys_list
+        ]
+        ck_pattern_str = "|".join(map(re.escape, cleaned_keys))
+        ck_pattern = re.compile(ck_pattern_str)
+
+        return ck_pattern
 
     def _load_pdf_tags(self) -> dict[str, str]:
         """

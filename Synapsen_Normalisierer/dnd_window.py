@@ -1273,6 +1273,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
                         font_path,
+                        self.parent_app.is_text_extraction_prioritized,
+                        self.parent_app.cp_keys_re_pattern
                     )
 
                     if ocr_transplanted:
@@ -1521,6 +1523,8 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     ocr_transplanted = run_yomitoku_ocr(
                         temp_flattened_pdf,
                         font_path,
+                        self.parent_app.is_text_extraction_prioritized,
+                        self.parent_app.cp_keys_list
                     )
 
                     if ocr_transplanted:
@@ -1735,7 +1739,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 str(ocr_target_pdf_path_str),
                 True,  # ここにこれたなら必ずTrue
                 font_path,
-                self.parent_app.cp_keys_list,
+                self.parent_app.cp_keys_re_pattern,
                 ocr_engine=engine,
                 ollama_config={
                     "model": ollama_data.ollama_model,
