@@ -129,6 +129,7 @@ class Synapsen_Normalisierer(ctk.CTk):
         self.paper_width = A4_WIDTH
         self.paper_height = A4_HEIGHT
         self.enable_tesseract_ocr = False
+        self.cp_keys_list = None
         self.flatten_ink = True
         self.config_data = {}  # WebClipウィンドウなどが参照する設定全体
         self._load_config()
@@ -293,6 +294,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
             self.config_data["enable_tesseract_ocr"] = self.enable_tesseract_ocr
 
+            # 3-II ollamaの設定
             self.ollama_model = config.get(
                 "Automation", "ollama_ocr_model", fallback=""
             )
@@ -304,6 +306,13 @@ class Synapsen_Normalisierer(ctk.CTk):
 
             self.config_data["ollama_model"] = self.ollama_model
             self.config_data["ollama_api_url"] = self.ollama_api_url
+
+            # 3-III. 既存テキストの文字カウント判定からコモンプレイスキーを除外する為の設定取得
+            cp_keys_str = config.get("CommonplaceKeys", "options", fallback="")
+            self.cp_keys_list = [
+                opt.strip() for opt in cp_keys_str.split(",") if opt.strip()
+            ]
+            # config_dataへの記録は7番で実行
 
             # 4. インク注釈のフラット化設定
             self.flatten_ink = config.getboolean(
@@ -322,10 +331,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
 
             # 7. WebClipウィンドウが参照するその他の設定
-            keys_str = config.get("CommonplaceKeys", "options", fallback="")
-            self.config_data["commonplace_keys_options"] = [
-                key.strip() for key in keys_str.split(",") if key.strip()
-            ]
+            self.config_data["commonplace_keys_options"] = self.cp_keys_list
 
             rect_str = config.get("Extraction", "key_rect", fallback="0,0,0,0").split(
                 ","
@@ -758,6 +764,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                 pdf_path_str=str(ocr_target_pdf_path_str),
                 enable_ocr=True,  # ここにこれたなら必ずTrue
                 font_path=self.font_path,
+                cp_keys=self.cp_keys_list,
                 ocr_engine=engine,  # 判定済みのエンジン ("tesseract" または "ollama")
                 ollama_config={
                     "model": self.ollama_model,

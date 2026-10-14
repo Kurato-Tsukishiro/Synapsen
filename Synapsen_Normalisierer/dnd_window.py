@@ -164,10 +164,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             text="IndexKey (PDF 1ページ目に埋込):",
             anchor="w",
         ).pack(pady=(10, 0), padx=10, fill="x")
-        key_options = self.parent_app.config_data.get("commonplace_keys_options", [])
         self.index_key_combo = ctk.CTkComboBox(
             meta_frame,
-            values=["（未選択）"] + key_options,
+            values=["（未選択）"] + self.parent_app.cp_keys_list,
             fg_color=(Colors.BACKGROUND_HOLLOW, Colors.BACKGROUND_DARK_HOLLOW),
             button_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL),
             button_hover_color=Colors.adjust_brightness(Colors.BACKGROUND_PANEL, 0.6),
@@ -1636,6 +1635,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                 str(ocr_target_pdf_path_str),
                 True,  # ここにこれたなら必ずTrue
                 font_path,
+                self.parent_app.cp_keys_list,
                 ocr_engine=engine,
                 ollama_config={
                     "model": ollama_data.ollama_model,
