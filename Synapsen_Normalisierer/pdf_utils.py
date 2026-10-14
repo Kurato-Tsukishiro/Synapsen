@@ -1031,6 +1031,12 @@ def run_yomitoku_ocr(
                 font_path_str,
             )
 
+            if ocr_transplanted:
+                logger.info(
+                    f"YomiTokuによるOCR処理に成功しました: {pdf_path.name}",
+                    extra={"sensitive": True},
+                )
+
             return ocr_transplanted
 
         except Exception as e:

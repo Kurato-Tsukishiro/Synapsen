@@ -760,12 +760,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                             self.cp_keys_re_pattern,
                         )
 
-                        if ocr_transplanted:
-                            logger.info(
-                                f"YomiTokuによるOCR処理に成功: {temp_flattened_pdf.name}",
-                                extra={"sensitive": True},
-                            )
-                        else:
+                        if not ocr_transplanted:
                             self.ocr_engine = OCREngineType.tesseract
                             logger.warning(
                                 "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
