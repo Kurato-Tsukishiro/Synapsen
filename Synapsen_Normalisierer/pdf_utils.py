@@ -71,7 +71,7 @@ def hex_to_rgb_tuple(hex_color: str) -> tuple[float, float, float] | None:
     try:
         hex_color = hex_color.lstrip("#")
         # 16進数を 0-255 の整数に変換
-        r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+        r, g, b = tuple(int(hex_color[i: i + 2], 16) for i in (0, 2, 4))
         # 0-1 の浮動小数点数に変換
         return (r / 255.0, g / 255.0, b / 255.0)
     except Exception as e:
@@ -1014,13 +1014,22 @@ def run_yomitoku_ocr(
         try:
             source_pdf_path = None
 
-            # rglobで見つかった最初のファイルを取得
-            for temp_file_path in temp_dir_path.rglob(f"*{file_name}"):
-                source_pdf_path = temp_file_path
-                break  # 複数のマッチを防ぐため break を有効化
+            # rglob での特殊文字（[]等）の誤解釈を防ぐため、
+            # ディレクトリ内の全ファイルを列挙し、Pythonの文字列比較で判定する
+            for temp_file_path in temp_dir_path.rglob("*"):
+                if temp_file_path.is_file() and file_name in temp_file_path.name:
+                    source_pdf_path = temp_file_path
+                    break
 
-            if source_pdf_path is None:
+            if source_pdf_path is None or not source_pdf_path.exists():
                 logger.error("YomiTokuの出力ファイルが見つかりませんでした。")
+
+                # 一時ディレクトリ内に実際にどのようなファイル・フォルダが生成されているかを全列挙してログ出力
+                logger.debug(
+                    f"temp_dir内の実際の構造: {[
+                        str(p.relative_to(temp_dir_path)) for p in temp_dir_path.rglob("*")  # noqa: E501
+                    ]}"
+                )
                 return False
 
             # 座標ズレを防ぐため、正規化(リサイズ)前の temp_flattened_pdf にテキストを移植する

@@ -923,7 +923,6 @@ class Synapsen_Normalisierer(ctk.CTk):
         # 3. 実行確定時のみUIを更新する
         self.status_label.configure(
             text=f"{status_prefix} OCR処理中({engine.value})...: {base_name}",
-            extra={"sensitive": True},
         )
         self.update_idletasks()
 
