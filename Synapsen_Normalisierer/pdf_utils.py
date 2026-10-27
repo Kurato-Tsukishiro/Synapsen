@@ -2074,6 +2074,28 @@ def convert_document_to_pdf(
             text-align: justify !important;
             /* 通常のテキストルールを継承 */
         }
+
+        /* 8. Synapsen独自インラインマーカークラス */
+        mark.mark-sp-red, .mark-sp-red {
+            display: inline !important;
+            background: rgba(158, 61, 63, 0.5) !important;
+        }
+        mark.mark-sp-green, .mark-sp-green {
+            display: inline !important;
+            background: rgba(56, 180, 139, 0.5) !important;
+        }
+        mark.mark-sp-blue, .mark-sp-blue {
+            display: inline !important;
+            background: rgba(137, 195, 235, 0.5) !important;
+        }
+        mark.mark-sp-yellow, .mark-sp-yellow {
+            display: inline !important;
+            background: rgba(252, 200, 0, 0.5) !important;
+        }
+        mark.mark-sp-gray, .mark-sp-gray {
+            display: inline !important;
+            background: rgba(158, 139, 142, 0.5) !important;
+        }
     </style>
     """
 
