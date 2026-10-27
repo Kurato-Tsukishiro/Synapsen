@@ -196,6 +196,57 @@ Synapsenは、Markdownの**定義リスト記法**を応用して、インタビ
     - PDF出力時には、自動的に左側に「話者」、右側に「セリフ」が配置され、読みやすいグリッドレイアウト（ぶら下がりインデント）に変換されます。
   - [サンプルファイル (Markdown)](<samples/20250721_025900_投与設計の第一歩 -分布容積の理解-_資料.md> "20250721_025900_投与設計の第一歩 -分布容積の理解-_資料.md")
 
+##### 🖍 インラインマーカー（ハイライト機能）
+Synapsenは、テキストの一部をカラーで強調表示するための独自クラス（インラインマーカー）をサポートしています。<br>
+Markdownファイル内でHTMLの `<mark>` タグと組み合わせることで、PandocおよびPlaywrightを通じたPDF出力時にも、美しく視認性の高い半透明のハイライトが確実に保持されます。
+
+* **使用可能なカラークラス**:
+  * **赤色 (`mark-sp-red`)**:
+    * `<mark class="mark-sp-red">テキスト</mark>`
+  * **緑色 (`mark-sp-green`)**:
+    * `<mark class="mark-sp-green">テキスト</mark>`
+  * **青色 (`mark-sp-blue`)**:
+    * `<mark class="mark-sp-blue">テキスト</mark>`
+  * **黄色 (`mark-sp-yellow`)**:
+    * `<mark class="mark-sp-yellow">テキスト</mark>`
+  * **灰色 (`mark-sp-gray`)**:
+    * `<mark class="mark-sp-gray">テキスト</mark>`
+
+
+* [サンプルファイル (Markdown)](<samples/20261017_193537_単純拡散と組織分布のしやすさ.md> "20261017_193537_単純拡散と組織分布のしやすさ.md")
+
+
+###### エディタ（VS Code）上での独自マーカープレビュー設定について
+VS CodeでMarkdownを記述・編集する際、拡張機能を使用することでエディタのプレビュー画面上でもPDF出力時と同じカラーハイライトを再現できます。
+
+[Markdown Preview Enhanced](https://github.com/shd101wyy/vscode-markdown-preview-enhanced) を使用している場合は、コマンドパレット（`Ctrl+Shift+P` / `Cmd+Shift+P`）から `Markdown Preview Enhanced: Customize CSS` を実行して `style.less` を開き、以下のCSSスタイルを追加してください。
+
+```css
+/** Synapsen独自インラインマーカークラス **/
+mark.mark-sp-red, .mark-sp-red {
+    display: inline;
+    background: rgba(158, 61, 63, 0.5);
+}
+mark.mark-sp-green, .mark-sp-green {
+    display: inline;
+    background: rgba(56, 180, 139, 0.5);
+}
+mark.mark-sp-blue, .mark-sp-blue {
+    display: inline;
+    background: rgba(137, 195, 235, 0.5);
+}
+mark.mark-sp-yellow, .mark-sp-yellow {
+    display: inline;
+    background: rgba(252, 200, 0, 0.5);
+}
+mark.mark-sp-gray, .mark-sp-gray {
+    display: inline;
+    background: rgba(158, 139, 142, 0.5);
+}
+```
+
+※ 詳細な設定方法については、[VSCodeの.mdのプレビューをかっこいい見栄えにする](https://qiita.com/bounoki/items/bbad6de9f000fe1c283d) などの解説記事を参照してください。
+
 ##### 📄 改ページ制御
 
 Synapsenは、MarkdownファイルやCanvasの付箋機能からPDFを生成する際、自動および手動での柔軟な改ページ（ページ分割）レイアウトに対応しています。
