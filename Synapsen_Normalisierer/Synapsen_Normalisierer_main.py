@@ -5,6 +5,7 @@ import shutil
 import configparser
 from tkinter import filedialog, messagebox
 from pathlib import Path
+import typing
 import unicodedata
 import customtkinter as ctk
 import re
@@ -581,6 +582,11 @@ class Synapsen_Normalisierer(ctk.CTk):
             all_items = sorted(items_to_process, key=lambda item: item[1])
             total_files = len(all_items)
 
+            # エンジンの使用可否確認
+            effective_ocr_engine: typing.Final = self._validate_ocr_engine(
+                self.ocr_engine
+            )
+
             # 一時フォルダを出力先フォルダ内に作成
             temp_dir = dest_path / "temp_flatten"
             temp_dir.mkdir(exist_ok=True)
@@ -711,6 +717,9 @@ class Synapsen_Normalisierer(ctk.CTk):
                 )
 
                 # --- 3: OCR (正規化前 実行) ---
+                # --- [ステップ3-N: 現在ファイルのOCRエンジンを管理する変数の用意]
+                current_ocr_engine = effective_ocr_engine
+
                 # --- [ステップ3-I: OCR用PDFファイルからのOCRテキスト移植] ---
                 # 入力元がファイルである場合、同階層の _ocr.pdf を探す
                 original_item_path = item_data if isinstance(item_data, Path) else None
@@ -745,7 +754,10 @@ class Synapsen_Normalisierer(ctk.CTk):
 
                 # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
                 # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-                if self.ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
+                if (
+                    current_ocr_engine == OCREngineType.YomiToku
+                    and not is_ocr_file_exists
+                ):
                     try:
                         # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
                         should_use_existing_text = (
@@ -761,14 +773,14 @@ class Synapsen_Normalisierer(ctk.CTk):
                         )
 
                         if not ocr_transplanted:
-                            self.ocr_engine = OCREngineType.tesseract
+                            current_ocr_engine = OCREngineType.NONE
                             logger.warning(
-                                "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                                "YomiTokuによるOCR処理に失敗しました。OCR処理をスキップします。"
                             )
                     except Exception as e:
-                        self.ocr_engine = OCREngineType.tesseract
+                        current_ocr_engine = OCREngineType.NONE
                         logger.error(
-                            f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                            f"YomiTokuによるOCR化に失敗しました。OCR処理をスキップします。{e}"
                         )
 
                 # --- [ステップ4: 正規化 (サイズ統一)] ---
@@ -791,6 +803,7 @@ class Synapsen_Normalisierer(ctk.CTk):
                     self._process_ocr_sequence(
                         base_name,
                         final_output_pdf,
+                        current_ocr_engine,
                         file_name_control_state.use_ollama,
                         status_prefix,
                     )
@@ -838,10 +851,56 @@ class Synapsen_Normalisierer(ctk.CTk):
                 except Exception as e:
                     logger.warning(f"一時フォルダの削除に失敗しました: {e}")
 
+    @staticmethod
+    def _validate_ocr_engine(config_ocr_engine: OCREngineType) -> OCREngineType:
+        """
+        指定されているOCRエンジンがインストールされているかを確認する
+
+        Args:
+            config_ocr_engine (OCREngineType): コンフィグで指定されたOCRエンジン
+
+        Returns:
+            OCREngineType:
+                実際に使用可能なエンジン
+                (設定されているエンジンが使用可能であれば引数そのまま、そうでなければOCREngineType.NONE)
+        """
+        effective_ocr_engine = OCREngineType.NONE
+
+        match config_ocr_engine:
+            case OCREngineType.tesseract:
+                if shutil.which("tesseract"):
+                    effective_ocr_engine = OCREngineType.tesseract
+                    logger.debug("tesseractを検出しました。")
+            case OCREngineType.YomiToku:
+                if shutil.which("yomitoku"):
+                    effective_ocr_engine = OCREngineType.YomiToku
+                    logger.debug("yomitokuを検出しました。")
+            case OCREngineType.Ollama:
+                logger.warning(
+                    "OllamaによるOCR処理は設定ファイルから設定する事は出来ません。"
+                    "OllamaによるOCR化を行いたい場合はファイル名から指定して下さい。"
+                    "OCR処理をスキップします。"
+                )
+                return OCREngineType.NONE
+            case _:
+                pass
+
+        if config_ocr_engine is effective_ocr_engine:
+            logger.debug(
+                f"エンジンを検出できました ({config_ocr_engine.name})。OCR処理の実行が可能です。"
+            )
+        else:
+            logger.error(
+                f"設定されているエンジン({config_ocr_engine.name})を検出できません。OCR処理をスキップします。"
+            )
+
+        return effective_ocr_engine
+
     def _process_ocr_sequence(
         self,
         base_name: str,
         ocr_target_pdf_path_str: str,
+        current_ocr_engine: OCREngineType,
         use_ollama: bool,
         status_prefix: str,
     ) -> None:
@@ -852,40 +911,44 @@ class Synapsen_Normalisierer(ctk.CTk):
         Args:
             base_name (str): OCR処理対象の元々のファイル名
             ocr_target_pdf_path_str (str): OCR処理対象のPDFのパス
+            current_engine (OCREngineType): 現在のエンジン設定
             use_ollama (bool): ollamaをOCR処理に使用するか(ファイル名によるフラグが指定されていたか)
             status_prefix (str): 「何ファイル中、何ファイル目のOCR処理を実行しているか」のラベル表示用テキスト
         """
 
-        def _determine_ocr_engine(use_ollama: bool) -> tuple[bool, OCREngineType]:
+        def _determine_ocr_engine(
+            use_ollama: bool, current_engine: OCREngineType
+        ) -> tuple[bool, OCREngineType]:
             """
             OCR処理の実行が可能であるかの判定と、使用するエンジン名の取得を行う。
 
             Args:
                 use_ollama (bool): ollamaをOCR処理に使用するか(ファイル名によるフラグが指定されていたか)
+                current_engine (OCREngineType): 現在のエンジン設定
 
             Returns:
                 tuple[bool, str]: 実行可能かどうかの真偽値、及び使用するエンジン名。
             """
             if use_ollama:
                 if self.ollama_model:  # config上で、モデル設定が行われているか
-                    return True, "ollama"
+                    return True, OCREngineType.Ollama
                 else:
                     # ログ出力のみ
                     logger.warning(
                         "Ollamaフラグを検出しましたが、configにモデル設定がないためOCRをスキップします。"
                     )
-                    return False, "NONE"
+                    return False, OCREngineType.NONE
 
             # Python 3.10以降の match-case 構文で分岐
-            match self.ocr_engine:
+            match current_engine:
                 case OCREngineType.tesseract:
-                    return True, self.ocr_engine
+                    return True, current_engine
                 case OCREngineType.YomiToku | OCREngineType.NONE:
-                    return False, self.ocr_engine
+                    return False, current_engine
                 case _:
                     # 上記のどれにも一致しない場合（不正な設定）
                     logger.warning(
-                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({self.ocr_engine.value})"
+                        f"OCRのエンジンの設定が不正である為、OCRをスキップします。({current_engine.name})"
                     )
                     return False, OCREngineType.NONE
 
@@ -914,7 +977,7 @@ class Synapsen_Normalisierer(ctk.CTk):
             )
 
         # 1. 状態の判定ロジックを呼び出す（UI操作なし）
-        should_run, engine = _determine_ocr_engine(use_ollama)
+        should_run, engine = _determine_ocr_engine(use_ollama, current_ocr_engine)
 
         # 2. ガード句：実行不要及び実行不能なら、画面を汚さずにこの関数を即座に抜ける
         if not should_run:
