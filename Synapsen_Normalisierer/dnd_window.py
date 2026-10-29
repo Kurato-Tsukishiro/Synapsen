@@ -1,4 +1,5 @@
 import sys
+import typing
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
@@ -928,7 +929,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         key_rect_tuple = config_data.get("key_rect", (0, 0, 0, 0))
         paper_width = self.parent_app.paper_width
         paper_height = self.parent_app.paper_height
-        ocr_engine = self.parent_app.ocr_engine
+        ocr_engine_setting_value: typing.Final = self.parent_app.ocr_engine
 
         # Ollama設定を取得
         ollama_model = config_data.get("ollama_model", "")
@@ -1041,6 +1042,11 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         # ファイル名に使用できない文字を置換する正規表現
         invalid_chars_pattern = re.compile(r'[\\/:\*\?"<>\|]')
 
+        # 6. 設定されているエンジンの導入確認
+        effective_ocr_engine: typing.Final = self.parent_app._validate_ocr_engine(
+            ocr_engine_setting_value
+        )
+
         for item in self.staged_items:
             # 元のファイル名を取得
             base_name_raw = item["base_name_var"].get().strip()
@@ -1085,7 +1091,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     font_path,
                     paper_width,
                     paper_height,
-                    ocr_engine,
+                    effective_ocr_engine,
                     ollama_model,
                     ollama_api_url,
                     paper_size_str,
@@ -1109,7 +1115,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     font_path,
                     paper_width,
                     paper_height,
-                    ocr_engine,
+                    effective_ocr_engine,
                     ollama_model,
                     ollama_api_url,
                     paper_size_str,
@@ -1146,7 +1152,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        ocr_engine: OCREngineType,
+        effective_ocr_engine: OCREngineType,
         ollama_model,
         ollama_api_url,
         paper_size_str,
@@ -1240,6 +1246,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 3: OCR (正規化前 実行) ---
+            # --- [ステップ3-N: 現在ファイルのOCRエンジンを管理する変数の用意]
+            current_ocr_engine = effective_ocr_engine
+
             # --- [ステップ3-I: OCR用PDFファイルからのOCRテキスト移植] ---
             # 入力元がファイルである場合、同階層の _ocr.pdf を探す
             original_item_path = item_data if isinstance(item_data, Path) else None
@@ -1268,7 +1277,10 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
 
             # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
             # 正規化後のOCRではレイアウトの崩れが発生したため、それを防ぐ為に正規化前に実行している
-            if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
+            if (
+                current_ocr_engine == OCREngineType.YomiToku
+                and not is_ocr_file_exists
+            ):
                 try:
                     # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
                     should_use_existing_text = (
@@ -1284,14 +1296,14 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
 
                     if not ocr_transplanted:
-                        ocr_engine = OCREngineType.tesseract
+                        current_ocr_engine = OCREngineType.NONE
                         logger.warning(
-                            "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                            "YomiTokuによるOCR処理に失敗しました。OCR処理をスキップします。"
                         )
                 except Exception as e:
-                    ocr_engine = OCREngineType.tesseract
+                    current_ocr_engine = OCREngineType.NONE
                     logger.error(
-                        f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                        f"YomiTokuによるOCR処理に失敗しました。OCR処理をスキップします。{e}"
                     )
 
             # --- 4: 正規化 ---
@@ -1321,7 +1333,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     base_name,
                     final_output_pdf,
                     font_path,
-                    ocr_engine,
+                    current_ocr_engine,
                     ollama_data,
                     status_prefix,
                 )
@@ -1364,7 +1376,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
         font_path,
         paper_width,
         paper_height,
-        ocr_engine: OCREngineType,
+        effective_ocr_engine: OCREngineType,
         ollama_model,  # Arg Added
         ollama_api_url,  # Arg Added
         paper_size_str,
@@ -1499,6 +1511,9 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
             )
 
             # --- 3: OCR (正規化前 実行) ---
+            # --- [ステップ3-N: 現在ファイルのOCRエンジンを管理する変数の用意]
+            current_ocr_engine = effective_ocr_engine
+
             # --- [ステップ3-I: OCR用PDFファイルからのOCRテキスト移植] ---
             # D&Dされた元パス情報を使用して、同階層の _ocr.pdf を検索
             original_item_path = item_data if isinstance(item_data, Path) else None
@@ -1526,7 +1541,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                         logger.error(f"透明化テキスト統合エラー: {e}")
 
             # --- [ステップ3-II: YomiTokuによるOCR化を実行] ---
-            if ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
+            if current_ocr_engine == OCREngineType.YomiToku and not is_ocr_file_exists:
                 try:
                     # 既存テキストの使用が可能か（Trueの場合、OCRをスキップしてテキストを再利用）
                     should_use_existing_text = (
@@ -1542,14 +1557,14 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     )
 
                     if not ocr_transplanted:
-                        ocr_engine = OCREngineType.tesseract
+                        current_ocr_engine = OCREngineType.NONE
                         logger.warning(
-                            "YomiTokuによるOCR処理に失敗したため、エンジンを tesseract に変更しました。"
+                            "YomiTokuによるOCR処理に失敗しました。OCR処理をスキップします。"
                         )
                 except Exception as e:
-                    ocr_engine = OCREngineType.tesseract
+                    current_ocr_engine = OCREngineType.NONE
                     logger.error(
-                        f"YomiTokuによるOCR化に失敗したため、エンジンを tesseract に変更しました。{e}"
+                        f"YomiTokuによるOCR処理に失敗しました。OCR処理をスキップします。{e}"
                     )
 
             # --- 4: 正規化 (出力先を normalized_part_pdf に) ---
@@ -1580,7 +1595,7 @@ class DragAndDropWindow(ctk.CTkToplevel, tkinterdnd2.TkinterDnD.DnDWrapper):
                     base_name,
                     final_output_pdf,
                     font_path,
-                    ocr_engine,
+                    current_ocr_engine,
                     ollama_data,
                     status_prefix,
                 )
